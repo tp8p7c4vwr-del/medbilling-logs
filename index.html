@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; form-action 'none'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Med Billing Logs</title>
+<meta name="description" content="Med Billing Logs: private, offline encounter time log for physicians. Passcode-locked and encrypted on your device.">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Billing Logs">
+<meta name="application-name" content="Med Billing Logs">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="locked">
+<section id="lock" class="lock" aria-label="Locked">
+  <div class="lockbox">
+    <img src="icons/icon-192.png" alt="" width="64" height="64">
+    <h1>Med Billing Logs</h1>
+    <form id="setupForm" hidden autocomplete="off">
+      <p class="small">Create a passcode to protect your logs. Everything you enter, including photos, is encrypted on this device with a key made from this passcode.</p>
+      <label class="fld">New passcode (at least 6 characters)<input id="sPass" type="password" minlength="6" maxlength="64" required autocomplete="new-password"></label>
+      <label class="fld">Repeat passcode<input id="sPass2" type="password" minlength="6" maxlength="64" required autocomplete="new-password"></label>
+      <p class="warnbox small"><b>Important:</b> the passcode is never stored. If you forget it, your data <b>cannot be recovered</b> by anyone. Keep encrypted backups.</p>
+      <label class="chk small"><input type="checkbox" id="sAck" required> I understand a forgotten passcode means the data can't be recovered.</label>
+      <p class="warnbox small" id="sStmt">Your records live only on this device. Keeping, backing up and retaining them (at least 10 years from the last entry, longer for minors and obstetric records, and any longer legal or College requirement) is your responsibility. The developer has no copy and cannot recover your data or your passcode.</p>
+      <p class="warnbox small" id="sDisc"><b>Disclaimer (draft, pending CMPA/legal review):</b> Med Billing Logs is a personal time and billing log, not the patient's medical record. Record every encounter, including call-backs and time-based visits, in the patient's chart. You remain responsible for safeguarding patient information under Alberta's Health Information Act. This app is general information, not legal, billing or medico-legal advice.</p>
+      <label class="chk small"><input type="checkbox" id="sResp" required> I accept the disclaimer and my responsibility for keeping, backing up and retaining my records.</label>
+      <p class="err small" id="sErr" role="alert"></p>
+      <button type="submit" class="primary wide" id="sBtn">Create passcode</button>
+    </form>
+    <form id="unlockForm" hidden autocomplete="off">
+      <label class="fld">Passcode<input id="uPass" type="password" maxlength="64" required autocomplete="current-password"></label>
+      <p class="err small" id="uErr" role="alert"></p>
+      <button type="submit" class="primary wide" id="uBtn">Unlock</button>
+      <button type="button" class="linkbtn" id="forgot">Forgot passcode?</button>
+    </form>
+    <p class="small muted" id="lockMsg"></p>
+    <p class="small muted">Encrypted on this device (AES-GCM, PBKDF2). No accounts, no analytics, nothing sent anywhere.</p>
+  </div>
+</section>
+<header class="top">
+  <a class="brand" id="homeLink" href="./" aria-label="Med Billing Logs home">
+    <img src="icons/icon-192.png" alt="" width="32" height="32">
+    <span class="title">Med Billing Logs</span>
+  </a>
+  <span class="topr"><span class="clock" id="clock" aria-hidden="true"></span><button type="button" class="lockbtn" id="lockNow" aria-label="Lock now" title="Lock now">Lock</button></span>
+</header>
+<nav class="tabs" id="tabs" role="tablist">
+  <button type="button" role="tab" data-tab="today" class="on" aria-selected="true">Today</button>
+  <button type="button" role="tab" data-tab="history" aria-selected="false">History</button>
+  <button type="button" role="tab" data-tab="res" aria-selected="false">Resources</button>
+  <button type="button" role="tab" data-tab="data" aria-selected="false">Settings</button>
+</nav>
+
+<main id="main">
+  <section id="tab-today" class="panel">
+    <div class="card warnbox" id="bkRemind" hidden><p class="small" id="bkText"></p><div class="rowbtns"><button type="button" class="primary" id="bkNow">Back up now</button><button type="button" class="ghost" id="bkLater">Remind me later</button></div></div>
+    <div class="card onsite" id="onsite">
+      <div class="osrow"><button type="button" class="facbtn" id="osFac" aria-label="Choose facility"><span class="fl">Facility</span><b id="osFacName">Choose…</b></button><button type="button" class="arrbtn" id="osBtn">Arrive</button></div>
+      <p class="small muted" id="osInfo"></p>
+      <button type="button" class="linkbtn" id="osEdit" hidden>Edit arrival time / back-date</button>
+    </div>
+    <div class="totals" id="todayTotals" aria-live="polite"></div>
+    <div id="todayList" class="list"></div>
+    <div class="rowbtns"><button type="button" class="ghost" id="cbBtn">+ Call-back</button><button type="button" class="ghost" id="manualBtn">+ Add past entry</button><button type="button" class="ghost" id="repToday">Report / share today</button></div>
+    <p class="small muted units-note" id="unitsNote"></p>
+  </section>
+
+  <section id="tab-history" class="panel" hidden>
+    <div id="histList"></div>
+    <div class="card">
+      <h3>Report a day or date range</h3>
+      <div class="range"><label>From<input type="date" id="rFrom"></label><label>To<input type="date" id="rTo"></label></div>
+      <button type="button" class="primary" id="repRange">Create report (PDF, Word, CSV)</button>
+    </div>
+  </section>
+
+  <section id="tab-res" class="panel" hidden>
+    <p class="small muted">Official sites, opened in your browser. Opening a link sends no app data (no referrer, nothing attached). The app locks when you leave it.</p>
+    <div class="card res"><h3>AHS &amp; zones</h3><ul><li><a href="https://www.albertahealthservices.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health Services (AHS)</a></li><li><a href="https://www.albertahealthservices.ca/zones/zones.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS zones overview</a></li><li><a href="https://www.albertahealthservices.ca/zones/south-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS South Zone</a></li><li><a href="https://www.albertahealthservices.ca/zones/calgary-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS Calgary Zone</a></li><li><a href="https://www.albertahealthservices.ca/zones/central-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS Central Zone</a></li><li><a href="https://www.albertahealthservices.ca/zones/edmonton-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS Edmonton Zone</a></li><li><a href="https://www.albertahealthservices.ca/zones/north-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS North Zone</a></li><li><a href="https://www.albertahealthservices.ca/assets/zone/ahs-map-ahs-zones.pdf" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS zone map (PDF)</a></li><li><a href="https://covenanthealth.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Covenant Health</a></li><li><a href="https://albertapcns.ca/pcn" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Primary Care Networks (Alberta)</a></li><li><a href="https://www.alberta.ca/about-primary-health-care" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">About primary health care (Alberta.ca)</a></li></ul></div>
+    <div class="card res"><h3>Billing</h3><ul><li><a href="https://www.alberta.ca/fees-health-professionals" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Fees information for health professionals (SOMB)</a></li><li><a href="https://open.alberta.ca/publications/somb-2026-04-01" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Schedule of Medical Benefits, April 1, 2026 (Open Government)</a></li><li><a href="https://www.alberta.ca/bulletins-for-health-professionals" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Bulletins for health professionals</a></li><li><a href="https://www.alberta.ca/h-link-electronic-claims-system" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: H-Link electronic claims system</a></li><li><a href="https://open.alberta.ca/publications/physician-s-resource-guide" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Physician's resource guide (claims)</a></li><li><a href="https://www.alberta.ca/health-professional-business-forms" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Health professional business forms</a></li><li><a href="https://www.albertadoctors.org/practice/billing-support/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Billing Support</a></li><li><a href="https://www.albertadoctors.org/practice/physician-compensation/fee-for-service/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Fee-for-service resources</a></li><li><a href="https://apps.albertadoctors.org/fee-navigator/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Fee Navigator</a></li><li><a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></li><li><a href="https://www.albertadoctors.org/news/publications/billing-tips/documentation-is-important/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA billing tip: Documentation is important</a></li><li><a href="https://apps.albertadoctors.org/fee-navigator/billing-tips/documentation-pca-billing-tip" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Fee Navigator tip: Documentation (PCPCM)</a></li><li><a href="https://apps.albertadoctors.org/fee-navigator/billing-tips/phone-call-documentation" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Fee Navigator tip: Phone call documentation</a></li><li><a href="https://www.albertadoctors.org/news/publications/billing-corner/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Billing Corner</a></li><li><a href="https://www.albertadoctors.org/media/zolbejry/pcpcm-operations-manual-v42-jan-9.pdf" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA PCPCM operations manual (PDF)</a></li><li><a href="https://www.alberta.ca/health-professionals-audit-and-compliance-assurance" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Audit and compliance assurance</a></li><li><a href="https://www.cmpa-acpm.ca/en/membership/protection-for-members/principles-of-assistance/billing-investigations" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Billing investigations</a></li></ul></div>
+    <div class="card res"><h3>Regulatory &amp; privacy</h3><ul><li><a href="https://cpsa.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">College of Physicians &amp; Surgeons of Alberta (CPSA)</a></li><li><a href="https://oipc.ab.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Office of the Information and Privacy Commissioner of Alberta (OIPC)</a></li><li><a href="https://www.alberta.ca/health-information-act" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Health Information Act (Alberta.ca)</a></li><li><a href="https://kings-printer.alberta.ca/1266.cfm?page=H05.cfm" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Health Information Act (Alberta King's Printer)</a></li><li><a href="https://cpsa.ca/physicians/standards-of-practice/patient-record-retention/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CPSA: Patient Record Retention standard</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2003/a-matter-of-records-retention-and-transfer-of-clinical-records" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Records retention, access, security and transfer</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/handbooks/electronic-records-handbook/destroying-and-disposing-of-records" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Destroying and disposing of electronic records</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2011/using-clinical-photography-and-video-for-educational-purposes" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Clinical photography and video</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2023/recording-clinical-encounters-with-patients-what-physicians-need-to-know" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Recording clinical encounters</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2013/protecting-patient-privacy-when-delivering-care-virtually" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Protecting patient privacy in virtual care (email/text)</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2019/texting-safely-about-patient-care" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Texting safely about patient care</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2018/the-new-reality-of-reporting-a-privacy-breach" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Reporting a privacy breach</a></li><li><a href="https://www.cmpa-acpm.ca/en/education-events/good-practices/professionalism-ethics-and-wellness/privacy-and-confidentiality" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Privacy and confidentiality</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Privacy resources</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/health-information-act/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Health Information Act overview</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/acceptable-use-of-email-policy/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Acceptable Use of Email Policy</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/breach-management-policy/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Breach Management Policy</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/five-steps-to-minimize-privacy-breaches/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Five Steps to Minimize Privacy Breaches</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/notification-to-patients-affected-by-privacy-breach/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Notification to patients affected by a breach</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/assessing-risk-and-implementing-safeguards/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Assessing Risk and Implementing Safeguards</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/faq-privacy-agreements/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: FAQ Privacy agreements</a></li><li><a href="https://www.albertadoctors.org/media/x5cf23al/collection-use-and-disclosure-policy.pdf" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Collection, Use, Disclosure and Disposal policy template (PDF)</a></li></ul></div>
+    <div class="card res"><h3>Professional</h3><ul><li><a href="https://www.albertadoctors.org/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Medical Association (albertadoctors.org)</a></li><li><a href="https://www.cmpa-acpm.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Canadian Medical Protective Association (CMPA)</a></li><li><a href="https://www.cmpa-acpm.ca/en/education-events/good-practices/physician-patient/documentation-and-record-keeping" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Documentation and record keeping</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/handbooks/electronic-records-handbook" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Electronic records handbook</a></li><li><a href="https://www.cmpa-acpm.ca/en/membership/protection-for-members/principles-of-assistance/practice-management-and-business-matters-overview-of-cmpa-assistance" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Practice management and business matters (assistance)</a></li><li><a href="https://www.albertadoctors.org/practice/learning-development/online-training/privacy-training/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Free privacy training</a></li></ul></div>
+    <p class="small muted">Each link was checked and loaded on 2026-10-04 (MT). Websites change; if a link moves, search the organization's main site.</p>
+  </section>
+
+  <section id="tab-data" class="panel" hidden>
+    <div class="card">
+      <h3>Defaults</h3>
+      <div class="two">
+        <label class="fld">Default setting
+          <select id="defSetting"><option value="H">Hospital</option><option value="C">Clinic</option></select></label>
+        <label class="fld">Fee schedule
+          <select id="defProv"></select></label>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Lock</h3>
+      <label class="fld">Auto-lock after inactivity
+        <select id="autolock"><option value="1">1 minute</option><option value="2">2 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option></select></label>
+      <p class="small muted">The app also locks whenever it goes to the background. Timers keep counting while locked.</p>
+      <div class="rowbtns"><button type="button" class="ghost" id="lockNow2">Lock now</button><button type="button" class="ghost" id="chPass">Change passcode</button></div>
+      <p class="warnbox small">A forgotten passcode means the data can't be recovered. Keep an encrypted backup.</p>
+    </div>
+    <div class="card">
+      <h3>Encrypted backup</h3>
+      <div class="saverow"><button type="button" class="ghost" id="expAll" title="Save an encrypted backup file" aria-label="Save an encrypted backup file">Export</button><p class="small">Export saves all encounters and photos to one file, encrypted with your passcode, to keep a copy or move to another device.</p></div>
+      <div class="saverow"><button type="button" class="ghost" id="impAll" title="Load an encrypted backup file" aria-label="Load an encrypted backup file">Import</button><p class="small">Import loads a backup (you need the passcode it was made with). It is added to what is already here.</p></div>
+      <input type="file" id="impFile" accept=".mblbackup,.json,application/json" hidden aria-label="Import backup file">
+      <p class="small muted" id="storeInfo"></p>
+    </div>
+    <div class="card">
+      <h3>Disclaimer <span class="draft">Draft, pending CMPA/legal review</span></h3>
+      <p class="small">Med Billing Logs is a personal time and billing log. It is not the patient&#39;s medical record and does not replace charting. Record every encounter, including call-backs and time-based visits, in the patient&#39;s chart (AMA). Keep records at least as long as your College and the law require: CPSA requires 10 years from the last entry (longer for minors), and CMPA recommends at least 10 years. Patient information in this app is encrypted on this device, but you remain responsible for safeguarding it under Alberta&#39;s Health Information Act. Send reports with identifiers only through secure, approved channels, never by unencrypted email or text. Move clinical photos into the official record, then delete them here. If a device is lost or data is exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away. Fee codes and rules: confirm in the official Alberta Schedule of Medical Benefits. This app is general information, not legal, billing or medico-legal advice. Contact the CMPA (1-800-267-6522), AMA billing support or the CPSA for advice about your situation.</p>
+      <p class="small muted">Sources: CMPA and AMA guidance checked 2026-10-04; links are in Resources.</p>
+    </div>
+    <div class="card">
+      <h3>Records, retention and backups</h3>
+      <p class="small">Your records live only on this device. Keeping, backing up and retaining them (at least 10 years from the last entry, longer for minors and obstetric records, and any longer legal or College requirement) is your responsibility. The developer has no copy and cannot recover your data or your passcode.</p>
+      <p class="small">Retention in this app: entries and their audit records are kept for at least <b>10 years from the last entry</b> (CPSA standard; CMPA recommends at least 10 years). For an entry flagged <b>minor</b>, the longer of 10 years or 2 years after the patient turns 18 (CPSA). For an entry flagged <b>obstetric</b>, 10 years after the infant reaches the age of majority (CMPA), counted conservatively as 29 years from the last entry. After that, records become eligible for removal, but nothing is ever deleted automatically: you review and confirm. A longer legal or College requirement always takes precedence.</p>
+      <p class="small"><b>Last backup:</b> <span id="lastBk">never</span> <span class="muted" id="respAt"></span></p>
+      <label class="fld">Backup reminder
+        <select id="bkEvery"><option value="7">Weekly</option><option value="30">Monthly</option><option value="90">Every 3 months</option><option value="0">Off</option></select></label>
+      <div class="rowbtns"><button type="button" class="ghost" id="retReview">Records past retention</button></div>
+      <p class="small muted" id="retInfo"></p>
+    </div>
+    <div class="card">
+      <h3>Audit log</h3>
+      <p class="small">Every create, edit and delete of an encounter, arrival/departure or call-back is recorded, append-only and encrypted. Each record carries the hash of the previous one, so any change, removal or reordering is detected.</p>
+      <p class="small" id="auditStatus" aria-live="polite"></p>
+      <div class="rowbtns"><button type="button" class="ghost" id="auditCheck">Check log</button><button type="button" class="ghost" id="auditDeleted">Deleted entries</button><button type="button" class="ghost" id="auditExport">Export log</button></div>
+      <div id="deletedList"></div>
+    </div>
+    <div class="card danger">
+      <h3>Delete all data</h3>
+      <p class="small">Removes every encounter, arrival/departure, call-back, photo, the audit log, settings and the passcode from this device. This cannot be undone; export a backup first if you want a copy.</p>
+      <button type="button" class="dangerbtn" id="wipe">Delete all data</button>
+    </div>
+    <div class="card">
+      <h3>Privacy</h3>
+      <p class="small">Everything is stored only on this device, encrypted with AES-GCM using a key derived from your passcode (PBKDF2-SHA-256, 600,000 iterations). Photos are kept inside the app's encrypted store, never in your camera roll. There are no accounts, no analytics and no third-party scripts, and the app sends nothing anywhere. Files leave the device only when you share or download them.</p>
+    </div>
+    <div class="card">
+      <h3>Fee code sources</h3>
+      <div id="credits" class="small muted"></div>
+      <p class="small muted">Code data from <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" rel="noopener noreferrer">MedBilling Fee Desk</a>, bundled in the app. Always confirm codes and fees in the official schedule.</p>
+    </div>
+  </section>
+</main>
+
+<div class="startbar" id="startbar">
+  <form id="quick" autocomplete="off">
+    <input id="qLabel" maxlength="24" placeholder="Room / bed (e.g. Rm 412)" aria-label="Room or bed label">
+    <div class="seg" role="radiogroup" aria-label="Setting">
+      <button type="button" data-set="H" role="radio">Hospital</button><button type="button" data-set="C" role="radio">Clinic</button>
+    </div>
+    <button type="submit" class="startbtn" id="qStart">Start</button>
+  </form>
+  <p class="hint">Initials, chart/MRN, codes and photos: tap an encounter. All encrypted on this device.</p>
+</div>
+
+<footer class="foot">
+  <p class="small muted">Time log only. Confirm time-based billing rules in your own schedule (e.g. Alberta SOMB) before submitting claims.</p>
+  <p class="small muted">Passcode-locked and encrypted on this device. No accounts, analytics or trackers. Nothing is sent anywhere.</p>
+  <p class="small muted">Part of JFdeLara's Studio · <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" rel="noopener noreferrer">MedBilling Fee Desk</a></p>
+  <div class="copyright">© 2026 Med Billing Logs. All rights reserved. This app is protected by copyright. Reproduction or duplication without permission is an infringement.</div>
+</footer>
+
+<dialog id="editDlg">
+  <form method="dialog" class="dlg" id="editForm" autocomplete="off">
+    <h3 id="editTitle">Encounter</h3>
+    <div class="seg kindseg" id="eKind" role="radiogroup" aria-label="Entry type"><button type="button" data-k="enc" role="radio">Encounter</button><button type="button" data-k="cb" role="radio">Call-back</button><button type="button" data-k="shift" role="radio">On site</button></div>
+    <p class="latebadge small" id="eLate" hidden></p>
+    <button type="button" class="facbtn wide2" id="eFac"><span class="fl">Facility</span><b id="eFacName">None</b></button>
+    <div class="cbonly">
+      <div class="two">
+        <label class="fld">Call-back type<select id="eCbType"><option value="return">Return to hospital</option><option value="phone">Phone call-back</option></select></label>
+        <label class="fld">Time called<input type="datetime-local" id="eCalled"></label>
+      </div>
+    </div>
+    <div class="enconly">
+    <label class="fld">Room / bed<input id="eLabel" maxlength="24" placeholder="e.g. Rm 412 B"></label>
+    <div class="two">
+      <label class="fld">Initials (optional)<input id="eInit" maxlength="5" autocapitalize="characters" placeholder="e.g. JD"></label>
+      <label class="fld">Chart / MRN (optional)<input id="eChart" maxlength="20" inputmode="text" placeholder="e.g. 1234567"></label>
+    </div>
+    <div class="two">
+      <label class="fld">Setting<select id="eSetting"><option value="H">Hospital</option><option value="C">Clinic</option></select></label>
+      <label class="fld">Type (optional)<input id="eType" list="typeList" maxlength="24" placeholder="consult, visit…"></label>
+    </div>
+    </div>
+    <label class="fld shiftset">Setting<select id="eSetting2"><option value="H">Hospital</option><option value="C">Clinic</option></select></label>
+    <datalist id="typeList"><option value="Consult"><option value="Visit"><option value="Procedure"><option value="Counselling"><option value="Call"><option value="Assist"><option value="Delivery"></datalist>
+    <div class="codebox notshift">
+      <div class="codehead"><span class="fldl">Fee codes (optional)</span><select id="eProv" aria-label="Fee schedule"></select></div>
+      <div id="eCodes" class="chips"></div>
+      <input id="eCodeQ" type="search" maxlength="60" placeholder="Search code or words (e.g. 03.08A, consult)" aria-label="Search fee codes" autocomplete="off" enterkeyhint="search">
+      <div id="eCodeRes" class="codres"></div>
+      <p class="small muted credit" id="eCredit"></p>
+    </div>
+    <label class="fld">Note (optional)<textarea id="eNote" maxlength="280" rows="2" placeholder="Short note"></textarea></label>
+    <div class="notshift retflags"><span class="fldl">Record retention (optional)</span>
+      <label class="chk small"><input type="checkbox" id="eMinor"> Minor (patient under 18)</label>
+      <label class="fld minorage" hidden>Age at encounter (years, optional)<input id="eAge" type="number" min="0" max="17" inputmode="numeric" placeholder="unknown = keep longest"></label>
+      <label class="chk small"><input type="checkbox" id="eObs"> Obstetric record</label>
+      <p class="small muted" id="eRet"></p>
+    </div>
+    <div class="cbonly linkbox"><span class="fldl">Linked encounters (same day)</span><div id="eLinks" class="links"></div></div>
+    <div class="photobox notshift">
+      <span class="fldl">Photos (kept only in this app, encrypted)</span>
+      <div id="ePhotos" class="thumbs"></div>
+      <div class="rowbtns"><button type="button" class="ghost" id="eCam">Take photo</button><button type="button" class="ghost" id="eAttach">Attach photo</button></div>
+      <input type="file" id="eCamIn" accept="image/*" capture="environment" hidden aria-label="Take photo">
+      <input type="file" id="eFileIn" accept="image/*" multiple hidden aria-label="Attach photo">
+    </div>
+    <div class="quick"><span class="fldl" id="eQLbl">Started</span><button type="button" data-ago="0">now</button><button type="button" data-ago="5">5 min ago</button><button type="button" data-ago="15">15 min ago</button><button type="button" data-ago="30">30 min ago</button><button type="button" data-ago="60">1 h ago</button><button type="button" data-end="1" class="endnow">End now</button></div>
+    <div class="segs" id="eSegs"></div>
+    <button type="button" class="linkbtn" id="eAddSeg">+ Add time segment</button>
+    <p class="small muted" id="eSum"></p>
+    <p class="err small" id="eErr" role="alert"></p>
+    <p class="warnbox small" id="eWarn" hidden></p>
+    <button type="button" class="linkbtn" id="eHist">History of this entry</button>
+    <div class="dlgbtns">
+      <button type="button" class="dangerbtn ghostdanger" id="eDelete">Delete</button>
+      <span></span>
+      <button type="button" class="ghost" id="eCancel">Cancel</button>
+      <button type="submit" class="primary" id="eSave">Save</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="repDlg">
+  <form method="dialog" class="dlg" id="repForm" autocomplete="off">
+    <h3 id="pTitle">Report</h3>
+    <div class="range"><label>From<input type="date" id="pFrom" required></label><label>To<input type="date" id="pTo" required></label></div>
+    <div class="seg fmt" role="radiogroup" aria-label="Format">
+      <button type="button" data-fmt="pdf" role="radio" class="on">PDF</button><button type="button" data-fmt="docx" role="radio">Word</button><button type="button" data-fmt="csv" role="radio">CSV</button>
+    </div>
+    <label class="chk small" id="pPhotosL"><input type="checkbox" id="pPhotos"> Include photos</label>
+    <p class="small muted" id="pInfo"></p>
+    <button type="button" class="primary wide" id="pMake">Create file</button>
+    <div id="pReady" hidden>
+      <p class="small"><b id="pName"></b> <span class="muted" id="pSize"></span></p>
+      <div class="warnbox small" id="pWarn"><b>Confidential.</b> This file can contain patient identifiers (initials, chart/MRN) and photos. Share it only with authorized recipients through secure, approved channels, following your health authority's privacy rules (e.g. Alberta HIA). Don't keep copies on shared devices.</div>
+      <label class="chk small"><input type="checkbox" id="pAck"> I understand and will share it securely.</label>
+      <div class="rowbtns"><button type="button" class="primary" id="pShare" disabled>Share…</button><button type="button" class="ghost" id="pDown" disabled>Download</button></div>
+    </div>
+    <p class="err small" id="pErr" role="alert"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="pClose">Close</button></div>
+  </form>
+</dialog>
+<dialog id="askDlg">
+  <form method="dialog" class="dlg" id="askForm" autocomplete="off">
+    <h3 id="askTitle"></h3>
+    <p class="small" id="askText"></p>
+    <div id="askFields"></div>
+    <p class="err small" id="askErr" role="alert"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="askCancel">Cancel</button><button type="submit" class="primary" id="askOk">OK</button></div>
+  </form>
+</dialog>
+<dialog id="facDlg">
+  <div class="dlg">
+    <h3>Facility</h3>
+    <input id="facQ" type="search" placeholder="Filter hospitals (name or town)" aria-label="Filter facilities" autocomplete="off">
+    <div id="facList" class="faclist"></div>
+    <div class="otherfac"><label class="fld">Other / clinic (custom name)<input id="facOther" maxlength="60" placeholder="e.g. Downtown OB/GYN Clinic"></label>
+      <div class="two"><label class="fld">Setting<select id="facOtherSet"><option value="C">Clinic</option><option value="H">Hospital</option></select></label><button type="button" class="primary" id="facOtherOk">Use this name</button></div></div>
+    <p class="small muted credit" id="facSrc"></p>
+    <div class="dlgbtns"><button type="button" class="ghost" id="facNone">No facility</button><span></span><button type="button" class="ghost" id="facClose">Close</button></div>
+  </div>
+</dialog>
+<dialog id="histDlg">
+  <div class="dlg">
+    <h3 id="histTitle">History</h3>
+    <div id="histBody" class="histbody"></div>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="histClose">Close</button></div>
+  </div>
+</dialog>
+<dialog id="photoDlg">
+  <div class="dlg">
+    <img id="pvImg" alt="Encounter photo" class="pvimg">
+    <div class="dlgbtns"><button type="button" class="dangerbtn ghostdanger" id="pvDel">Delete photo</button><span></span><button type="button" class="ghost" id="pvClose">Close</button></div>
+  </div>
+</dialog>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="js/vault.js"></script>
+<script src="js/search.js"></script>
+<script src="js/docx.js"></script>
+<script src="js/vendor/jspdf.umd.min.js"></script>
+<script src="js/report.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

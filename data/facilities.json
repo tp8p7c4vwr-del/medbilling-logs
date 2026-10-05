@@ -1,0 +1,152 @@
+{
+ "zones": [
+  {
+   "z": "South",
+   "complete": false,
+   "h": [
+    [
+     "Chinook Regional Hospital",
+     "Lethbridge"
+    ],
+    [
+     "Medicine Hat Regional Hospital",
+     "Medicine Hat"
+    ]
+   ]
+  },
+  {
+   "z": "Calgary",
+   "complete": false,
+   "h": [
+    [
+     "Alberta Children's Hospital",
+     "Calgary"
+    ],
+    [
+     "Foothills Medical Centre",
+     "Calgary"
+    ],
+    [
+     "Rockyview General Hospital",
+     "Calgary"
+    ],
+    [
+     "South Health Campus",
+     "Calgary"
+    ]
+   ]
+  },
+  {
+   "z": "Central",
+   "complete": false,
+   "h": [
+    [
+     "Red Deer Regional Hospital Centre",
+     "Red Deer"
+    ]
+   ]
+  },
+  {
+   "z": "Edmonton",
+   "complete": true,
+   "h": [
+    [
+     "Devon General Hospital",
+     "Devon"
+    ],
+    [
+     "Fort Saskatchewan Community Hospital",
+     "Fort Saskatchewan"
+    ],
+    [
+     "Glenrose Rehabilitation Hospital",
+     "Edmonton"
+    ],
+    [
+     "Grey Nuns Community Hospital",
+     "Edmonton"
+    ],
+    [
+     "Leduc Community Hospital",
+     "Leduc"
+    ],
+    [
+     "Lois Hole Hospital for Women",
+     "Edmonton"
+    ],
+    [
+     "Mazankowski Alberta Heart Institute",
+     "Edmonton"
+    ],
+    [
+     "Misericordia Community Hospital",
+     "Edmonton"
+    ],
+    [
+     "Northeast Community Health Centre",
+     "Edmonton"
+    ],
+    [
+     "Royal Alexandra Hospital",
+     "Edmonton"
+    ],
+    [
+     "Stollery Children's Hospital",
+     "Edmonton"
+    ],
+    [
+     "Strathcona Community Hospital",
+     "Sherwood Park"
+    ],
+    [
+     "Sturgeon Community Hospital",
+     "St. Albert"
+    ],
+    [
+     "University of Alberta Hospital",
+     "Edmonton"
+    ],
+    [
+     "Westview Health Centre",
+     "Stony Plain"
+    ],
+    [
+     "Alberta Hospital Edmonton",
+     "Edmonton"
+    ],
+    [
+     "Villa Caritas",
+     "Edmonton"
+    ]
+   ]
+  },
+  {
+   "z": "North",
+   "complete": false,
+   "h": [
+    [
+     "Northern Lights Regional Health Centre",
+     "Fort McMurray"
+    ]
+   ]
+  }
+ ],
+ "sources": [
+  {
+   "t": "AHS Site List - Edmonton Zone (sorted alphabetically), active treatment hospitals and psychiatric facilities",
+   "u": "https://publicshare.albertahealthservices.ca/teams/HEI/News%20%20Annoucements/EDGE2%20-%20AHS%20Site%20List%20Edmonton%20Zone.pdf",
+   "d": "PDF dated 2019-04-16; retrieved 2026-10-04"
+  },
+  {
+   "t": "AHS Hospital & Facility Websites",
+   "u": "https://www.albertahealthservices.ca/hf/Page18051.aspx",
+   "d": "retrieved 2026-10-04"
+  },
+  {
+   "t": "AHS zones (South, Calgary, Central, Edmonton, North): AHS Zone Map",
+   "u": "https://www.albertahealthservices.ca/ahs-map-ahs-zones.pdf",
+   "d": "retrieved 2026-10-04"
+  }
+ ],
+ "note": "Edmonton Zone: all active treatment hospitals and psychiatric facilities on the AHS Edmonton Zone site list, plus Lois Hole Hospital for Women and Mazankowski Alberta Heart Institute from the AHS facility websites page. Other zones are incomplete in this version: only hospitals named on the AHS facility websites page are listed, placed in the zone of their city. Use 'Other / clinic' for any facility not listed."
+}
