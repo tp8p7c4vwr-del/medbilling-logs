@@ -16,7 +16,8 @@
   const R = window.BLR, V = window.Vault;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Date.now().toString(36) + '-' + Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, '0')).join('');
-  const DEF = { defSetting: 'H', autolock: 2, prov: 'AB', curFac: null, favFac: [], customFac: [], bkEvery: 30, lastBackup: 0, bkSnooze: 0 };
+  const DEF = { defSetting: 'H', autolock: 2, prov: 'AB', curFac: null, favFac: [], customFac: [], bkEvery: 30, lastBackup: 0, bkSnooze: 0,
+    warnA: 60, warnR: 180, favSets: [], reviews: {}, revEdited: {}, holOff: [], holExtra: [] };   // v5: timer warnings, code sets, review marks, holidays
   const kindOf = R.kindOf, clone = o => JSON.parse(JSON.stringify(o));
   let FAC = null;
   let S = null;            // in-memory decrypted state while unlocked: {encs, settings}
@@ -45,6 +46,7 @@
   function lockNow(msg) {
     if (!S && document.body.classList.contains('locked')) return;
     if (cur && $('#editDlg').open) { try { V.saveDraft(editSnapshot()).catch(() => {}); } catch (e) { /* locked already */ } }
+    hideSnack(); flushPhotoDel(); stopWake();
     V.lock(); S = null; cur = null;
     $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
@@ -93,11 +95,12 @@
     if (first) { settings.created = Date.now(); settings.respAccepted = Date.now(); await V.saveSettings(settings); }
     quickSet = settings.defSetting; lastAct = Date.now();
     document.body.classList.remove('locked'); window.scrollTo(0, 0);
-    $('#defSetting').value = settings.defSetting; $('#autolock').value = String(settings.autolock);
+    R.setHolidays({ off: settings.holOff, extra: settings.holExtra });
+    $('#defSetting').value = settings.defSetting; $('#autolock').value = String(settings.autolock); $('#warnA').value = String(settings.warnA); $('#warnR').value = String(settings.warnR);
     fillProv($('#defProv'), settings.prov);
-    renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue();
+    renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings();
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
-    else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } }
+    else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else checkLongTimers(); }
   }
   // inactivity + background auto-lock
   ['pointerdown', 'keydown', 'input', 'wheel', 'touchstart'].forEach(t => document.addEventListener(t, () => { lastAct = Date.now(); }, { passive: true, capture: true }));
@@ -118,12 +121,16 @@
     if (i < 0) S.encs.push(e); else S.encs[i] = e;
     await V.save(e);
     await V.appendAudit({ action: action || (before ? 'edit' : 'create'), eid: e.id, kind: e.kind, before, after: clone(e), note: note || undefined });
+    await reviewTouch([before, e], `${R.KIND[e.kind] || 'entry'} ${action || 'edit'} after review`);
   }
-  async function deleteEnc(e) {
-    const before = S.encs.find(x => x.id === e.id);
-    for (const p of (before && before.photos) || []) await V.removePhoto(p);
+  // defer: keep the photos for a few seconds so Undo can bring the entry back whole (removed on timeout or lock)
+  async function deleteEnc(e, note, defer) {
+    const before = S.encs.find(x => x.id === e.id), ph = (before && before.photos) || [];
+    if (!defer) for (const p of ph) await V.removePhoto(p);
     await V.remove(e.id); S.encs = S.encs.filter(x => x.id !== e.id);
-    await V.appendAudit({ action: 'delete', eid: e.id, kind: kindOf(e), before: before ? clone(before) : null, after: null, note: (before && (before.photos || []).length) ? `${before.photos.length} photo(s) removed with the entry` : undefined });
+    await V.appendAudit({ action: 'delete', eid: e.id, kind: kindOf(e), before: before ? clone(before) : null, after: null, note: [note, ph.length ? `${ph.length} photo(s) removed with the entry` : ''].filter(Boolean).join('. ') || undefined });
+    await reviewTouch([before], 'entry deleted after review');
+    return ph;
   }
   async function saveSettings() { await V.saveSettings(S.settings); }
 
@@ -137,29 +144,33 @@
     const e = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: quickSet, facility: fac || null, type: '', codes: [], note: '', segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
     await saveEnc(e, 'create'); $('#qLabel').value = ''; tab = 'today'; showTab(); render(); toast(`Started ${e.label}`);
   });
-  async function act(e, a) {
-    const now = Date.now();
+  async function act(e, a, note) {
+    const now = Date.now(), prev = clone(e);
     e = clone(e);
     const l2 = e.segs[e.segs.length - 1];
     if (a === 'pause' && l2 && l2.e == null) { l2.e = now; e.status = 'pause'; }
     else if (a === 'resume') { e.segs.push({ s: now, e: null }); e.status = 'run'; }
     else if (a === 'stop') { if (l2 && l2.e == null) l2.e = now; e.status = 'done'; }
     else return;
-    await saveEnc(e, a); render();
+    await saveEnc(e, a, note); render();
+    if (a === 'stop') snack(`Stopped ${e.label || R.KIND[kindOf(e)]}`, () => undoTo(prev, e, 'Stop undone'));
   }
   function card(e, compact) {
     const ms = R.msOf(e), m = Math.floor(ms / 60000), u = R.units(m), st = e.status;
     const k = kindOf(e);
     const meta = [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') + (e.called ? ' · called ' + R.hm(e.called) : '') : '', e.initials, e.chart && ('#' + e.chart), e.type, (e.codes || []).map(c => c.c).join(', '), R.dxShort(e) && 'Dx ' + R.dxShort(e).replace(/; /g, ', '), k !== 'shift' && e.facility && e.facility.n, `${R.hm(R.startOf(e))}${R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''}`, k === 'cb' && (e.links || []).length ? `${e.links.length} linked` : ''].filter(Boolean).join(' · ');
     const late = e.late ? `<span class="badge late" title="Entered later${e.edits && e.edits.length ? '; last edited ' + R.tsTxt(e.edits[e.edits.length - 1]) : ''}">Entered later</span>` : '';
-    const acts = st === 'run' ? `<button type="button" class="pausebtn" data-a="pause">Pause</button><button type="button" class="stopbtn" data-a="stop">Stop</button>`
-      : st === 'pause' ? `<button type="button" class="resumebtn" data-a="resume">Resume</button><button type="button" class="stopbtn" data-a="stop">Stop</button>`
+    const fsb = `<button type="button" class="ghost fsbtn" data-a="full" aria-label="Full-screen procedure timer" title="Full-screen timer">⛶</button>`;
+    const acts = st === 'run' ? `<button type="button" class="pausebtn" data-a="pause">Pause</button><button type="button" class="stopbtn" data-a="stop">Stop</button>${k === 'enc' ? '<button type="button" class="ghost swbtn" data-a="switch" title="Stop this encounter and start the next one">Next pt</button>' : ''}${fsb}`
+      : st === 'pause' ? `<button type="button" class="resumebtn" data-a="resume">Resume</button><button type="button" class="stopbtn" data-a="stop">Stop</button>${fsb}`
       : `<button type="button" class="ghost" data-a="edit">Edit</button><button type="button" class="ghost" data-a="resume">Continue</button>`;
-    return `<div class="enc ${st} ${k}" data-id="${esc(e.id)}">
+    const wl = warnLvl(e);
+    return `<div class="enc ${st} ${k}${wl ? ' w' + wl : ''}" data-id="${esc(e.id)}">
       <div class="r1"><span class="lbl" data-a="edit">${esc(k === 'shift' ? (e.facility ? e.facility.n : 'On site') : (e.label || (k === 'cb' ? 'Call-back' : 'Encounter')))}</span>${(e.photos || []).length ? `<span class="pc">📷 ${e.photos.length}</span>` : ''}${late}${k === 'cb' ? '<span class="badge cb">Call-back</span>' : k === 'shift' ? '<span class="badge">On site</span>' : `<span class="badge ${e.setting}">${R.SET[e.setting]}</span>`}${st !== 'done' ? `<span class="badge st ${st}">${st === 'run' ? 'Running' : 'Paused'}</span>` : ''}</div>
       <p class="meta" data-a="edit">${esc(meta)}</p>${e.note ? `<p class="note" data-a="edit">${esc(e.note)}</p>` : ''}
       <div class="timer" data-t="${esc(e.id)}">${st === 'done' ? m + ' min' : fmtDur(ms)}</div>
-      <div class="units" data-u="${esc(e.id)}" data-k="${k}">${k === 'shift' ? R.hmin(m) + ' on site' : `${m} min · ${u} unit${u === 1 ? '' : 's'}`}</div>
+      <div class="units" data-u="${esc(e.id)}" data-k="${k}">${unitsHtml(e, m)}</div>
+      ${st === 'run' && k !== 'shift' ? `<p class="lwarn" data-w="${esc(e.id)}"${wl ? '' : ' hidden'}>${warnHtml(e)}</p>` : ''}
       ${compact ? '' : `<div class="acts">${acts}</div>`}</div>`;
   }
   // compact one-line row: start time · duration · label/initials · billing code · diagnostic code (tap = details)
@@ -168,8 +179,9 @@
     const ms = R.msOf(e), m = Math.floor(ms / 60000), k = kindOf(e), st = e.status, cs = e.codes || [], dx = R.dxList(e);
     const who = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : [e.label || (k === 'cb' ? 'Call-back' : 'Encounter'), e.initials].filter(Boolean).join(' · ');
     const badge = (st === 'run' ? '<i class="b run">Running</i>' : st === 'pause' ? '<i class="b pause">Paused</i>' : '') + (k === 'cb' ? '<i class="b cb">CB</i>' : k === 'shift' ? '<i class="b">On site</i>' : '') + (e.late ? '<i class="b late" title="Entered later">*</i>' : '') + ((e.photos || []).length ? `<i class="b">📷${e.photos.length}</i>` : '');
-    return `<div class="erow ${st} rk-${k}" role="button" tabindex="0" data-id="${esc(e.id)}" aria-label="${esc(who)}, ${R.hm(R.startOf(e))}, open details">
-      <span class="t">${R.hm(R.startOf(e))}</span><span class="du" data-rm="${esc(e.id)}" data-k="${k}">${durTxt(e, m)}</span>
+    const wl = warnLvl(e);
+    return `<div class="erow ${st} rk-${k}${wl ? ' w' + wl : ''}" role="button" tabindex="0" data-id="${esc(e.id)}" aria-label="${esc(who)}, ${R.hm(R.startOf(e))}, open details">
+      <span class="t">${R.hm(R.startOf(e))}${perTags(e)}</span><span class="du" data-rm="${esc(e.id)}" data-k="${k}">${durTxt(e, m)}</span>
       <span class="who">${esc(who)}${badge}</span>
       <span class="fc" title="${esc(cs.map(c => c.c).join(', '))}">${cs.length ? esc(cs[0].c) + (cs.length > 1 ? `<small>+${cs.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
       <span class="dx" title="${esc(dx.join(', '))}">${dx.length ? esc(dx[0]) + (dx.length > 1 ? `<small>+${dx.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
@@ -184,6 +196,9 @@
     root.querySelectorAll('.enc').forEach(el => el.addEventListener('click', ev => {
       const a = ev.target.closest('[data-a]'); const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return;
       if (!a || a.dataset.a === 'edit') return openEdit(e);
+      if (a.dataset.a === 'switch') return switchPatient(e);
+      if (a.dataset.a === 'full') return openProc(e);
+      if (a.dataset.a === 'stopat') return longPrompt(e, false);
       act(e, a.dataset.a);
     }));
   }
@@ -196,32 +211,41 @@
     const td = today();
     renderOnsite();
     const list = S.encs.filter(e => kindOf(e) !== 'shift' && (R.encDay(e) === td || e.status !== 'done')).sort((a, b) => (a.status === 'done') - (b.status === 'done') || R.startOf(b) - R.startOf(a));
-    $('#todayTotals').innerHTML = totHtml(S.encs.filter(e => R.encDay(e) === td));
+    renderStrip('today'); renderTrackAgain();
     const live = list.filter(e => e.status !== 'done'), done = list.filter(e => e.status === 'done');
     $('#todayList').innerHTML = list.length ? live.map(e => card(e)).join('') + (done.length ? `<div class="rows">${rowsHead}${done.map(e => rowHtml(e, true)).join('')}</div>` : '') : '<div class="empty">No encounters yet today. Enter a room or bed below and tap <b>Start</b>.</div>';
     bindCards($('#todayList'));
     $('#unitsNote').textContent = R.UNITS_NOTE;
-    renderHistory(); renderRetention();
+    renderHistory(); renderRetention(); renderPbar(); renderPeriodSettings();
+    if ($('#revDlg').open) renderReview(); if ($('#tlDlg').open) renderTimeline();
     $('#storeInfo').textContent = `${S.encs.length} entr${S.encs.length === 1 ? 'y' : 'ies'} and ${S.encs.reduce((a, e) => a + (e.photos || []).length, 0)} photo(s) stored encrypted on this device.`;
   }
   function weekStart(k) { const [y, m, d] = k.split('-').map(Number); const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); return R.dayKey(dt.getTime()); }
   function renderHistory() {
+    renderStrip('hist');
     const days = R.byDay(S.encs.slice().sort((a, b) => R.startOf(b) - R.startOf(a)));
     if (!days.size) { $('#histList').innerHTML = '<div class="empty">No history yet.</div>'; return; }
+    const rv = S.settings.reviews || {}, re = S.settings.revEdited || {};
     const weeks = new Map(); for (const k of days.keys()) { const w = weekStart(k); if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(k); }
     let h = '';
     for (const [w, ks] of weeks) {
       const all = ks.flatMap(k => days.get(k)), t = R.totals(all);
-      h += `<div class="week"><div class="weekh">Week of ${esc(R.fmtDay(w))}<span>H ${t.H.m} min/${t.H.u} u · C ${t.C.m} min/${t.C.u} u${t.cb.n ? ` · CB ${t.cb.m} min` : ''}${t.site.n ? ` · on site ${R.hmin(t.site.m)}` : ''}</span></div>`;
+      const wkRev = ks.every(k => rv[k]), wkEnd = (d => { d.setDate(d.getDate() + 6); return R.dayKey(d.getTime()); })(new Date(w + 'T12:00'));
+      h += `<div class="week"><div class="weekh"><span class="wl">Week of ${esc(R.fmtDay(w))}${wkRev ? ' <i class="rvb">✎ Reviewed</i>' : ''}</span><span>H ${t.H.m} min/${t.H.u} u · C ${t.C.m} min/${t.C.u} u${t.cb.n ? ` · CB ${t.cb.m} min` : ''}${t.site.n ? ` · on site ${R.hmin(t.site.m)}` : ''} <button type="button" class="linkbtn sm" data-rvw="${w}|${wkEnd}">Review week</button></span></div>`;
       for (const k of ks) {
         const l = days.get(k), d = R.totals(l);
-        h += `<div class="dayg"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span><span class="t">${d.H.n + d.C.n} enc · H ${d.H.m}m/${d.H.u}u · C ${d.C.m}m/${d.C.u}u${d.cb.n ? ` · CB ${d.cb.n}/${d.cb.m}m` : ''}${d.site.n ? ` · on site ${R.hmin(d.site.m)}` : ''}</span><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>`;
+        const hol = R.holidayName(k);
+        h += `<div class="dayg" id="d-${k}"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span>${hol ? `<i class="holb" title="${esc(hol)}">Holiday</i>` : ''}${rv[k] ? '<i class="rvb" title="Reviewed">✎ Reviewed</i>' : re[k] ? '<i class="rve" title="An entry changed after this day was reviewed">Edited after review</i>' : ''}<span class="sp"></span><button type="button" class="linkbtn sm" data-tl="${k}">Timeline</button><button type="button" class="linkbtn sm" data-rv="${k}">Review</button><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>
+          <div class="dayt">${d.H.n + d.C.n} enc · H ${d.H.m}m/${d.H.u}u · C ${d.C.m}m/${d.C.u}u${d.cb.n ? ` · CB ${d.cb.n}/${d.cb.m}m` : ''}${d.site.n ? ` · on site ${R.hmin(d.site.m)}` : ''}${perShort(d)}</div>`;
         h += `<div class="rows">${l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e)).join('')}</div></div>`;
       }
       h += '</div>';
     }
     $('#histList').innerHTML = rowsHead + h;
     $$('#histList [data-rep]').forEach(b => b.addEventListener('click', () => openReport(b.dataset.rep, b.dataset.rep)));
+    $$('#histList [data-rv]').forEach(b => b.addEventListener('click', () => openReview(b.dataset.rv, b.dataset.rv)));
+    $$('#histList [data-rvw]').forEach(b => b.addEventListener('click', () => { const [f, t2] = b.dataset.rvw.split('|'); openReview(f, t2); }));
+    $$('#histList [data-tl]').forEach(b => b.addEventListener('click', () => openTimeline(b.dataset.tl)));
     bindCards($('#histList'));
   }
   // live tick (display only; durations always computed from timestamps)
@@ -231,7 +255,10 @@
     for (const e of S.encs) { if (e.status !== 'run') continue; const ms = R.msOf(e), m = Math.floor(ms / 60000), u = R.units(m);
       $$(`[data-rm="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = durTxt(e, m); });
       $$(`[data-t="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = fmtDur(ms); });
-      $$(`[data-u="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = el.dataset.k === 'shift' ? R.hmin(m) + ' on site' : `${m} min · ${u} unit${u === 1 ? '' : 's'}`; }); }
+      $$(`[data-u="${CSS.escape(e.id)}"]`).forEach(el => { el.innerHTML = unitsHtml(e, m); });
+      if (kindOf(e) !== 'shift') { const wl = warnLvl(e); $$(`.enc[data-id="${CSS.escape(e.id)}"], .erow[data-id="${CSS.escape(e.id)}"]`).forEach(el => { el.classList.toggle('wa', wl === 'a'); el.classList.toggle('wr', wl === 'r'); });
+        $$(`[data-w="${CSS.escape(e.id)}"]`).forEach(el => { el.hidden = !wl; if (wl) el.innerHTML = warnHtml(e); }); } }
+    renderPbar(); procTick();
     if (S && activeShift()) renderOnsiteInfo();
     if (tab === 'today' && render.day !== today()) { render.day = today(); render(); }
   }, 1000);
@@ -301,6 +328,8 @@
     const merged = segs.map((s, i) => keep[i] && dtLocal(keep[i].s) === dtLocal(s.s) && (keep[i].e == null ? s.e == null : dtLocal(keep[i].e) === dtLocal(s.e)) ? keep[i] : s);
     if (merged.some(s => s.s == null)) { $('#eSum').textContent = ''; return; }
     const m = R.minsOf({ segs: merged }); $('#eSum').textContent = `Total ${m} min · ${R.units(m)} units`;
+    const ps = cur && cur.kind !== 'shift' ? R.periodSplit({ id: 'edit', kind: cur.kind, segs: merged }).parts : [];
+    $('#ePer').textContent = ps.length ? 'Time periods: ' + R.perTxt(ps) : ''; $('#ePer').hidden = !ps.length;
     return merged;
   }
   const fdA = (href, label, cls) => `<a class="${cls || 'fdl'}" href="${esc(href)}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" aria-label="${esc(label)}">Look up in Fee Desk</a>`;
@@ -421,10 +450,12 @@
     $('#eLinks').innerHTML = list.length ? list.map(e => `<label><input type="checkbox" value="${esc(e.id)}" ${(cur.links || []).includes(e.id) ? 'checked' : ''}> ${esc(e.label)} · ${R.hm(R.startOf(e))}${e.initials ? ' · ' + esc(e.initials) : ''}</label>`).join('') : '<p class="small muted">No encounters on this day yet.</p>';
   }
   // quick back-dating buttons
-  $$('#editDlg .quick button').forEach(b => b.onclick = () => {
+  $$('#editDlg .quick button').forEach(b => b.onclick = () => {   // v5: also Last stop, ±5 nudges and +15/+30
     const rows = $$('#eSegs .segrow'); if (!rows.length) return;
     if (b.dataset.end) { const r = rows[rows.length - 1]; r.querySelector('.se').value = dtLocal(Date.now()); sumSegs(); return; }
-    const t = Date.now() - (+b.dataset.ago) * 60000; rows[0].querySelector('.ss').value = dtLocal(t);
+    if (b.dataset.nudge || b.dataset.dur) return nudge(b, rows);
+    let t = Date.now() - (+b.dataset.ago || 0) * 60000;
+    if (b.dataset.last) { const ls = lastStop(); if (!ls) return toast('No earlier stop today'); t = ls; } rows[0].querySelector('.ss').value = dtLocal(t);
     const se = rows[0].querySelector('.se'); if (se.value && parseLocal(se.value) <= t) se.value = '';
     sumSegs(); if (cur.kind === 'cb') { syncCalled(); renderLinks(); }
   });
@@ -448,6 +479,7 @@
     $('#eSegs').innerHTML = cur.segs.map(segRow).join(''); bindSegs(); sumSegs(); $('#eErr').textContent = ''; $('#eWarn').hidden = true; $('#eSave').textContent = 'Save';
     const lt = lateText(cur); $('#eLate').hidden = !lt; $('#eLate').textContent = lt;
     $('#eDelete').hidden = !!fresh; $('#eHist').hidden = !!fresh; $('#ePhotos').innerHTML = ''; thumbs();
+    $('#eRepRow').hidden = !!fresh || cur.kind === 'shift'; syncFavBtn();
     setKind(cur.kind);
     $('#editDlg').showModal();
   }
@@ -534,7 +566,9 @@
   $('#eDelete').onclick = async () => {
     if (!cur) return; const v = await ask({ title: 'Delete entry', text: `Delete "${cur.label || 'this entry'}"${cur.photos.length ? ' and its photos' : ''}? It disappears from your logs and reports, but a full copy stays in the encrypted audit log.`, ok: 'Delete', danger: true }); if (!v || !cur) return;
     for (const p of addedPhotos) await V.removePhoto(p);
-    await deleteEnc(cur); addedPhotos = []; await closeEdit(true); render(); toast('Deleted (kept in audit log)');
+    const gone = clone(S.encs.find(x => x.id === cur.id) || cur), ph = await deleteEnc(cur, '', true); addedPhotos = []; await closeEdit(true); render();
+    const tm = setTimeout(() => { photoDel.delete(tm); ph.forEach(p => V.removePhoto(p)); }, 6000); photoDel.set(tm, ph);
+    snack(`Deleted ${gone.label || R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
   };
   const blank = (k, s, e) => ({ id: uid(), kind: k, label: '', initials: '', chart: '', setting: k === 'enc' ? S.settings.defSetting : 'H', facility: (activeShift() || {}).facility || S.settings.curFac || null, type: '', codes: [], note: '', segs: [{ s, e }], status: e == null ? 'run' : 'done', photos: [], links: [], created: Date.now() });
   $('#manualBtn').onclick = () => { const s = Date.now() - 30 * 60000; const e = blank('enc', s, s + 30 * 60000); e.late = true; openEdit(e, true); };
@@ -742,6 +776,8 @@
   // ------------------------------------------------------------ settings / data
   $('#defSetting').onchange = () => { S.settings.defSetting = $('#defSetting').value; quickSet = S.settings.defSetting; setQuick(); saveSettings(); };
   $('#defProv').onchange = () => { S.settings.prov = $('#defProv').value; saveSettings(); };
+  $('#warnA').onchange = () => { S.settings.warnA = +$('#warnA').value; saveSettings(); render(); };
+  $('#warnR').onchange = () => { S.settings.warnR = +$('#warnR').value; saveSettings(); render(); };
   $('#autolock').onchange = () => { S.settings.autolock = +$('#autolock').value; saveSettings(); toast(`Auto-lock after ${S.settings.autolock} min`); };
   $('#chPass').onclick = async () => {
     const v = await ask({ title: 'Change passcode', text: 'All encounters and photos will be re-encrypted with the new passcode. A forgotten passcode means the data cannot be recovered.', ok: 'Change',
@@ -785,6 +821,274 @@
     if (!v) return; S = null; await V.wipe(); localStorage.removeItem(failKey); lockNow('All data deleted.'); showLock('All data deleted. Create a new passcode to start again.');
   };
 
+  // ============================================================ v5 features (all on-device; every data change goes through saveEnc/deleteEnc and the audit log)
+  // ---- 1. forgotten-timer warning (amber, then red) + unlock prompt. In-app only; no notifications.
+  function runMs(e) { const l = e.segs[e.segs.length - 1]; return e.status === 'run' && l && l.e == null ? Date.now() - l.s : 0; }
+  function warnLvl(e) { if (!S || kindOf(e) === 'shift' || e.status !== 'run') return ''; const m = runMs(e) / 60000; return m >= (S.settings.warnR || 180) ? 'r' : m >= (S.settings.warnA || 60) ? 'a' : ''; }
+  function warnHtml(e) { const m = Math.floor(runMs(e) / 60000); return `${warnLvl(e) === 'r' ? 'Long timer' : 'Running a while'}: ${R.hmin(m)} since ${R.hm(e.segs[e.segs.length - 1].s)}. Still with this patient? <button type="button" class="linkbtn sm" data-a="stopat">Stop at…</button>`; }
+  async function checkLongTimers() {
+    if (!S) return;
+    for (const e of S.encs.filter(x => warnLvl(x) === 'r').sort((a, b) => R.startOf(a) - R.startOf(b))) { if (!S) return; await longPrompt(S.encs.find(x => x.id === e.id) || e, true); }
+  }
+  function longPrompt(e, onUnlock) {
+    return new Promise(res => {
+      if (!S || !e || e.status !== 'run') return res();
+      const d = $('#longDlg'), l = e.segs[e.segs.length - 1], who = kindOf(e) === 'cb' ? 'this call-back' : (e.label || 'this patient');
+      $('#lgTitle').textContent = onUnlock ? 'Timer still running' : 'Stop at an earlier time';
+      $('#lgText').textContent = `Still with ${who}? This timer has been running since ${R.hm(l.s)} (${R.hmin(Math.floor(runMs(e) / 60000))}). Stop it now, or set the real end time. A corrected time is saved as "entered later" and noted in the audit log.`;
+      $('#lgAt').value = dtLocal(Math.min(Date.now(), l.s + Math.min(60, Math.max(15, Math.floor(runMs(e) / 60000))) * 60000)); $('#lgErr').textContent = '';
+      $('#lgKeep').textContent = onUnlock ? 'Keep running' : 'Cancel';
+      const done = () => { d.close(); $('#lgKeep').onclick = $('#lgNow').onclick = $('#lgAtBtn').onclick = d.oncancel = null; res(); };
+      $('#lgKeep').onclick = done; d.oncancel = ev => { ev.preventDefault(); done(); };
+      $('#lgNow').onclick = async () => { const x = S && S.encs.find(y => y.id === e.id); done(); if (x) await act(x, 'stop', 'Stopped from the long-timer prompt'); };
+      $('#lgAtBtn').onclick = async () => {
+        const t = parseLocal($('#lgAt').value), x = S && S.encs.find(y => y.id === e.id); if (!x) return done();
+        const ls = x.segs[x.segs.length - 1];
+        if (!t || t <= ls.s) return $('#lgErr').textContent = `The end must be after ${R.hm(ls.s)}.`;
+        if (t > Date.now()) return $('#lgErr').textContent = 'The end cannot be in the future.';
+        const prev = clone(x), y = clone(x); y.segs[y.segs.length - 1].e = t; y.status = 'done'; y.late = true; y.edits = (y.edits || []).concat(Date.now());
+        done(); await saveEnc(y, 'stop', `End time corrected to ${R.hm(t)} from the long-timer prompt (entered later)`); render();
+        snack(`Stopped at ${R.hm(t)}`, () => undoTo(prev, y, 'Corrected stop undone'));
+      };
+      d.showModal();
+    });
+  }
+  // ---- 3. next-unit hint (display only; recorded minutes stay as actual minutes, nothing is rounded)
+  function nextUnit(m) { const u = R.units(m); for (let t = m + 1; t <= m + 16; t++) if (R.units(t) > u) return t; return null; }
+  function unitsHtml(e, m) {
+    const k = kindOf(e); if (k === 'shift') return R.hmin(m) + ' on site';
+    const u = R.units(m); let h = `${m} min · ${u} unit${u === 1 ? '' : 's'}`;
+    if (e.status === 'run') { const n = nextUnit(m); if (n) h += ` · <span class="nu${n - m <= 2 ? ' soon' : ''}">+1 unit at ${n} min</span>`; }
+    return h;
+  }
+  // time-period tags and short breakdowns (Alberta periods per user; see R.PERIOD_CFG)
+  function perTags(e) {   // compact tag under the start time: premium period(s) only, full breakdown in the tooltip and details
+    if (kindOf(e) === 'shift') return ''; const ps = R.periodSplit(e).parts.filter(p => !R.PBY[p.id].regular); if (!ps.length) return '';
+    return `<small class="pt" title="${esc(R.perTxt(R.periodSplit(e).parts))}">${esc(R.PBY[ps[0].id].short)}${ps.length > 1 ? '+' : ''}</small>`;
+  }
+  const perShort = t => t.perList && t.perList.length ? `<br><span class="pert">${t.perList.map(p => `${esc(R.PBY[p.id].short)} ${p.m}m/${p.u}u`).join(' · ')}</span>` : '';
+  // ---- 6. undo snackbar (5 s) for delete and stop
+  let snackT = null, snackFn = null; const photoDel = new Map();
+  function snack(text, fn) { $('#snackTxt').textContent = text; snackFn = fn; $('#snack').hidden = false; clearTimeout(snackT); snackT = setTimeout(hideSnack, 5000); }
+  function hideSnack() { clearTimeout(snackT); snackFn = null; const n = $('#snack'); if (n) n.hidden = true; }
+  $('#snackUndo').onclick = async () => { const f = snackFn; hideSnack(); if (f && S) { try { await f(); } catch (e) { toast('Could not undo: ' + e.message); } } };
+  function flushPhotoDel() { for (const [tm, ph] of photoDel) { clearTimeout(tm); ph.forEach(p => V.removePhoto(p)); } photoDel.clear(); }
+  async function undoTo(prev, after, note) {   // only if nothing changed the entry since
+    const now = S.encs.find(x => x.id === prev.id); if (!now || now.updated !== after.updated) return toast('Not undone: the entry changed');
+    await saveEnc(clone(prev), 'undo', note); render(); toast('Undone');
+  }
+  // ---- 8. one-tap patient switch: stop the running encounter and start the next (same setting and facility only)
+  async function switchPatient(e) {
+    if (!S || e.status !== 'run') return;
+    const now = Date.now(), prev = clone(e), st = clone(e), l = st.segs[st.segs.length - 1]; if (l && l.e == null) l.e = now; st.status = 'done';
+    await saveEnc(st, 'stop', 'Stopped by one-tap patient switch');
+    const n = S.encs.filter(x => R.encDay(x) === today() && kindOf(x) === 'enc').length + 1;
+    const ne = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], note: '', segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    await saveEnc(ne, 'create', 'Started by one-tap patient switch'); $('#qLabel').value = ''; render();
+    snack(`Switched to ${ne.label}`, async () => {
+      const a = S.encs.find(x => x.id === st.id), b = S.encs.find(x => x.id === ne.id);
+      if (!a || a.updated !== st.updated || (b && b.updated !== ne.updated)) return toast('Not undone: an entry changed');
+      if (b) await deleteEnc(b, 'Patient switch undone'); await saveEnc(clone(prev), 'undo', 'Patient switch undone'); render(); toast('Undone');
+    });
+  }
+  // ---- 10. full-screen procedure timer: time only (bystanders can see it), screen kept on, auto-lock unchanged
+  let procId = null, wake = null;
+  async function keepAwake() { try { if ('wakeLock' in navigator && !wake) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } } catch (e) { wake = null; } }
+  function stopWake() { if (wake) { wake.release().catch(() => {}); wake = null; } }
+  function openProc(e) { procId = e.id; procTick(); $('#pcNote').textContent = 'Time only. ' + ('wakeLock' in navigator ? 'The screen stays on' : 'This browser cannot keep the screen on') + `; auto-lock still applies (${S.settings.autolock || 2} min without a touch).`; $('#procDlg').showModal(); keepAwake(); }
+  function procTick() {
+    if (!procId || !$('#procDlg').open) return; const e = S && S.encs.find(x => x.id === procId); if (!e) { $('#procDlg').close(); return; }
+    $('#pcTime').textContent = fmtDur(R.msOf(e)); $('#pcState').textContent = e.status === 'run' ? 'Running' : e.status === 'pause' ? 'Paused' : 'Stopped';
+    $('#pcPause').textContent = e.status === 'pause' ? 'Resume' : 'Pause'; $('#pcPause').className = e.status === 'pause' ? 'resumebtn' : 'pausebtn'; $('#pcPause').disabled = $('#pcStop').disabled = e.status === 'done';
+  }
+  $('#pcPause').onclick = async () => { const e = S && S.encs.find(x => x.id === procId); if (e) { await act(e, e.status === 'pause' ? 'resume' : 'pause'); procTick(); } };
+  $('#pcStop').onclick = async () => { const e = S && S.encs.find(x => x.id === procId); if (e) { $('#procDlg').close(); await act(e, 'stop'); } };
+  $('#pcExit').onclick = () => $('#procDlg').close();
+  $('#procDlg').addEventListener('close', () => { procId = null; stopWake(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#procDlg').open) keepAwake(); });
+  // ---- time period tracker bar (Alberta periods per user, America/Edmonton time)
+  const leftTxt = ms => { const m = Math.max(0, Math.ceil(ms / 60000)); return m >= 60 ? `${Math.floor(m / 60)}h ${R.pad(m % 60)}m` : `${m} min`; };
+  function renderPbar() {
+    if (!S) return; const now = Date.now(), a = R.periodAt(now), nx = R.periodAt(a.end + 1000), p = a.p;
+    $('#pbName').textContent = p.name + (a.holiday ? ' · ' + a.holiday : '');
+    $('#pbHrs').textContent = R.pHours(p);
+    $('#pbLeft').textContent = `${leftTxt(a.end - now)} left → ${nx.p.name}`; $('#pbLeft').title = `Next: ${nx.p.name} from ${R.hm(a.end)}`;
+    $('#pbFill').style.width = Math.min(100, Math.max(0, (now - a.start) / (a.end - a.start) * 100)).toFixed(1) + '%';
+    let logged = 0;
+    for (const e of S.encs) { if (kindOf(e) === 'shift' || !e.segs.some(s => s.s < a.end && (s.e == null ? now : s.e) > a.start)) continue; for (const b of R.periodSplit(e, now).blocks) if (b.t >= a.start && b.t < a.end) logged++; }
+    $('#pbUnits').textContent = p.regular ? `no premium units · logged ${logged} u` : `${Math.min(p.units, Math.floor((now - a.start) / 900000))}/${p.units} u · logged ${logged} u`;
+    $('#pbUnits').title = p.regular ? `Regular hours. Units logged in encounters this period: ${logged}` : `${p.units} units in this period; elapsed so far ${Math.min(p.units, Math.floor((now - a.start) / 900000))}; logged in encounters ${logged}`;
+    $('#pbar').className = 'pbar p-' + p.id + (p.regular ? '' : ' prem');
+  }
+  // ---- 4. week strip with daily totals + Today / This week
+  const wsOff = { today: 0, hist: 0 };
+  function renderStrip(which) {
+    const box = which === 'today' ? $('#todayTotals') : $('#wsHist'); if (!S || !box) return;
+    const td = today(), base = new Date(td + 'T12:00'); base.setDate(base.getDate() - ((base.getDay() + 6) % 7) + 7 * wsOff[which]);
+    const days = [...Array(7)].map((_, i) => { const d = new Date(base); d.setDate(base.getDate() + i); return R.dayKey(d.getTime()); });
+    const byd = R.byDay(S.encs.filter(e => { const k = R.encDay(e); return k >= days[0] && k <= days[6]; }));
+    const sum = t => ({ m: t.H.m + t.C.m + t.cb.m, u: t.H.u + t.C.u + t.cb.u });
+    const tw = sum(R.totals(days.flatMap(k => byd.get(k) || []))), ttl = R.totals(S.encs.filter(e => R.encDay(e) === td)), tt = sum(ttl), rv = S.settings.reviews || {};
+    const cells = days.map((k, i) => { const l = byd.get(k) || [], t = sum(R.totals(l)), hol = R.holidayName(k), d = +k.slice(8);
+      return `<button type="button" class="wd${k === td ? ' today' : ''}${l.length ? '' : ' empty'}${hol ? ' hol' : ''}${i > 4 ? ' we' : ''}" data-day="${k}" title="${esc(R.fmtDay(k) + (hol ? ' · ' + hol : ''))}" aria-label="${esc(R.fmtDay(k))}: ${t.m} minutes, ${t.u} units"><span class="wn">${'MTWTFSS'[i]}${d}</span><b>${t.m ? t.m + 'm' : '–'}</b><small>${t.m ? t.u + 'u' : ''}${rv[k] ? ' ✓' : ''}</small></button>`; }).join('');
+    const lbl = wsOff[which] === 0 ? 'This week' : 'Week';
+    box.innerHTML = `<div class="wsh"><button type="button" class="wsnav" data-nav="-1" aria-label="Previous week">‹</button><span class="wsl">${esc(new Date(days[0] + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}–${esc(new Date(days[6] + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</span><button type="button" class="wsnav" data-nav="1" aria-label="Next week">›</button><span class="wst"><b>Today</b> ${tt.m}m·${tt.u}u <b>${lbl}</b> ${tw.m}m·${tw.u}u</span></div><div class="wdays">${cells}</div>` +
+      (which === 'today' ? `<div class="wsx">H ${ttl.H.m} min · ${ttl.H.n} enc · ${ttl.H.u} u <span>|</span> C ${ttl.C.m} min · ${ttl.C.n} enc · ${ttl.C.u} u${ttl.cb.n ? ` <span>|</span> CB ${ttl.cb.n} · ${ttl.cb.m} min` : ''}${ttl.perList.length ? `<br>${ttl.perList.map(p => `${esc(R.PBY[p.id].short)} ${p.m}m/${p.u}u`).join(' · ')}` : ''}</div>` : '');
+    box.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => { wsOff[which] += +b.dataset.nav; renderStrip(which); });
+    box.querySelectorAll('[data-day]').forEach(b => b.onclick = () => goDay(b.dataset.day));
+    if (!box.dataset.sw) { box.dataset.sw = '1'; let x0 = null; box.addEventListener('touchstart', ev => { x0 = ev.touches[0].clientX; }, { passive: true }); box.addEventListener('touchend', ev => { if (x0 == null) return; const dx = ev.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 50) { wsOff[which] += dx < 0 ? 1 : -1; renderStrip(which); } }, { passive: true }); }
+  }
+  function goDay(k) {
+    if (!S.encs.some(e => R.encDay(e) === k)) return toast(`No entries on ${R.fmtDay(k)}`);
+    tab = 'history'; showTab(); const el = document.getElementById('d-' + k); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -112); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1200); }
+  }
+  // ---- 2. track again + favourite code sets: copies setting, facility, fee codes and ICD-9 only (never label, initials, chart, notes or photos)
+  const comboOf = e => ({ set: e.setting || e.set || 'H', fac: e.facility || e.fac ? (f => ({ n: f.n, z: f.z || '', set: f.set, custom: !!f.custom }))(e.facility || e.fac) : null, codes: (e.codes || []).map(c => ({ j: c.j, c: c.c, d: c.d, f: c.f, k: c.k, dx: c.dx, dxd: c.dxd })) });
+  const comboKey = c => [c.set, c.fac ? c.fac.n : '', c.codes.map(x => x.c + '|' + (x.dx || '')).join(',')].join('#');
+  const comboLbl = c => { const f = c.codes[0]; return f ? f.c + (f.dx ? ' · ' + f.dx : '') + (c.codes.length > 1 ? ` +${c.codes.length - 1}` : '') : '(no code)'; };
+  function suggestions() {
+    const favs = (S.settings.favSets || []).map(f => ({ fav: true, c: f })), fk = new Set(favs.map(f => comboKey(f.c))), since = Date.now() - 60 * 86400000, m = new Map();
+    for (const e of S.encs) { if (kindOf(e) !== 'enc' || !(e.codes || []).length || R.startOf(e) < since) continue; const c = comboOf(e), k = comboKey(c); if (fk.has(k)) continue; const x = m.get(k) || { n: 0, last: 0, c }; x.n++; x.last = Math.max(x.last, R.startOf(e)); m.set(k, x); }
+    const rec = [...m.values()].sort((a, b) => b.n - a.n || b.last - a.last).slice(0, Math.max(2, 6 - favs.length)).map(x => ({ fav: false, c: x.c }));
+    return favs.concat(rec).slice(0, 8);
+  }
+  function renderTrackAgain() {
+    const box = $('#trackAgain'), list = suggestions(); box.hidden = !list.length; if (!list.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<span class="tal">Track again</span>` + list.map((x, i) => `<span class="tchip${x.fav ? ' fav' : ''}"><button type="button" class="tgo" data-i="${i}" title="Start a timer with ${esc(x.c.codes.map(c => c.c + (c.dx ? ' (' + c.dx + ')' : '')).join(', '))}${x.c.fac ? ' at ' + esc(x.c.fac.n) : ''}">${esc(comboLbl(x.c))}<small>${x.c.set}</small></button><button type="button" class="tstar" data-i="${i}" aria-label="${x.fav ? 'Remove from' : 'Save to'} favourite code sets">${x.fav ? '★' : '☆'}</button></span>`).join('');
+    box.querySelectorAll('.tgo').forEach(b => b.onclick = () => startFrom(list[+b.dataset.i].c));
+    box.querySelectorAll('.tstar').forEach(b => b.onclick = () => toggleFav(list[+b.dataset.i].c));
+  }
+  async function startFrom(c) {
+    const now = Date.now(), n = S.encs.filter(x => R.encDay(x) === today() && kindOf(x) === 'enc').length + 1, sh = activeShift();
+    const e = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: c.set || 'H', facility: c.fac || (sh ? sh.facility : S.settings.curFac) || null, type: '', codes: clone(c.codes), note: '', segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    await saveEnc(e, 'create', 'Started from a code set (track again)'); $('#qLabel').value = ''; tab = 'today'; showTab(); render(); toast(`Started ${e.label} · ${comboLbl(c)}`);
+  }
+  async function toggleFav(c) {
+    const k = comboKey(c), l = S.settings.favSets || [], i = l.findIndex(f => comboKey(f) === k), txt = c.codes.map(x => x.c + (x.dx ? ' (' + x.dx + ')' : '')).join(', ');
+    if (i >= 0) l.splice(i, 1); else l.unshift(Object.assign({ id: uid() }, clone(c)));
+    S.settings.favSets = l.slice(0, 12); await saveSettings();
+    await V.appendAudit({ action: i >= 0 ? 'fav-remove' : 'fav-add', note: `${i >= 0 ? 'Removed' : 'Saved'} favourite code set: ${txt} · ${R.SET[c.set] || ''}${c.fac ? ' · ' + c.fac.n : ''}` });
+    render(); syncFavBtn(); toast(i >= 0 ? 'Code set removed from favourites' : 'Code set saved to favourites');
+  }
+  function formCombo() { return comboOf({ setting: cur.kind === 'enc' ? $('#eSetting').value : $('#eSetting2').value, facility: eFac, codes: cur.codes }); }
+  function syncFavBtn() { if (!cur) return; const c = formCombo(), on = (S.settings.favSets || []).some(f => comboKey(f) === comboKey(c)); $('#eFavSet').textContent = on ? '★ Saved code set' : '☆ Save code set'; $('#eFavSet').disabled = !c.codes.length; $('#eRepeat').disabled = !c.codes.length && !eFac; }
+  $('#eRepeat').onclick = async () => { if (!cur) return; const c = formCombo(); await closeEdit(false); await startFrom(c); };
+  $('#eFavSet').onclick = () => { if (cur && cur.codes.length) toggleFav(formCombo()); };
+  $('#eCodes').addEventListener('click', () => setTimeout(syncFavBtn, 0)); $('#eCodeRes').addEventListener('click', () => setTimeout(syncFavBtn, 0));
+  // ---- 7. gap-free entry: Last stop, ±5 nudges, +15 / +30
+  function lastStop() { const now = Date.now(); let best = 0; for (const e of S.encs) { if (cur && e.id === cur.id) continue; if (kindOf(e) === 'shift') continue; for (const s of e.segs) if (s.e != null && s.e <= now && s.e > best && R.dayKey(s.e) === today()) best = s.e; } return best || null; }
+  function nudge(b, rows) {
+    const now = Date.now(), clamp = t => Math.min(t, now);
+    if (b.dataset.nudge === 's') { const i = rows[0].querySelector('.ss'), t = parseLocal(i.value); if (t) i.value = dtLocal(clamp(t + (+b.dataset.d) * 60000)); }
+    else { const r = rows[rows.length - 1], se = r.querySelector('.se'), ss = parseLocal(r.querySelector('.ss').value), t = parseLocal(se.value);
+      if (b.dataset.dur) { const base = t || ss; if (base) se.value = dtLocal(clamp(base + (+b.dataset.dur) * 60000)); }
+      else if (t) se.value = dtLocal(clamp(t + (+b.dataset.d) * 60000)); else return toast('Set an end time first'); }
+    overlapOk = false; $('#eWarn').hidden = true; $('#eSave').textContent = 'Save'; sumSegs(); if (cur.kind === 'cb') { syncCalled(); renderLinks(); }
+  }
+  // ---- 5. day / week review checklist; the mark clears on any later change (audit-logged both ways)
+  async function reviewTouch(list, why) {
+    const rv = S.settings.reviews || {}, days = [...new Set(list.filter(Boolean).map(x => R.encDay(x)))].filter(d => rv[d]);
+    if (!days.length) return;
+    S.settings.revEdited = S.settings.revEdited || {}; for (const d of days) { delete rv[d]; S.settings.revEdited[d] = Date.now(); }
+    S.settings.reviews = rv; await saveSettings();
+    await V.appendAudit({ action: 'unreview', note: `Review mark cleared for ${days.join(', ')}: ${why}.`, after: { days } });
+  }
+  let rvRange = null;
+  function openReview(from, to) { rvRange = [from, to]; renderReview(); $('#revDlg').showModal(); }
+  function reviewIssues(list) {
+    const out = [], encs = list.filter(e => kindOf(e) !== 'shift');
+    for (const e of list) {
+      const k = kindOf(e);
+      if (k === 'shift' && e.status !== 'done') out.push({ lvl: 'block', e, t: 'No departure recorded' });
+      if (k !== 'shift' && e.status === 'run') out.push({ lvl: 'block', e, t: 'Timer still running' });
+      if (k !== 'shift' && e.status === 'pause') out.push({ lvl: 'block', e, t: 'Paused, not stopped' });
+      if (k !== 'shift' && !(e.codes || []).length) out.push({ lvl: 'warn', e, t: 'No fee code' });
+      if (k !== 'shift' && !R.dxList(e).length) out.push({ lvl: 'warn', e, t: 'No diagnostic code' });
+      else if (k !== 'shift' && (e.codes || []).length > 1 && e.codes.some(c => !c.dx) && !e.dx) out.push({ lvl: 'warn', e, t: 'A fee code has no diagnostic code' });
+      if (e.late) out.push({ lvl: 'info', e, t: 'Entered later' });
+    }
+    for (let i = 0; i < encs.length; i++) for (let j = i + 1; j < encs.length; j++) { const a = encs[i], b = encs[j]; if (kindOf(a) === kindOf(b) && ovl(a.segs, b.segs)) out.push({ lvl: 'warn', e: b, t: `Overlaps ${a.label || R.KIND[kindOf(a)]} ${R.hm(R.startOf(a))}` }); }
+    // one row per entry: its most serious level, all its issues listed
+    const L = ['block', 'warn', 'info'], by = new Map();
+    for (const x of out) { const g = by.get(x.e.id); if (!g) by.set(x.e.id, { lvl: x.lvl, e: x.e, t: [x.t] }); else { g.t.push(x.t); if (L.indexOf(x.lvl) < L.indexOf(g.lvl)) g.lvl = x.lvl; } }
+    return [...by.values()].map(g => ({ lvl: g.lvl, e: g.e, t: g.t.join(' · ') })).sort((x, y) => L.indexOf(x.lvl) - L.indexOf(y.lvl) || R.startOf(x.e) - R.startOf(y.e));
+  }
+  function renderReview() {
+    if (!S || !rvRange) return; const [from, to] = rvRange, list = R.select(S.encs, from, to), iss = reviewIssues(list), rv = S.settings.reviews || {};
+    const days = [...new Set(list.map(e => R.encDay(e)))], nb = iss.filter(x => x.lvl === 'block').length, nw = iss.filter(x => x.lvl === 'warn').length;
+    $('#rvTitle').textContent = from === to ? `Review ${R.fmtDay(from)}` : `Review week ${R.fmtDay(from)} – ${R.fmtDay(to)}`;
+    $('#rvSub').textContent = `${list.length} entr${list.length === 1 ? 'y' : 'ies'} on ${days.length} day${days.length === 1 ? '' : 's'}. Tap an item to fix it.`;
+    $('#rvList').innerHTML = !list.length ? '<p class="small muted">No entries in this period.</p>' : iss.length ? iss.map((x, i) => `<button type="button" class="rvrow ${x.lvl}" data-i="${i}"><span class="rvt">${x.lvl === 'block' ? 'Fix' : x.lvl === 'warn' ? 'Check' : 'Info'}</span><span class="rvw">${esc(R.encDay(x.e).slice(5))} ${R.hm(R.startOf(x.e))} · ${esc(kindOf(x.e) === 'shift' ? (x.e.facility ? x.e.facility.n : 'On site') : x.e.label || R.KIND[kindOf(x.e)])}</span><span class="rvi">${esc(x.t)}</span></button>`).join('') : '<p class="small ok">✓ Nothing to fix: no running timers, missing codes, overlaps or missing departures.</p>';
+    $$('#rvList .rvrow').forEach(b => b.onclick = () => openEdit(iss[+b.dataset.i].e));
+    const all = days.length && days.every(d => rv[d]);
+    $('#rvState').textContent = all ? `✎ Reviewed ${new Date(Math.max(...days.map(d => rv[d].at))).toLocaleString()}. Any change to these entries removes the mark.` : nb ? 'Stop running timers and record departures before marking this reviewed.' : '';
+    const b = $('#rvMark'); b.disabled = !list.length || nb > 0 || all; b.textContent = all ? 'Reviewed' : nw ? `Mark reviewed (${nw} flagged)` : 'Mark reviewed';
+  }
+  $('#rvClose').onclick = () => $('#revDlg').close();
+  $('#rvMark').onclick = async () => {
+    const [from, to] = rvRange, list = R.select(S.encs, from, to), iss = reviewIssues(list); if (!list.length || iss.some(x => x.lvl === 'block')) return;
+    const nw = iss.filter(x => x.lvl === 'warn').length, days = [...new Set(list.map(e => R.encDay(e)))], at = Date.now();
+    S.settings.reviews = S.settings.reviews || {}; S.settings.revEdited = S.settings.revEdited || {};
+    for (const d of days) { S.settings.reviews[d] = { at, n: list.filter(e => R.encDay(e) === d).length, w: nw }; delete S.settings.revEdited[d]; }
+    await saveSettings();
+    await V.appendAudit({ action: 'review', note: `Marked reviewed: ${from === to ? from : from + ' to ' + to} (${list.length} entries${nw ? `, ${nw} item(s) checked and accepted` : ''}).`, after: { days, ids: list.map(e => e.id) } });
+    render(); renderReview(); toast('Marked reviewed');
+  };
+  $('#rvToday').onclick = () => openReview(today(), today());
+  // ---- 9. day timeline: blocks between arrival and departure
+  let tlDay = null; const PX = 1.1;
+  function openTimeline(k) { tlDay = k; renderTimeline(); $('#tlDlg').showModal(); }
+  function renderTimeline() {
+    if (!S || !tlDay) return; const k = tlDay, now = Date.now(), list = S.encs.filter(e => R.encDay(e) === k);
+    $('#tlTitle').textContent = R.fmtDay(k);
+    const segs = []; list.forEach(e => e.segs.forEach((s, i) => segs.push({ e, s: s.s, en: s.e == null ? now : s.e, first: i === 0 })));
+    const d0 = new Date(k + 'T00:00').getTime(); let t0 = segs.length ? Math.min(...segs.map(x => x.s)) : d0 + 8 * 3600000, t1 = segs.length ? Math.max(...segs.map(x => x.en)) : d0 + 17 * 3600000;
+    t0 = Math.floor(t0 / 3600000) * 3600000; t1 = Math.max(t0 + 3 * 3600000, Math.ceil(t1 / 3600000) * 3600000);
+    const y = t => ((t - t0) / 60000) * PX, H = y(t1);
+    let h = '';
+    for (let t = t0; t <= t1; t += 3600000) h += `<div class="tlh" data-css="top:${y(t).toFixed(1)}px"><span>${R.hm(t)}</span></div>`;
+    for (const x of segs.filter(x => kindOf(x.e) === 'shift')) h += `<div class="tlsite" data-css="top:${y(x.s).toFixed(1)}px;height:${Math.max(2, y(x.en) - y(x.s)).toFixed(1)}px" title="On site ${R.hm(x.s)}–${R.hm(x.en)}"></div>`;
+    const blocks = segs.filter(x => kindOf(x.e) !== 'shift').sort((a, b) => a.s - b.s);
+    // lanes per cluster of overlapping blocks, so a busy hour doesn't squeeze the rest of the day
+    let cl = [], clEnd = -1; const flush = () => { const lanes = []; for (const b of cl) { let i = lanes.findIndex(end => end <= b.s); if (i < 0) { i = lanes.length; lanes.push(0); } lanes[i] = b.en; b.lane = i; } cl.forEach(b => { b.n = lanes.length; }); cl = []; };
+    for (const b of blocks) { if (cl.length && b.s >= clEnd) flush(); cl.push(b); clEnd = Math.max(clEnd, b.en); } flush();
+    for (const b of blocks) { const e = b.e, kk = kindOf(e), top = y(b.s), ht = Math.max(14, y(b.en) - top), n = b.n;
+      h += `<button type="button" class="tlb ${kk === 'cb' ? 'cb' : e.setting === 'C' ? 'C' : 'H'}${e.status !== 'done' ? ' live' : ''}" data-id="${esc(e.id)}" data-css="top:${top.toFixed(1)}px;height:${ht.toFixed(1)}px;left:calc(56px + (100% - 60px) * ${b.lane} / ${n});width:calc((100% - 60px) / ${n} - 3px)" title="${esc((e.label || R.KIND[kk]) + ' ' + R.hm(b.s) + '–' + R.hm(b.en))}">${b.first ? `<b>${R.hm(b.s)}</b> ${esc(e.label || R.KIND[kk])}${(e.codes || []).length ? ' · ' + esc(e.codes[0].c) : ''}` : ''}</button>`; }
+    $('#tlBody').innerHTML = `<div class="tlgrid" data-css="height:${(H + 8).toFixed(0)}px" data-t0="${t0}">${h}</div>` + (segs.length ? '' : '<p class="small muted">No entries on this day. Tap the grid to add one.</p>');
+    $$('#tlBody [data-css]').forEach(el => { el.style.cssText = el.dataset.css; });   // CSSOM (CSP forbids inline style attributes)
+    $$('#tlBody .tlb').forEach(b => b.onclick = ev => { ev.stopPropagation(); const e = S.encs.find(x => x.id === b.dataset.id); if (e) openEdit(e); });
+    $('#tlBody .tlgrid').onclick = ev => {
+      const g = ev.currentTarget, r = g.getBoundingClientRect(), t = t0 + Math.round(((ev.clientY - r.top) / PX) / 5) * 5 * 60000;
+      if (t > Date.now() - 60000) return toast('That time is in the future');
+      const e = blank('enc', t, Math.min(Date.now(), t + 15 * 60000)); e.late = true; e.status = 'done'; openEdit(e, true);
+    };
+  }
+  const shiftDay = (k, n) => { const d = new Date(k + 'T12:00'); d.setDate(d.getDate() + n); return R.dayKey(d.getTime()); };
+  $('#tlPrev').onclick = () => { tlDay = shiftDay(tlDay, -1); renderTimeline(); };
+  $('#tlNext').onclick = () => { tlDay = shiftDay(tlDay, 1); renderTimeline(); };
+  $('#tlClose').onclick = () => $('#tlDlg').close();
+  $('#tlToday').onclick = () => openTimeline(today());
+  // ---- time periods and holidays in Settings (per user; verify against the current SOMB)
+  function renderPeriodSettings() {
+    if (!S) return; const C = R.PERIOD_CFG, y = new Date().getFullYear(), td = today(), off = new Set(S.settings.holOff || []);
+    const tr = (lbl, ps) => `<tr><th colspan="3">${lbl}</th></tr>` + ps.map(p => `<tr><td>${esc(p.name)}</td><td>${R.pHours(p)}</td><td>${p.regular ? 'no premium units' : p.units + ' units'}</td></tr>`).join('');
+    $('#perTable').innerHTML = `<table>${tr('Weekdays (Mon–Fri)', C.weekday)}${tr('Weekends and statutory holidays', C.weekend)}</table><p class="small muted">${esc(C.note)} Units = 15-minute blocks in each period. Encounters crossing a boundary are split by period. No fee codes are attached to periods.</p>`;
+    const builtin = R.holidaysOf(y).find(h => h.date === td);
+    $('#holToday').checked = (S.settings.holExtra || []).includes(td);
+    $('#holTodayL').textContent = `Today (${R.fmtDay(td)}) is a statutory holiday (bill like a weekend)`;
+    $('#holInfo').textContent = (builtin ? (off.has(builtin.id) ? `Today is ${builtin.name}, but you switched it off below. ` : `Today is ${builtin.name} (built in), already billed like a weekend. `) : '') + ((S.settings.holExtra || []).length ? `Days you marked: ${S.settings.holExtra.slice(-6).join(', ')}.` : '');
+    $('#holYear').textContent = y;
+    $('#holList').innerHTML = R.holidaysOf(y).map(h => `<label class="chk small"><input type="checkbox" data-hol="${h.id}"${off.has(h.id) ? '' : ' checked'}> <b>${esc(h.name)}</b> · ${esc(R.fmtDay(h.date))} <span class="muted">(${esc(h.rule)})</span></label>`).join('');
+    $$('#holList [data-hol]').forEach(i => i.onchange = async () => {
+      const s2 = new Set(S.settings.holOff || []), h = R.holidaysOf(y).find(x => x.id === i.dataset.hol); i.checked ? s2.delete(h.id) : s2.add(h.id); S.settings.holOff = [...s2];
+      await holChanged(`${h.name} ${i.checked ? 'switched on' : 'switched off'} (billed ${i.checked ? 'like a weekend' : 'as a regular day'})`);
+    });
+  }
+  async function holChanged(note) { R.setHolidays({ off: S.settings.holOff, extra: S.settings.holExtra }); await saveSettings(); await V.appendAudit({ action: 'holiday', note }); renderPeriodSettings(); render(); }
+  $('#holToday').onchange = async () => {
+    const td = today(), s2 = new Set(S.settings.holExtra || []); $('#holToday').checked ? s2.add(td) : s2.delete(td); S.settings.holExtra = [...s2].sort();
+    await holChanged(`${td} ${$('#holToday').checked ? 'marked as a statutory holiday' : 'no longer marked as a holiday'}`);
+  };
   // ------------------------------------------------------------ boot
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
