@@ -2,6 +2,16 @@
    correct across reloads, locking and backgrounding. All data lives in the encrypted Vault. */
 (function () {
   'use strict';
+  // v1's service worker served the cached page for navigations, so the first open after an update can pair the old page with
+  // this script. Wait for the new service worker to take over, then reload once (no data is touched).
+  if (!document.getElementById('eDxQ')) {
+    const msg = document.getElementById('lockMsg'); if (msg) msg.textContent = 'Updating to the new version…';
+    const go = () => { if (!sessionStorage.getItem('bl.upd')) { sessionStorage.setItem('bl.upd', '1'); location.reload(); } else if (msg) msg.textContent = 'Update ready. Close and reopen the app.'; };
+    if ('serviceWorker' in navigator) { navigator.serviceWorker.addEventListener('controllerchange', go); navigator.serviceWorker.register('sw.js').then(r => r.update()).catch(() => {}); }
+    setTimeout(go, 8000);
+    return;
+  }
+  try { sessionStorage.removeItem('bl.upd'); } catch (e) { /* storage unavailable */ }
   const $ = s => document.querySelector(s), $$ = s => Array.from(document.querySelectorAll(s));
   const R = window.BLR, V = window.Vault;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -10,10 +20,14 @@
   const kindOf = R.kindOf, clone = o => JSON.parse(JSON.stringify(o));
   let FAC = null;
   let S = null;            // in-memory decrypted state while unlocked: {encs, settings}
-  let tab = 'today', quickSet = 'H', lastAct = Date.now(), picking = 0, openDays = new Set();
+  let tab = 'today', quickSet = 'H', lastAct = Date.now(), picking = 0;
   let blobUrls = [];
   let PROVS = [];          // codes-index list
-  const codeCache = {};    // prov -> {meta, codes, index}
+  const codeCache = {};    // prov -> {meta, codes, index, byNorm}
+  // MedBilling Fee Desk (companion app). Deep links carry only a code that exists in the bundled lists (never free text,
+  // so no patient identifier can end up in a URL): #/code/<fee code> and #/medres/<ICD-9 code> are Fee Desk's own routes.
+  const FD = 'https://tp8p7c4vwr-del.github.io/delara-medbilling/';
+  let ICD = null;          // {meta, list, by, index} (Alberta Health ICD-9 list from Fee Desk, bundled)
   function toast(msg, ms) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms || 2200); }
   const fmtDur = ms => { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return `${h}:${R.pad(m)}:${R.pad(s % 60)}`; };
   const today = () => R.dayKey(Date.now());
@@ -30,10 +44,11 @@
   }
   function lockNow(msg) {
     if (!S && document.body.classList.contains('locked')) return;
-    V.lock(); S = null;
+    if (cur && $('#editDlg').open) { try { V.saveDraft(editSnapshot()).catch(() => {}); } catch (e) { /* locked already */ } }
+    V.lock(); S = null; cur = null;
     $$('dialog[open]').forEach(d => d.close());
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
-    ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
+    ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
     $$('input:not([type=checkbox]):not([type=file]), textarea').forEach(i => { i.value = ''; });
     $('#pReady').hidden = true; repFile = null;
     showLock(msg || 'Locked.');
@@ -77,6 +92,7 @@
     fillProv($('#defProv'), settings.prov);
     renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue();
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
+    else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } }
   }
   // inactivity + background auto-lock
   ['pointerdown', 'keydown', 'input', 'wheel', 'touchstart'].forEach(t => document.addEventListener(t, () => { lastAct = Date.now(); }, { passive: true, capture: true }));
@@ -129,7 +145,7 @@
   function card(e, compact) {
     const ms = R.msOf(e), m = Math.floor(ms / 60000), u = R.units(m), st = e.status;
     const k = kindOf(e);
-    const meta = [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') + (e.called ? ' · called ' + R.hm(e.called) : '') : '', e.initials, e.chart && ('#' + e.chart), e.type, (e.codes || []).map(c => c.c).join(', '), k !== 'shift' && e.facility && e.facility.n, `${R.hm(R.startOf(e))}${R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''}`, k === 'cb' && (e.links || []).length ? `${e.links.length} linked` : ''].filter(Boolean).join(' · ');
+    const meta = [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') + (e.called ? ' · called ' + R.hm(e.called) : '') : '', e.initials, e.chart && ('#' + e.chart), e.type, (e.codes || []).map(c => c.c).join(', '), R.dxShort(e) && 'Dx ' + R.dxShort(e).replace(/; /g, ', '), k !== 'shift' && e.facility && e.facility.n, `${R.hm(R.startOf(e))}${R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''}`, k === 'cb' && (e.links || []).length ? `${e.links.length} linked` : ''].filter(Boolean).join(' · ');
     const late = e.late ? `<span class="badge late" title="Entered later${e.edits && e.edits.length ? '; last edited ' + R.tsTxt(e.edits[e.edits.length - 1]) : ''}">Entered later</span>` : '';
     const acts = st === 'run' ? `<button type="button" class="pausebtn" data-a="pause">Pause</button><button type="button" class="stopbtn" data-a="stop">Stop</button>`
       : st === 'pause' ? `<button type="button" class="resumebtn" data-a="resume">Resume</button><button type="button" class="stopbtn" data-a="stop">Stop</button>`
@@ -141,7 +157,25 @@
       <div class="units" data-u="${esc(e.id)}" data-k="${k}">${k === 'shift' ? R.hmin(m) + ' on site' : `${m} min · ${u} unit${u === 1 ? '' : 's'}`}</div>
       ${compact ? '' : `<div class="acts">${acts}</div>`}</div>`;
   }
+  // compact one-line row: start time · duration · label/initials · billing code · diagnostic code (tap = details)
+  const durTxt = (e, m) => kindOf(e) === 'shift' ? `${Math.floor(m / 60)}h${R.pad(m % 60)}` : `${m}m`;
+  function rowHtml(e, cont) {
+    const ms = R.msOf(e), m = Math.floor(ms / 60000), k = kindOf(e), st = e.status, cs = e.codes || [], dx = R.dxList(e);
+    const who = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : [e.label || (k === 'cb' ? 'Call-back' : 'Encounter'), e.initials].filter(Boolean).join(' · ');
+    const badge = (st === 'run' ? '<i class="b run">Running</i>' : st === 'pause' ? '<i class="b pause">Paused</i>' : '') + (k === 'cb' ? '<i class="b cb">CB</i>' : k === 'shift' ? '<i class="b">On site</i>' : '') + (e.late ? '<i class="b late" title="Entered later">*</i>' : '') + ((e.photos || []).length ? `<i class="b">📷${e.photos.length}</i>` : '');
+    return `<div class="erow ${st} rk-${k}" role="button" tabindex="0" data-id="${esc(e.id)}" aria-label="${esc(who)}, ${R.hm(R.startOf(e))}, open details">
+      <span class="t">${R.hm(R.startOf(e))}</span><span class="du" data-rm="${esc(e.id)}" data-k="${k}">${durTxt(e, m)}</span>
+      <span class="who">${esc(who)}${badge}</span>
+      <span class="fc" title="${esc(cs.map(c => c.c).join(', '))}">${cs.length ? esc(cs[0].c) + (cs.length > 1 ? `<small>+${cs.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
+      <span class="dx" title="${esc(dx.join(', '))}">${dx.length ? esc(dx[0]) + (dx.length > 1 ? `<small>+${dx.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
+      ${cont ? `<button type="button" class="cont" data-a="resume" aria-label="Continue ${esc(who)}" title="Continue">▶</button>` : ''}</div>`;
+  }
+  const rowsHead = '<div class="erowh" aria-hidden="true"><span>Start</span><span>Time</span><span>Label · initials</span><span>Billing</span><span>Dx</span></div>';
   function bindCards(root) {
+    root.querySelectorAll('.erow').forEach(el => {
+      const go = ev => { const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return; const a = ev.target.closest('[data-a]'); if (a && a.dataset.a === 'resume') { ev.stopPropagation(); return act(e, 'resume'); } openEdit(e); };
+      el.addEventListener('click', go); el.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(ev); } });
+    });
     root.querySelectorAll('.enc').forEach(el => el.addEventListener('click', ev => {
       const a = ev.target.closest('[data-a]'); const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return;
       if (!a || a.dataset.a === 'edit') return openEdit(e);
@@ -158,7 +192,8 @@
     renderOnsite();
     const list = S.encs.filter(e => kindOf(e) !== 'shift' && (R.encDay(e) === td || e.status !== 'done')).sort((a, b) => (a.status === 'done') - (b.status === 'done') || R.startOf(b) - R.startOf(a));
     $('#todayTotals').innerHTML = totHtml(S.encs.filter(e => R.encDay(e) === td));
-    $('#todayList').innerHTML = list.length ? list.map(e => card(e)).join('') : '<div class="empty">No encounters yet today. Enter a room or bed below and tap <b>Start</b>.</div>';
+    const live = list.filter(e => e.status !== 'done'), done = list.filter(e => e.status === 'done');
+    $('#todayList').innerHTML = list.length ? live.map(e => card(e)).join('') + (done.length ? `<div class="rows">${rowsHead}${done.map(e => rowHtml(e, true)).join('')}</div>` : '') : '<div class="empty">No encounters yet today. Enter a room or bed below and tap <b>Start</b>.</div>';
     bindCards($('#todayList'));
     $('#unitsNote').textContent = R.UNITS_NOTE;
     renderHistory(); renderRetention();
@@ -174,14 +209,13 @@
       const all = ks.flatMap(k => days.get(k)), t = R.totals(all);
       h += `<div class="week"><div class="weekh">Week of ${esc(R.fmtDay(w))}<span>H ${t.H.m} min/${t.H.u} u · C ${t.C.m} min/${t.C.u} u${t.cb.n ? ` · CB ${t.cb.m} min` : ''}${t.site.n ? ` · on site ${R.hmin(t.site.m)}` : ''}</span></div>`;
       for (const k of ks) {
-        const l = days.get(k), d = R.totals(l), open = openDays.has(k);
-        h += `<button type="button" class="day" data-day="${k}" aria-expanded="${open}"><span class="d">${esc(R.fmtDay(k))}</span><span class="t">${d.H.n + d.C.n} enc · H ${d.H.m} min/${d.H.u} u · C ${d.C.m} min/${d.C.u} u${d.cb.n ? ` · CB ${d.cb.n}/${d.cb.m} min` : ''}${d.site.n ? ` · on site ${R.hmin(d.site.m)}` : ''}</span></button>`;
-        if (open) h += `<div class="daylist">${l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => card(e, true)).join('')}<div class="rowbtns"><button type="button" class="ghost" data-rep="${k}">Report / share this day</button></div></div>`;
+        const l = days.get(k), d = R.totals(l);
+        h += `<div class="dayg"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span><span class="t">${d.H.n + d.C.n} enc · H ${d.H.m}m/${d.H.u}u · C ${d.C.m}m/${d.C.u}u${d.cb.n ? ` · CB ${d.cb.n}/${d.cb.m}m` : ''}${d.site.n ? ` · on site ${R.hmin(d.site.m)}` : ''}</span><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>`;
+        h += `<div class="rows">${l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e)).join('')}</div></div>`;
       }
       h += '</div>';
     }
-    $('#histList').innerHTML = h;
-    $$('#histList .day').forEach(b => b.addEventListener('click', () => { const k = b.dataset.day; openDays.has(k) ? openDays.delete(k) : openDays.add(k); renderHistory(); }));
+    $('#histList').innerHTML = rowsHead + h;
     $$('#histList [data-rep]').forEach(b => b.addEventListener('click', () => openReport(b.dataset.rep, b.dataset.rep)));
     bindCards($('#histList'));
   }
@@ -190,6 +224,7 @@
     const d = new Date(); $('#clock').textContent = `${R.pad(d.getHours())}:${R.pad(d.getMinutes())}`;
     if (!S) return;
     for (const e of S.encs) { if (e.status !== 'run') continue; const ms = R.msOf(e), m = Math.floor(ms / 60000), u = R.units(m);
+      $$(`[data-rm="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = durTxt(e, m); });
       $$(`[data-t="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = fmtDur(ms); });
       $$(`[data-u="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = el.dataset.k === 'shift' ? R.hmin(m) + ' on site' : `${m} min · ${u} unit${u === 1 ? '' : 's'}`; }); }
     if (S && activeShift()) renderOnsiteInfo();
@@ -210,10 +245,34 @@
     if (codeCache[id]) return codeCache[id];
     const d = await (await fetch(`data/codes-${id}.json`)).json();
     const docs = d.codes.map(c => ({ id: c[3], c: { c: c[0], d: c[1], f: c[2], k: c[3] }, fields: { desc: c[1], code: c[0] } }));
-    const o = { meta: d.meta, codes: docs, index: new MBSearch.Index(docs, { desc: 3, code: 0.5 }, { phraseField: 'desc' }) };
+    const o = { meta: d.meta, codes: docs, index: new MBSearch.Index(docs, { desc: 3, code: 0.5 }, { phraseField: 'desc' }), byNorm: new Map() };
+    for (const x of docs) { o.byNorm.set(norm(x.c.c), x.c); o.byNorm.set(norm(x.c.k), x.c); }
     return (codeCache[id] = o);
   }
-  const norm = s => s.toUpperCase().replace(/[\s]+/g, '');
+  const norm = s => String(s || '').toUpperCase().replace(/[\s]+/g, '');
+  // Fee Desk link for a fee code: deep link only when the code is in the bundled list, else Fee Desk's home page
+  function fdCodeHref(code, prov) { const o = codeCache[PROVS.some(p => p.id === prov) ? prov : 'AB'], c = o && code && o.byNorm.get(norm(code)); return c ? FD + '#/code/' + encodeURIComponent(c.k) : FD; }
+  async function loadIcd() {
+    if (ICD) return ICD;
+    try {
+      const d = await (await fetch('data/icd9-AB.json')).json();
+      const list = d.codes.map(c => ({ id: c[0], c: { c: c[0], d: c[1] }, fields: { desc: c[1], code: c[0] } }));
+      ICD = { meta: d.meta, list, by: new Map(d.codes.map(c => [c[0], c[1]])), index: new MBSearch.Index(list, { desc: 3, code: 0.5 }, { phraseField: 'desc' }) };
+    } catch (e) { ICD = { meta: {}, list: [], by: new Map(), index: null }; }
+    return ICD;
+  }
+  const dxCode = v => { v = norm(v); return /^[A-Z0-9][A-Z0-9.\-]{0,9}$/.test(v) ? v : ''; };   // stored value: a code only (free text allowed, words are search only)
+  const dxDesc = v => (ICD && v && ICD.by.get(v)) || '';
+  function fdDxHref(v) { v = dxCode(v); return v && ICD && ICD.by.has(v) ? FD + '#/medres/' + encodeURIComponent(v) : FD + '#/icd9'; }
+  async function searchDx(q) {
+    const o = await loadIcd(); q = q.trim(); if (!q) return [];
+    const cq = norm(q), cd = cq.replace(/\./g, '');
+    if (/\d/.test(cq) && /^[A-Z0-9.\-]{1,10}$/.test(cq)) {
+      const pre = o.list.filter(d => d.c.c.startsWith(cq) || d.c.c.replace(/\./g, '').startsWith(cd));
+      if (pre.length) return pre.sort((a, b) => (a.c.c === cq ? -1 : 0) - (b.c.c === cq ? -1 : 0) || a.c.c.length - b.c.c.length).slice(0, 8).map(d => d.c);
+    }
+    return o.index ? o.index.search(q, { limit: 8 }).hits.map(h => h.doc.c) : [];
+  }
   async function searchCodes(q, prov) {
     const o = await codesFor(prov); q = q.trim(); if (!q) return [];
     const cq = norm(q);
@@ -239,16 +298,53 @@
     const m = R.minsOf({ segs: merged }); $('#eSum').textContent = `Total ${m} min · ${R.units(m)} units`;
     return merged;
   }
+  const fdA = (href, label, cls) => `<a class="${cls || 'fdl'}" href="${esc(href)}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" aria-label="${esc(label)}">Look up in Fee Desk</a>`;
   function renderChips() {
-    $('#eCodes').innerHTML = cur.codes.map((c, i) => `<div class="chip"><b>${esc(c.c)}</b><span class="cd" title="${esc(c.d)}">${esc(c.d || '')}</span><span class="cf">${esc(c.f || '')}</span><button type="button" class="x" data-i="${i}" aria-label="Remove code ${esc(c.c)}">✕</button></div>`).join('');
-    $$('#eCodes .x').forEach(b => b.onclick = () => { cur.codes.splice(+b.dataset.i, 1); renderChips(); });
+    const box = $('#eDxRes'); if ($('#eCodes').contains(box)) $('#eCodeRes').after(box);   // keep the suggestion box out of the list being redrawn
+    $('#eCodes').innerHTML = cur.codes.map((c, i) => `<div class="cdpair" data-i="${i}">
+      <div class="chip"><div class="cl1"><b>${esc(c.c)}</b><span class="cf">${esc(c.f || '')}</span></div><span class="cd" title="${esc(c.d)}">${esc(c.d || '')}</span>${fdA(fdCodeHref(c.k || c.c, c.j), `Look up ${c.c} in MedBilling Fee Desk (opens in a new tab)`)}<button type="button" class="x" data-i="${i}" aria-label="Remove code ${esc(c.c)}">✕</button></div>
+      <div class="dxcell"><input class="dxin" data-i="${i}" type="search" maxlength="40" value="${esc(c.dx || '')}" placeholder="ICD-9 code or words" aria-label="Diagnostic code (ICD-9) for ${esc(c.c)}" autocomplete="off" autocapitalize="characters" enterkeyhint="done"><span class="dxd" title="${esc(c.dxd || '')}">${esc(c.dxd || '')}</span>${fdA(fdDxHref(c.dx), `Look up diagnostic code ${c.dx || ''} in MedBilling Fee Desk (opens in a new tab)`)}</div></div>`).join('');
+    $$('#eCodes .x').forEach(b => b.onclick = () => { cur.codes.splice(+b.dataset.i, 1); $('#eDxRes').innerHTML = ''; renderChips(); });
+    $$('#eCodes .dxin').forEach(inp => bindDx(inp));
   }
+  // diagnostic code inputs (per fee code, and the one next to the code search): suggestions from the bundled ICD-9 list
+  let dxSeq = 0;
+  function dxTarget(inp) { return inp.id === 'eDxQ' ? null : cur.codes[+inp.dataset.i]; }
+  function dxSync(inp) {
+    const v = dxCode(inp.value), c = dxTarget(inp), cell = inp.closest('.dxcell, .cdcol'), a = cell && cell.querySelector('.fdl');
+    if (a) { a.href = fdDxHref(inp.value); a.setAttribute('aria-label', `Look up diagnostic code ${v} in MedBilling Fee Desk (opens in a new tab)`); }
+    if (c) { if (v) { c.dx = v; c.dxd = dxDesc(v); } else { delete c.dx; delete c.dxd; } const d = cell.querySelector('.dxd'); if (d) { d.textContent = c.dxd || ''; d.title = c.dxd || ''; } }
+  }
+  async function runDx(inp) {
+    const q = inp.value, seq = ++dxSeq, box = $('#eDxRes');
+    const anchor = inp.id === 'eDxQ' ? $('#eCodeRes') : inp.closest('.cdpair'); if (box.previousElementSibling !== anchor) anchor.after(box);
+    if (!q.trim()) { box.innerHTML = ''; return; }
+    const hits = await searchDx(q); if (seq !== dxSeq || !cur) return;
+    const typed = dxCode(q);
+    let h = hits.map((c, i) => `<button type="button" class="chit" data-i="${i}"><span class="cc">${esc(c.c)}</span><span class="cd">${esc(c.d)}</span><span class="cf"></span></button>`).join('');
+    if (typed && !hits.some(c => c.c === typed)) h += `<button type="button" class="chit" data-typed="1"><span class="cc">${esc(typed)}</span><span class="cd">Use as typed (not in the Alberta ICD-9 list)</span><span class="cf"></span></button>`;
+    if (!h) h = '<p class="small muted">No matching ICD-9 codes. Type the code, or use Look up in Fee Desk.</p>';
+    box.innerHTML = `<p class="dxh small muted">ICD-9 suggestions (Alberta Health list, via Fee Desk)</p>` + h;
+    box.querySelectorAll('.chit').forEach(b => b.onclick = () => {
+      const v = b.dataset.typed ? typed : hits[+b.dataset.i].c; inp.value = v; dxSync(inp); box.innerHTML = '';
+      if (inp.id !== 'eDxQ') renderChips(); toast(`Diagnostic code ${v}`);
+    });
+  }
+  function bindDx(inp) {
+    inp.addEventListener('input', () => { dxSync(inp); clearTimeout(runDx.t); runDx.t = setTimeout(() => runDx(inp), 160); });
+    inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); runDx(inp); } });
+    inp.addEventListener('focus', () => { loadIcd(); });
+    inp.addEventListener('blur', () => { const v = dxCode(inp.value); if (inp.value && v !== inp.value && v) { inp.value = v; dxSync(inp); } });
+  }
+  bindDx($('#eDxQ'));
+  function syncCodeLink() { const a = $('#eCodeFD'), q = $('#eCodeQ').value.trim(), href = fdCodeHref(q, $('#eProv').value); a.href = href; a.setAttribute('aria-label', href === FD ? 'Open MedBilling Fee Desk (opens in a new tab)' : `Look up ${q.toUpperCase()} in MedBilling Fee Desk (opens in a new tab)`); }
   async function showCredit() { const p = PROVS.find(x => x.id === $('#eProv').value) || PROVS[0]; $('#eCredit').textContent = p ? `${p.name} codes: ${p.title}${p.eff ? ' (' + p.eff + ')' : ''}. ${p.credit} Data from MedBilling Fee Desk; confirm in the official schedule.` : ''; }
   let searchSeq = 0;
   async function runCodeSearch() {
     const q = $('#eCodeQ').value, seq = ++searchSeq, prov = $('#eProv').value;
-    if (!q.trim()) { $('#eCodeRes').innerHTML = ''; return; }
+    if (!q.trim()) { $('#eCodeRes').innerHTML = ''; syncCodeLink(); return; }
     const hits = await searchCodes(q, prov); if (seq !== searchSeq) return;
+    syncCodeLink();
     let h = hits.map((c, i) => `<button type="button" class="chit" data-i="${i}"><span class="cc">${esc(c.c)}</span><span class="cd">${esc(c.d)}</span><span class="cf">${esc(c.f)}</span></button>`).join('');
     const typed = q.trim().toUpperCase();
     if (/^[A-Z0-9.\-]{2,12}$/.test(typed) && !hits.some(c => c.c.toUpperCase() === typed)) h += `<button type="button" class="chit" data-typed="1"><span class="cc">${esc(typed)}</span><span class="cd">Add as typed (not found in the ${esc(prov)} list)</span><span class="cf"></span></button>`;
@@ -256,13 +352,14 @@
     $('#eCodeRes').innerHTML = h;
     $$('#eCodeRes .chit').forEach(b => b.onclick = () => {
       const c = b.dataset.typed ? { j: prov, c: typed, d: '', f: '' } : (x => ({ j: prov, c: x.c, d: x.d, f: x.f }))(hits[+b.dataset.i]);
-      if (!cur.codes.some(x => x.c === c.c && x.j === c.j)) cur.codes.push(c);
-      renderChips(); $('#eCodeQ').value = ''; $('#eCodeRes').innerHTML = ''; toast(`Added ${c.c}`);
+      const pdx = dxCode($('#eDxQ').value); if (pdx) { c.dx = pdx; c.dxd = dxDesc(pdx); }   // diagnostic code typed next to the search goes with the new code
+      if (!cur.codes.some(x => x.c === c.c && x.j === c.j)) { cur.codes.push(c); if (pdx) { $('#eDxQ').value = ''; dxSync($('#eDxQ')); } }
+      renderChips(); $('#eCodeQ').value = ''; $('#eCodeRes').innerHTML = ''; $('#eDxRes').innerHTML = ''; syncCodeLink(); toast(`Added ${c.c}`);
     });
   }
   $('#eCodeQ').addEventListener('input', () => { clearTimeout(runCodeSearch.t); runCodeSearch.t = setTimeout(runCodeSearch, 180); });
   $('#eCodeQ').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); runCodeSearch(); } });
-  $('#eProv').addEventListener('change', async () => { showCredit(); runCodeSearch(); if (S && S.settings.prov !== $('#eProv').value) { S.settings.prov = $('#eProv').value; $('#defProv').value = S.settings.prov; saveSettings(); } });
+  $('#eProv').addEventListener('change', async () => { showCredit(); runCodeSearch(); codesFor($('#eProv').value).then(syncCodeLink); if (S && S.settings.prov !== $('#eProv').value) { S.settings.prov = $('#eProv').value; $('#defProv').value = S.settings.prov; saveSettings(); } });
   // photos
   async function thumbs() {
     const box = $('#ePhotos'); box.innerHTML = '';
@@ -339,7 +436,10 @@
     $('#eCbType').value = cur.cbType || 'return'; $('#eCalled').value = dtLocal(cur.called);
     eFac = cur.facility || null; showFac($('#eFacName'), eFac);
     $('#eMinor').checked = !!cur.minor; $('#eObs').checked = !!cur.obstetric; $('#eAge').value = Number.isFinite(cur.minorAge) ? cur.minorAge : ''; showRet();
-    fillProv($('#eProv'), S.settings.prov); showCredit(); $('#eCodeQ').value = ''; $('#eCodeRes').innerHTML = ''; renderChips();
+    fillProv($('#eProv'), S.settings.prov); showCredit(); $('#eCodeQ').value = ''; $('#eCodeRes').innerHTML = ''; $('#eDxRes').innerHTML = ''; $('#eDxQ').value = cur.dx || '';
+    renderChips(); dxSync($('#eDxQ')); syncCodeLink();
+    const jl = [...new Set([$('#eProv').value].concat(cur.codes.map(c => c.j || 'AB')))].map(j => codesFor(j).catch(() => null));
+    Promise.all(jl.concat(cur.codes.some(c => c.dx) || cur.dx ? [loadIcd()] : [])).then(() => { if (cur) { renderChips(); dxSync($('#eDxQ')); syncCodeLink(); } }).catch(() => {});
     $('#eSegs').innerHTML = cur.segs.map(segRow).join(''); bindSegs(); sumSegs(); $('#eErr').textContent = ''; $('#eWarn').hidden = true; $('#eSave').textContent = 'Save';
     const lt = lateText(cur); $('#eLate').hidden = !lt; $('#eLate').textContent = lt;
     $('#eDelete').hidden = !!fresh; $('#eHist').hidden = !!fresh; $('#ePhotos').innerHTML = ''; thumbs();
@@ -390,7 +490,8 @@
     if (k === 'enc') { cur.label = $('#eLabel').value.trim() || cur.label || 'Encounter'; cur.initials = $('#eInit').value.trim().toUpperCase(); cur.chart = $('#eChart').value.trim(); cur.setting = $('#eSetting').value; cur.type = $('#eType').value.trim(); }
     else { cur.setting = $('#eSetting2').value; }
     if (k === 'cb') { cur.cbType = $('#eCbType').value; cur.called = called; cur.links = $$('#eLinks input:checked').map(i => i.value); cur.label = cur.label || 'Call-back'; }
-    if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; }
+    if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; }
+    else applyPendingDx(cur);
     const open = segs[segs.length - 1].e == null;
     cur.status = open ? 'run' : (cur.status === 'run' ? 'pause' : (isNew ? 'done' : cur.status));
     if (k !== 'enc' && !open) cur.status = 'done';
@@ -402,6 +503,29 @@
     await saveEnc(cur, isNew ? 'create' : 'edit', isNew && cur.late ? 'Entered later (back-dated)' : (timesChanged && !isNew ? 'Times edited' : undefined));
     const lbl = k === 'shift' ? 'arrival / departure' : cur.label; await closeEdit(true); render(); toast(`Saved ${lbl}`);
   });
+  // a diagnostic code left in the field next to the code search: goes to the first fee code without one, else to the entry
+  function applyPendingDx(c) {
+    const v = dxCode($('#eDxQ').value), free = v && c.codes.find(x => !x.dx);
+    if (free) { free.dx = v; free.dxd = dxDesc(v); delete c.dx; } else if (v) c.dx = v; else delete c.dx;
+  }
+  // encrypted draft of an open entry, so a lock (e.g. after opening Fee Desk in a new tab) does not lose it
+  function editSnapshot() {
+    const c = clone(cur), segs = readSegs(), k = c.kind;
+    if (segs.length && segs.every(x => x.s != null)) c.segs = sumSegs() || segs;
+    c.facility = eFac; c.note = $('#eNote').value;
+    if (k === 'enc') { c.label = $('#eLabel').value; c.initials = $('#eInit').value; c.chart = $('#eChart').value; c.setting = $('#eSetting').value; c.type = $('#eType').value; } else c.setting = $('#eSetting2').value;
+    if (k !== 'shift') { c.minor = $('#eMinor').checked; c.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); c.minorAge = Number.isFinite(ag) ? ag : undefined; c.dx = $('#eDxQ').value; }
+    if (k === 'cb') { c.cbType = $('#eCbType').value; c.called = parseLocal($('#eCalled').value); c.links = $$('#eLinks input:checked').map(i => i.value); }
+    return { cur: c, isNew, addedPhotos, removedPhotos, at: Date.now() };
+  }
+  function restoreDraft(d) {
+    const c = d.cur, dx = c.dx; delete c.dx;
+    const orig = S.encs.find(x => x.id === c.id);
+    if (!d.isNew && !orig) return;   // entry no longer exists
+    openEdit(c, d.isNew);
+    if (dx) { $('#eDxQ').value = dx; dxSync($('#eDxQ')); }
+    addedPhotos = d.addedPhotos || []; removedPhotos = d.removedPhotos || [];
+  }
   $('#eDelete').onclick = async () => {
     if (!cur) return; const v = await ask({ title: 'Delete entry', text: `Delete "${cur.label || 'this entry'}"${cur.photos.length ? ' and its photos' : ''}? It disappears from your logs and reports, but a full copy stays in the encrypted audit log.`, ok: 'Delete', danger: true }); if (!v || !cur) return;
     for (const p of addedPhotos) await V.removePhoto(p);
@@ -433,7 +557,7 @@
     renderOnsiteInfo();
     const td = today(), list = S.encs.filter(e => kindOf(e) === 'shift' && R.encDay(e) === td).sort((a, b) => R.startOf(a) - R.startOf(b));
     let box = $('#osList'); if (!box) { box = document.createElement('div'); box.id = 'osList'; box.className = 'list'; $('#onsite').appendChild(box); }
-    box.innerHTML = list.filter(e => e.status !== 'run').map(e => card(e, true)).join(''); bindCards(box);
+    const dn = list.filter(e => e.status !== 'run'); box.innerHTML = dn.length ? `<div class="rows">${dn.map(e => rowHtml(e)).join('')}</div>` : ''; bindCards(box);
   }
   $('#osEdit').onclick = () => { const sh = activeShift(); if (sh) openEdit(sh); };
   $('#osFac').onclick = async () => {

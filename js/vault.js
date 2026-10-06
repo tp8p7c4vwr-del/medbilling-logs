@@ -56,6 +56,10 @@
   // settings (encrypted)
   async function loadSettings() { const k = need(); const r = await get('meta', 'settings'); return r ? decJSON(k, r) : {}; }
   async function saveSettings(s) { const k = need(); const o = await encJSON(k, s); return put('meta', { id: 'settings', iv: o.iv, ct: o.ct }); }
+  // unsaved entry draft (encrypted): kept when the app locks with the entry dialog open (e.g. after opening Fee Desk), restored on unlock
+  function saveDraft(d) { const k = need(); return encJSON(k, d).then(o => put('meta', { id: 'draft', iv: o.iv, ct: o.ct })); }
+  async function loadDraft() { const k = need(); const r = await get('meta', 'draft'); if (!r) return null; try { return await decJSON(k, r); } catch (e) { return null; } }
+  const clearDraft = () => del('meta', 'draft');
   // photos (encrypted JPEG bytes)
   async function savePhoto(id, eid, bytes, meta) { const k = need(); const o = await encBytes(k, bytes); const mo = await encJSON(k, meta || {}); return put('photo', { id, eid, iv: o.iv, ct: o.ct, miv: mo.iv, mct: mo.ct }); }
   async function loadPhoto(id) { const k = need(); const r = await get('photo', id); if (!r) return null; return decBytes(k, r); }
@@ -128,6 +132,7 @@
       for (const r of nAud) t.objectStore('audit').put(r);
       if (nAh) t.objectStore('meta').put({ id: 'auditHead', iv: nAh.iv, ct: nAh.ct });
       if (nAb) t.objectStore('meta').put({ id: 'auditBase', iv: nAb.iv, ct: nAb.ct });
+      t.objectStore('meta').delete('draft');
     });
     key = k1; return true;
   }
@@ -154,5 +159,5 @@
     key = null; if (db) { db.close(); db = null; }
     await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); });
   }
-  global.Vault = { exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
+  global.Vault = { saveDraft, loadDraft, clearDraft, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
 })(window);
