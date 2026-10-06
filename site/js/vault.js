@@ -1,4 +1,4 @@
-/* Med Billing Logs - encrypted local vault.
+/* MedBilling Logs - encrypted local vault.
    All encounter data, settings and photos are stored in IndexedDB encrypted with AES-GCM (256-bit).
    The key is derived from the passcode with PBKDF2-SHA-256 (600,000 iterations, random 16-byte salt)
    and kept only in memory while unlocked (non-extractable CryptoKey). The passcode is never stored.
@@ -146,11 +146,11 @@
     const salt = crypto.getRandomValues(new Uint8Array(16)), k = await derive(pass, salt, ITER);
     const audit = await loadAudit();
     const o = await encJSON(k, { encounters: encs, settings, photos, audit });
-    return { app: 'Med Billing Logs', kind: 'encrypted-backup', version: 1, created: new Date().toISOString(), kdf: 'PBKDF2-SHA-256', iter: ITER, cipher: 'AES-GCM-256',
+    return { app: 'MedBilling Logs', kind: 'encrypted-backup', version: 1, created: new Date().toISOString(), kdf: 'PBKDF2-SHA-256', iter: ITER, cipher: 'AES-GCM-256',
       salt: b64(salt), iv: b64(o.iv), ct: b64(new Uint8Array(o.ct)) };
   }
   async function openBackup(file, pass) {
-    if (!file || file.kind !== 'encrypted-backup' || !file.ct) throw new Error('Not a Med Billing Logs encrypted backup');
+    if (!file || file.kind !== 'encrypted-backup' || !file.ct) throw new Error('Not a MedBilling Logs encrypted backup');
     const k = await derive(pass, unb64(file.salt), file.iter || ITER);
     try { return await decJSON(k, { iv: unb64(file.iv), ct: unb64(file.ct) }); } catch (e) { return null; }
   }
