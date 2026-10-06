@@ -28,7 +28,17 @@
   // MedBilling Fee Desk (companion app). Deep links carry only a code that exists in the bundled lists (never free text,
   // so no patient identifier can end up in a URL): #/code/<fee code> and #/medres/<ICD-9 code> are Fee Desk's own routes.
   const FD = 'https://tp8p7c4vwr-del.github.io/delara-medbilling/';
+  const HO_KEY = 'medbilling.handoff.v1';   // shared with Fee Desk (same origin on gh-pages)
   let ICD = null;          // {meta, list, by, index} (Alberta Health ICD-9 list from Fee Desk, bundled)
+  // v9 patient fields (encrypted with the entry). Never put name/MRN in URLs or console logs.
+  const ptName = e => R.ptName(e);
+  const ptMrn = e => R.ptMrn(e);
+  const billingNoteOf = e => R.billingNoteOf(e);
+  const displayWho = e => { const k = kindOf(e); if (k === 'shift') return (e.facility && e.facility.n) || 'On site'; return R.ptWho(e) || (k === 'cb' ? 'Call-back' : 'Encounter'); };
+  const setMrn = (e, v) => { e.mrn = (v || '').trim(); e.chart = e.mrn; };   // keep chart mapped for older backups/exports
+  function hoRead() { try { return JSON.parse(localStorage.getItem(HO_KEY) || 'null'); } catch (e) { return null; } }
+  function hoWrite(o) { try { localStorage.setItem(HO_KEY, JSON.stringify(o)); } catch (e) { /* storage full/blocked */ } }
+  function hoClear() { try { localStorage.removeItem(HO_KEY); } catch (e) { /* ignore */ } }
   function toast(msg, ms) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms || 2200); }
   const fmtDur = ms => { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return `${h}:${R.pad(m)}:${R.pad(s % 60)}`; };
   const today = () => R.dayKey(Date.now());
@@ -103,6 +113,7 @@
     renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings(); abInit().catch(() => {});
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
     else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else checkLongTimers(); }
+    await applyHandoffResponse();
   }
   // v7: the single 280-character note of older versions becomes the first timestamped note (audit-logged, stays encrypted)
   async function migrateNotes() {
@@ -153,8 +164,10 @@
     ev.preventDefault(); if (!S) return;
     const now = Date.now(), n = S.encs.filter(e => R.encDay(e) === today()).length + 1;
     const sh = activeShift(), fac = sh ? sh.facility : S.settings.curFac;
-    const e = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: quickSet, facility: fac || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
-    await saveEnc(e, 'create'); $('#qLabel').value = ''; tab = 'today'; showTab(); render(); toast(`Started ${e.label}`);
+    const name = ($('#qName') && $('#qName').value || '').trim(), mrn = ($('#qMrn') && $('#qMrn').value || '').trim();
+    const e = { id: uid(), kind: 'enc', name, mrn, chart: mrn, label: '', initials: '', billingNote: '', setting: quickSet, facility: fac || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    if (!name && !mrn) e.label = `Encounter ${n}`;
+    await saveEnc(e, 'create'); if ($('#qName')) $('#qName').value = ''; if ($('#qMrn')) $('#qMrn').value = ''; tab = 'today'; showTab(); render(); toast(name ? 'Started encounter' : `Started Encounter ${n}`);
   });
   async function act(e, a, note) {
     const now = Date.now(), prev = clone(e);
@@ -165,50 +178,106 @@
     else if (a === 'stop') { if (l2 && l2.e == null) l2.e = now; e.status = 'done'; }
     else return;
     await saveEnc(e, a, note); render();
-    if (a === 'stop') snack(`Stopped ${e.label || R.KIND[kindOf(e)]}`, () => undoTo(prev, e, 'Stop undone'));
+    if (a === 'stop') snack(`Stopped ${displayWho(e)}`, () => undoTo(prev, e, 'Stop undone'));
   }
   function card(e, compact) {
-    const ms = R.msOf(e), m = Math.floor(ms / 60000), u = R.units(m), st = e.status;
-    const k = kindOf(e);
-    const meta = [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') + (e.called ? ' · called ' + R.hm(e.called) : '') : '', e.initials, e.chart && ('#' + e.chart), e.type, (e.codes || []).map(c => c.c).join(', '), R.dxShort(e) && 'Dx ' + R.dxShort(e).replace(/; /g, ', '), k !== 'shift' && e.facility && e.facility.n, `${R.hm(R.startOf(e))}${R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''}`, k === 'cb' && (e.links || []).length ? `${e.links.length} linked` : ''].filter(Boolean).join(' · ');
-    const late = e.late ? `<span class="badge late" title="Entered later${e.edits && e.edits.length ? '; last edited ' + R.tsTxt(e.edits[e.edits.length - 1]) : ''}">Entered later</span>` : '';
+    // Running/paused cards kept as a compact timer strip above the spreadsheet (phone-friendly Pause/Stop).
+    const ms = R.msOf(e), m = Math.floor(ms / 60000), st = e.status, k = kindOf(e);
+    const who = displayWho(e);
+    const meta = [ptMrn(e) && ('MRN ' + ptMrn(e)), k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') : '', (e.codes || []).map(c => c.c).join(', '), R.dxShort(e) && ('Dx ' + R.dxShort(e).replace(/; /g, ', ')), `${R.hm(R.startOf(e))}${R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''}`].filter(Boolean).join(' · ');
+    const late = e.late ? `<span class="badge late" title="Entered later">Entered later</span>` : '';
     const fsb = `<button type="button" class="ghost fsbtn" data-a="full" aria-label="Full-screen procedure timer" title="Full-screen timer">⛶</button>`;
     const acts = st === 'run' ? `<button type="button" class="pausebtn" data-a="pause">Pause</button><button type="button" class="stopbtn" data-a="stop">Stop</button>${k === 'enc' ? '<button type="button" class="ghost swbtn" data-a="switch" title="Stop this encounter and start the next one">Next pt</button>' : ''}${fsb}`
       : st === 'pause' ? `<button type="button" class="resumebtn" data-a="resume">Resume</button><button type="button" class="stopbtn" data-a="stop">Stop</button>${fsb}`
       : `<button type="button" class="ghost" data-a="editf">Edit</button><button type="button" class="ghost" data-a="resume">Continue</button>`;
     const wl = warnLvl(e);
     return `<div class="enc ${st} ${k}${wl ? ' w' + wl : ''}" data-id="${esc(e.id)}">
-      <div class="r1"><span class="lbl" data-a="edit">${esc(k === 'shift' ? (e.facility ? e.facility.n : 'On site') : (e.label || (k === 'cb' ? 'Call-back' : 'Encounter')))}</span>${(e.photos || []).length ? `<span class="pc">📷 ${e.photos.length}</span>` : ''}${late}${k === 'cb' ? '<span class="badge cb">Call-back</span>' : k === 'shift' ? '<span class="badge">On site</span>' : `<span class="badge ${e.setting}">${R.SET[e.setting]}</span>`}${st !== 'done' ? `<span class="badge st ${st}">${st === 'run' ? 'Running' : 'Paused'}</span>` : ''}</div>
+      <div class="r1"><span class="lbl" data-a="edit">${esc(who)}</span>${(e.photos || []).length ? `<span class="pc">📷 ${e.photos.length}</span>` : ''}${late}${k === 'cb' ? '<span class="badge cb">Call-back</span>' : k === 'shift' ? '<span class="badge">On site</span>' : `<span class="badge ${e.setting}">${R.SET[e.setting]}</span>`}${st !== 'done' ? `<span class="badge st ${st}">${st === 'run' ? 'Running' : 'Paused'}</span>` : ''}</div>
       <p class="meta" data-a="edit">${esc(meta)}</p>${noteLine(e)}
       <div class="timer" data-t="${esc(e.id)}">${st === 'done' ? m + ' min' : fmtDur(ms)}</div>
       <div class="units" data-u="${esc(e.id)}" data-k="${k}">${unitsHtml(e, m)}</div>
       ${st === 'run' && k !== 'shift' ? `<p class="lwarn" data-w="${esc(e.id)}"${wl ? '' : ' hidden'}>${warnHtml(e)}</p>` : ''}
       ${compact ? '' : `<div class="acts">${acts}</div>`}</div>`;
   }
-  function noteLine(e) { const ns = R.notesOf(e); if (!ns.length) return ''; const n = ns[ns.length - 1]; return `<p class="note" data-a="edit"><span class="nt">${R.hm(n.t)}</span> ${esc(n.x.length > 140 ? n.x.slice(0, 140) + '…' : n.x)}${ns.length > 1 ? ` <span class="nc">+${ns.length - 1} more</span>` : ''}</p>`; }
+  function noteLine(e) { const ns = R.notesOf(e); const bn = (e.billingNote || '').trim(); if (!bn && !ns.length) return ''; const x = bn || ns[ns.length - 1].x; return `<p class="note" data-a="edit">${esc(x.length > 140 ? x.slice(0, 140) + '…' : x)}${!bn && ns.length > 1 ? ` <span class="nc">+${ns.length - 1} more</span>` : ''}</p>`; }
   const ptCount = e => e.pt && S ? S.encs.filter(x => x.pt === e.pt).length : 0;
-  // compact one-line row: start time · duration · label/initials · billing code · diagnostic code (tap = details)
   const durTxt = (e, m) => kindOf(e) === 'shift' ? `${Math.floor(m / 60)}h${R.pad(m % 60)}` : `${m}m`;
+  const hmInput = ts => { if (ts == null) return ''; const d = new Date(ts); return `${R.pad(d.getHours())}:${R.pad(d.getMinutes())}`; };
+  // v9 spreadsheet row: editable patient / MRN / times / billing note / fee / dx; setting secondary; Fee Desk pick links
   function rowHtml(e, cont, more) {
     const ms = R.msOf(e), m = Math.floor(ms / 60000), k = kindOf(e), st = e.status, cs = e.codes || [], dx = R.dxList(e);
-    const who = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : [e.label || (k === 'cb' ? 'Call-back' : 'Encounter'), e.initials].filter(Boolean).join(' · ');
-    const badge = (st === 'run' ? '<i class="b run">Running</i>' : st === 'pause' ? '<i class="b pause">Paused</i>' : '') + (k === 'cb' ? '<i class="b cb">CB</i>' : k === 'shift' ? '<i class="b">On site</i>' : '') + (e.late ? '<i class="b late" title="Entered later">*</i>' : '') + ((e.photos || []).length ? `<i class="b">📷${e.photos.length}</i>` : '') + (ptCount(e) > 1 ? '<i class="b sp" title="Same patient as another encounter">↔</i>' : '') + (R.notesOf(e).length ? `<i class="b nb" title="${R.notesOf(e).length} note(s)">✎${R.notesOf(e).length > 1 ? R.notesOf(e).length : ''}</i>` : '');
-    const wl = warnLvl(e), en = R.endOf(e), fac = k === 'shift' ? '' : [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') : R.SET[e.setting], e.facility && e.facility.n].filter(Boolean).join(' · ');
-    const pp = k === 'shift' ? [] : R.periodSplit(e).parts;
-    // v6: extra cells (.xw) are shown only on tablet/desktop widths (>= 768px); the phone row is unchanged
-    return `<div class="erow ${st} rk-${k}${wl ? ' w' + wl : ''}" role="button" tabindex="0" data-id="${esc(e.id)}" aria-label="${esc(who)}, ${R.hm(R.startOf(e))}, open details">
-      <span class="t">${R.hm(R.startOf(e))}${perTags(e)}</span><span class="xw xe">${en ? R.hm(en) : st === 'done' ? '' : '…'}</span><span class="du" data-rm="${esc(e.id)}" data-k="${k}">${durTxt(e, m)}</span><span class="xw xu">${k === 'shift' ? '' : R.units(m) + ' u'}</span>
-      <span class="who">${esc(who)}${badge}</span><span class="xw xf" title="${esc(fac)}">${esc(fac)}</span>
-      <span class="fc" title="${esc(cs.map(c => c.c).join(', '))}">${cs.length ? esc(cs[0].c) + (cs.length > 1 ? `<small>+${cs.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
-      <span class="dx" title="${esc(dx.join(', '))}">${dx.length ? esc(dx[0]) + (dx.length > 1 ? `<small>+${dx.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
-      <span class="xw xp" title="${esc(R.perTxt(pp))}">${pp.length ? esc(R.perTxt(pp, true).replace(/ min\//g, 'm/').replace(/ u/g, 'u')) : ''}</span>
-      ${cont ? `<button type="button" class="cont" data-a="resume" aria-label="Continue ${esc(who)}" title="Continue">▶</button>` : more ? `<button type="button" class="rmore" data-a="more" aria-label="Actions for ${esc(who)}" title="Add time, add note, same patient, edit">⋯</button>` : ''}</div>`;
+    const who = displayWho(e), nameVal = ptName(e), mrnVal = ptMrn(e), noteVal = billingNoteOf(e);
+    const feeVal = cs.map(c => c.c).join(', '), dxVal = dx.join(', ');
+    const badge = (st === 'run' ? '<i class="b run">Running</i>' : st === 'pause' ? '<i class="b pause">Paused</i>' : '') + (k === 'cb' ? '<i class="b cb">CB</i>' : k === 'shift' ? '<i class="b">On site</i>' : '') + (e.late ? '<i class="b late" title="Entered later">*</i>' : '') + ((e.photos || []).length ? `<i class="b">📷${e.photos.length}</i>` : '') + (ptCount(e) > 1 ? '<i class="b sp" title="Same patient as another encounter">↔</i>' : '') + (R.notesOf(e).length || (e.billingNote || '').trim() ? `<i class="b nb" title="Has notes">✎</i>` : '');
+    const wl = warnLvl(e), en = R.endOf(e);
+    const fac = k === 'shift' ? '' : [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') : R.SET[e.setting], e.facility && e.facility.n].filter(Boolean).join(' · ');
+    const migHint = !nameVal && (e.label || e.initials) ? ` title="Migrated: ${esc([e.label, e.initials].filter(Boolean).join(' · '))}"` : '';
+    const migMrn = !ptName(e) && !e.mrn && e.chart ? ' title="From older chart field"' : '';
+    const editable = k !== 'shift';
+    const nameCell = editable
+      ? `<input class="cell cn" data-f="name" maxlength="80" value="${esc(nameVal)}" placeholder="${esc(nameVal ? '' : (e.label || e.initials || 'Patient'))}" aria-label="Patient name"${migHint} autocomplete="off">`
+      : `<span class="who">${esc(who)}${badge}</span>`;
+    const mrnCell = editable
+      ? `<input class="cell cm" data-f="mrn" maxlength="24" value="${esc(mrnVal)}" placeholder="MRN / PHN" aria-label="MRN or healthcare number"${migMrn} autocomplete="off" inputmode="text">`
+      : '<span class="nil">–</span>';
+    const tinCell = `<input class="cell ct" data-f="tin" type="time" value="${hmInput(R.startOf(e))}" aria-label="Time in">`;
+    const toutCell = st !== 'done' && en == null
+      ? `<span class="xe live">…</span>`
+      : `<input class="cell ct" data-f="tout" type="time" value="${hmInput(en)}" aria-label="Time out">`;
+    const feeCell = editable
+      ? `<span class="ccode"><input class="cell cf" data-f="fee" maxlength="40" value="${esc(feeVal)}" placeholder="Fee" aria-label="Billing fee code(s)" autocomplete="off"><button type="button" class="pickfd" data-kind="fee" title="Pick in Fee Desk" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<a class="fdmini" href="${esc(fdCodeHref(cs[0] && (cs[0].k || cs[0].c), cs[0] && cs[0].j || S.settings.prov))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk">ⓘ</a>` : ''}</span>`
+      : '<span class="nil">–</span>';
+    const dxCell = editable
+      ? `<span class="ccode"><input class="cell cdx" data-f="dx" maxlength="40" value="${esc(dxVal)}" placeholder="Dx" aria-label="Diagnostic ICD-9 code(s)" autocomplete="off" autocapitalize="characters"><button type="button" class="pickfd" data-kind="dx" title="Pick in Fee Desk" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<a class="fdmini" href="${esc(fdDxHref(dx[0]))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk">ⓘ</a>` : ''}</span>`
+      : '<span class="nil">–</span>';
+    const noteCell = editable
+      ? `<input class="cell cnote" data-f="billingNote" maxlength="200" value="${esc(noteVal)}" placeholder="Billing note" aria-label="Billing notes" autocomplete="off">`
+      : '<span class="nil">–</span>';
+    const acts = cont && st === 'done' ? `<button type="button" class="cont" data-a="resume" aria-label="Continue" title="Continue">▶</button>`
+      : st === 'run' ? `<button type="button" class="cont stopmini" data-a="stop" title="Stop">■</button>`
+      : st === 'pause' ? `<button type="button" class="cont" data-a="resume" title="Resume">▶</button>`
+      : more ? `<button type="button" class="rmore" data-a="more" aria-label="Actions" title="Add time, note, same patient, edit">⋯</button>` : '';
+    return `<div class="erow ${st} rk-${k}${wl ? ' w' + wl : ''}" data-id="${esc(e.id)}" role="row">
+      <span class="cname">${nameCell}${badge && editable ? badge : ''}</span>
+      <span class="cmrn">${mrnCell}</span>
+      <span class="t">${tinCell}${perTags(e)}</span>
+      <span class="xe">${toutCell}</span>
+      <span class="du" data-rm="${esc(e.id)}" data-k="${k}" title="${k === 'shift' ? '' : R.units(m) + ' units'}">${st === 'run' ? fmtDur(ms) : durTxt(e, m)}${k === 'shift' ? '' : `<small>${R.units(m)}u</small>`}</span>
+      <span class="cnote">${noteCell}</span>
+      <span class="fc">${feeCell}</span>
+      <span class="dx">${dxCell}</span>
+      <span class="xf" title="${esc(fac)}">${esc(fac)}</span>
+      <span class="ra">${acts}<button type="button" class="rmore" data-a="open" aria-label="Open details" title="Details">⧉</button></span></div>`;
   }
-  const rowsHead = '<div class="erowh" aria-hidden="true"><span>Start</span><span class="xw">End</span><span>Time</span><span class="xw">Units</span><span>Label · initials</span><span class="xw">Setting · facility</span><span>Billing</span><span>Dx</span><span class="xw">Time periods</span></div>';
+  const rowsHead = '<div class="erowh" aria-hidden="true"><span>Patient</span><span>MRN / PHN</span><span>In</span><span>Out</span><span>Time</span><span>Billing notes</span><span>Fee code</span><span>Dx</span><span class="xfh">Setting</span><span></span></div>';
   function bindCards(root) {
     root.querySelectorAll('.erow').forEach(el => {
-      const go = ev => { if (el.dataset.lp) { delete el.dataset.lp; return; } const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return; const a = ev.target.closest('[data-a]'); if (a && a.dataset.a === 'resume') { ev.stopPropagation(); return act(e, 'resume'); } if (a && a.dataset.a === 'more') { ev.stopPropagation(); return openRowMenu(e); } openEdit(e); };
-      el.addEventListener('click', go); longPress(el); el.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(ev); } });
+      longPress(el);
+      el.addEventListener('click', ev => {
+        if (el.dataset.lp) { delete el.dataset.lp; return; }
+        const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return;
+        const a = ev.target.closest('[data-a]');
+        if (a && a.dataset.a === 'resume') { ev.stopPropagation(); return act(e, 'resume'); }
+        if (a && a.dataset.a === 'stop') { ev.stopPropagation(); return act(e, 'stop'); }
+        if (a && a.dataset.a === 'more') { ev.stopPropagation(); return openRowMenu(e); }
+        if (a && a.dataset.a === 'open') { ev.stopPropagation(); return openEdit(e); }
+        if (ev.target.closest('.cell, .pickfd, .fdmini, a, button, input')) return;
+        openEdit(e);
+      });
+      el.addEventListener('keydown', ev => {
+        if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === el) { ev.preventDefault(); openEdit(S.encs.find(x => x.id === el.dataset.id)); }
+      });
+      el.querySelectorAll('.cell').forEach(inp => {
+        inp.addEventListener('click', ev => ev.stopPropagation());
+        inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); } ev.stopPropagation(); });
+        inp.addEventListener('change', () => cellSave(el.dataset.id, inp.dataset.f, inp.value));
+        inp.addEventListener('blur', () => { if (inp.dataset.dirty) { delete inp.dataset.dirty; cellSave(el.dataset.id, inp.dataset.f, inp.value); } });
+        inp.addEventListener('input', () => { inp.dataset.dirty = '1'; });
+      });
+      el.querySelectorAll('.pickfd').forEach(b => b.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const e = S && S.encs.find(x => x.id === el.dataset.id); if (e) pickInFeeDesk(e, b.dataset.kind);
+      }));
     });
     root.querySelectorAll('.enc').forEach(el => el.addEventListener('click', ev => {
       const a = ev.target.closest('[data-a]'); const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return;
@@ -220,6 +289,95 @@
       act(e, a.dataset.a);
     }));
   }
+  async function cellSave(id, field, raw) {
+    if (!S || !field) return;
+    const e0 = S.encs.find(x => x.id === id); if (!e0) return;
+    const e = clone(e0), v = String(raw == null ? '' : raw).trim();
+    let note;
+    if (field === 'name') { if ((e.name || '') === v) return; e.name = v; note = 'Patient name edited in spreadsheet'; }
+    else if (field === 'mrn') { if (ptMrn(e) === v) return; setMrn(e, v); note = 'MRN/PHN edited in spreadsheet'; }
+    else if (field === 'billingNote') { if ((e.billingNote || '') === v) return; e.billingNote = v; note = 'Billing note edited in spreadsheet'; }
+    else if (field === 'tin' || field === 'tout') {
+      if (!/^\d{2}:\d{2}$/.test(v) && !(field === 'tout' && !v)) return;
+      const segs = clone(e.segs || []); if (!segs.length) return;
+      const applyHm = (ts, hm) => { const d = new Date(ts), [hh, mm] = hm.split(':').map(Number); d.setHours(hh, mm, 0, 0); return d.getTime(); };
+      if (field === 'tin') { const ns = applyHm(segs[0].s, v); if (ns === segs[0].s) return; segs[0].s = ns; e.late = true; e.edits = (e.edits || []).concat(Date.now()); note = 'Time in edited in spreadsheet'; }
+      else {
+        const last = segs[segs.length - 1];
+        if (!v) { if (last.e == null) return; last.e = null; e.status = 'run'; note = 'Time out cleared (running)'; }
+        else { const base = last.e != null ? last.e : Date.now(); const ne = applyHm(base, v); if (ne === last.e) return; if (ne <= segs[0].s) return toast('Out must be after In'); last.e = ne; if (e.status === 'run') e.status = 'done'; e.late = true; e.edits = (e.edits || []).concat(Date.now()); note = 'Time out edited in spreadsheet'; }
+      }
+      e.segs = segs;
+    } else if (field === 'fee') {
+      const parts = v.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+      const prev = (e.codes || []).map(c => c.c).join(', ');
+      if (parts.join(', ') === prev) return;
+      const prov = S.settings.prov || 'AB';
+      await codesFor(prov).catch(() => null);
+      const o = codeCache[prov];
+      e.codes = parts.map((c, i) => {
+        const old = (e0.codes || [])[i] || {};
+        const hit = o && o.byNorm.get(norm(c));
+        return hit ? Object.assign({}, old, { c: hit.c || hit.k || c, k: hit.k || c, d: hit.d || old.d || '', j: prov, f: hit.f || old.f || '', dx: old.dx, dxd: old.dxd })
+          : Object.assign({}, old, { c: c.toUpperCase(), k: c.toUpperCase(), d: old.d || '', j: old.j || prov });
+      });
+      note = 'Fee code(s) edited in spreadsheet';
+    } else if (field === 'dx') {
+      const parts = v.split(/[,;]+/).map(s => dxCode(s) || s.trim().toUpperCase()).filter(Boolean);
+      const prev = R.dxList(e).join(', ');
+      if (parts.join(', ') === prev) return;
+      await loadIcd().catch(() => null);
+      if (!(e.codes || []).length) { e.dx = parts[0] || ''; if (!e.dx) delete e.dx; }
+      else {
+        e.codes = e.codes.map((c, i) => { const x = Object.assign({}, c); if (parts[i]) { x.dx = parts[i]; x.dxd = dxDesc(parts[i]); } else if (i === 0 && parts[0]) { x.dx = parts[0]; x.dxd = dxDesc(parts[0]); } else if (!parts.length) { delete x.dx; delete x.dxd; } return x; });
+        if (parts.length && e.codes[0] && !e.codes[0].dx) { e.codes[0].dx = parts[0]; e.codes[0].dxd = dxDesc(parts[0]); }
+        delete e.dx;
+      }
+      note = 'Diagnostic code(s) edited in spreadsheet';
+    } else return;
+    await saveEnc(e, 'edit', note); render();
+  }
+  function pickInFeeDesk(e, kind) {
+    if (!e || !kind) return;
+    // Deep link carries only fee/dx route — never patient identifiers
+    hoWrite({ v: 1, op: 'request', kind, code: '', desc: '', encounterId: e.id, field: kind === 'fee' ? 'fee' : 'dx', from: 'logs', ts: Date.now() });
+    const href = kind === 'dx' ? FD + '#/icd9' : FD;
+    pickStart();
+    window.open(href, '_blank', 'noopener,noreferrer');
+    toast(kind === 'dx' ? 'Pick a diagnostic code in Fee Desk, then return here' : 'Pick a fee code in Fee Desk, then return here', 3500);
+  }
+  async function applyHandoffResponse() {
+    if (!S) return;
+    const h = hoRead();
+    if (!h || h.v !== 1 || h.op !== 'response' || h.from !== 'feedesk') return;
+    const e0 = S.encs.find(x => x.id === h.encounterId);
+    if (!e0 || !h.code) { hoClear(); return; }
+    const e = clone(e0), code = String(h.code).trim(), desc = String(h.desc || '').trim();
+    if (h.kind === 'fee') {
+      const prov = S.settings.prov || 'AB';
+      await codesFor(prov).catch(() => null);
+      const o = codeCache[prov], hit = o && o.byNorm.get(norm(code));
+      const row = hit ? { c: hit.c || hit.k || code, k: hit.k || code, d: hit.d || desc, j: prov, f: hit.f || '' }
+        : { c: code, k: code, d: desc, j: prov, f: '' };
+      e.codes = e.codes || [];
+      if (e.codes[0]) { const dx = e.codes[0].dx, dxd = e.codes[0].dxd; e.codes[0] = Object.assign({}, e.codes[0], row); if (dx) { e.codes[0].dx = dx; e.codes[0].dxd = dxd; } }
+      else e.codes.push(row);
+      await saveEnc(e, 'edit', 'Fee code from Fee Desk');
+      toast('Fee code applied');
+    } else if (h.kind === 'dx') {
+      await loadIcd().catch(() => null);
+      const v = dxCode(code) || code.toUpperCase();
+      e.codes = e.codes || [];
+      if (e.codes[0]) { e.codes[0] = Object.assign({}, e.codes[0], { dx: v, dxd: desc || dxDesc(v) }); delete e.dx; }
+      else { e.dx = v; }
+      await saveEnc(e, 'edit', 'Diagnostic code from Fee Desk');
+      toast('Diagnostic code applied');
+    } else { hoClear(); return; }
+    hoClear(); render();
+  }
+  window.addEventListener('focus', () => { if (S) applyHandoffResponse(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S) applyHandoffResponse(); });
+
   // v7: long-press (or right-click) on a row opens the quick-action sheet
   function longPress(el) {
     let t = null, x0 = 0, y0 = 0;
@@ -240,7 +398,10 @@
     const list = S.encs.filter(e => kindOf(e) !== 'shift' && (R.encDay(e) === td || e.status !== 'done')).sort((a, b) => (a.status === 'done') - (b.status === 'done') || R.startOf(b) - R.startOf(a));
     renderStrip('today'); renderTrackAgain();
     const live = list.filter(e => e.status !== 'done'), done = list.filter(e => e.status === 'done');
-    $('#todayList').innerHTML = list.length ? live.map(e => card(e)).join('') + (done.length ? `<div class="rows">${rowsHead}${done.map(e => rowHtml(e, true)).join('')}</div>` : '') : '<div class="empty">No encounters yet today. Enter a room or bed below and tap <b>Start</b>.</div>';
+    // v9: spreadsheet is the main path; running cards stay above for one-tap Pause/Stop on phone
+    const grid = list.length ? `<div class="rows sheet">${rowsHead}${list.map(e => rowHtml(e, true, true)).join('')}</div>` : '';
+    const liveCards = live.length ? `<div class="livecards">${live.map(e => card(e)).join('')}</div>` : '';
+    $('#todayList').innerHTML = list.length ? liveCards + grid : '<div class="empty">No encounters yet today. Enter a patient name and/or MRN below and tap <b>Start</b>.</div>';
     bindCards($('#todayList'));
     $('#unitsNote').textContent = R.UNITS_NOTE;
     renderHistory(); renderRetention(); renderPbar(); renderPeriodSettings();
@@ -264,7 +425,7 @@
         const hol = R.holidayName(k);
         h += `<div class="dayg" id="d-${k}"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span>${hol ? `<i class="holb" title="${esc(hol)}">Holiday</i>` : ''}${rv[k] ? '<i class="rvb" title="Reviewed">✎ Reviewed</i>' : re[k] ? '<i class="rve" title="An entry changed after this day was reviewed">Edited after review</i>' : ''}<span class="sp"></span><button type="button" class="linkbtn sm" data-tl="${k}">Timeline</button><button type="button" class="linkbtn sm" data-rv="${k}">Review</button><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>
           <div class="dayt">${d.H.n + d.C.n} enc · H ${d.H.m}m/${d.H.u}u · C ${d.C.m}m/${d.C.u}u${d.cb.n ? ` · CB ${d.cb.n}/${d.cb.m}m` : ''}${d.site.n ? ` · on site ${R.hmin(d.site.m)}` : ''}${perShort(d)}</div>`;
-        h += `<div class="rows">${l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e, false, true)).join('')}</div></div>`;
+        h += `<div class="rows sheet">${l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e, false, true)).join('')}</div></div>`;
       }
       h += '</div>';
     }
@@ -280,7 +441,7 @@
     const d = new Date(); $('#clock').textContent = `${R.pad(d.getHours())}:${R.pad(d.getMinutes())}`;
     if (!S) return;
     for (const e of S.encs) { if (e.status !== 'run') continue; const ms = R.msOf(e), m = Math.floor(ms / 60000), u = R.units(m);
-      $$(`[data-rm="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = durTxt(e, m); });
+      $$(`[data-rm="${CSS.escape(e.id)}"]`).forEach(el => { el.innerHTML = `${fmtDur(ms)}<small>${R.units(m)}u</small>`; });
       $$(`[data-t="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = fmtDur(ms); });
       $$(`[data-u="${CSS.escape(e.id)}"]`).forEach(el => { el.innerHTML = unitsHtml(e, m); });
       if (kindOf(e) !== 'shift') { const wl = warnLvl(e); $$(`.enc[data-id="${CSS.escape(e.id)}"], .erow[data-id="${CSS.escape(e.id)}"]`).forEach(el => { el.classList.toggle('wa', wl === 'a'); el.classList.toggle('wr', wl === 'r'); });
@@ -495,7 +656,7 @@
     opt = opt || {};
     isNew = !!fresh; calledTouched = !fresh; cur = clone(e); cur.kind = kindOf(cur); cur.codes = cur.codes || []; cur.photos = cur.photos || []; cur.links = cur.links || []; cur.notes = clone(R.notesOf(cur)); delete cur.note; addedPhotos = []; removedPhotos = []; overlapOk = false;
     $('#eKind').hidden = !fresh;
-    $('#eLabel').value = cur.label || ''; $('#eInit').value = cur.initials || ''; $('#eChart').value = cur.chart || '';
+    $('#eName').value = cur.name || ''; $('#eLabel').value = cur.label || ''; $('#eInit').value = cur.initials || ''; $('#eChart').value = ptMrn(cur); $('#eBillNote').value = cur.billingNote || '';
     $('#eSetting').value = cur.setting || 'H'; $('#eSetting2').value = cur.setting || 'H'; $('#eType').value = cur.type || '';
     $('#eCbType').value = cur.cbType || 'return'; $('#eCalled').value = dtLocal(cur.called);
     eFac = cur.facility || null; showFac($('#eFacName'), eFac);
@@ -538,7 +699,7 @@
     const rows = [];
     rows.push(['When', `${R.fmtDay(R.encDay(e))}<br>${esc(segs)}${(e.segs || []).length > 1 ? ` <span class="muted">(${e.segs.length} segments)</span>` : ''}`]);
     rows.push(['Time', k === 'shift' ? esc(R.hmin(m)) + ' on site' : `<b>${m} min · ${R.units(m)} unit${R.units(m) === 1 ? '' : 's'}</b>${st === 'run' ? ' <span class="badge st run">Running</span>' : st === 'pause' ? ' <span class="badge st pause">Paused</span>' : ''}${pp.length ? `<br><span class="muted">${esc(R.perTxt(pp))}</span>` : ''}`]);
-    if (k === 'enc') rows.push(['Patient', [e.label && `<b>${esc(e.label)}</b>`, e.initials && esc(e.initials), e.chart && 'Chart ' + esc(e.chart)].filter(Boolean).join(' · ') || '<span class="muted">–</span>']);
+    if (k === 'enc') rows.push(['Patient', [ptName(e) && `<b>${esc(ptName(e))}</b>`, e.label && esc(e.label), e.initials && esc(e.initials), ptMrn(e) && 'MRN ' + esc(ptMrn(e))].filter(Boolean).join(' · ') || '<span class="muted">–</span>']);
     if (k === 'cb') rows.push(['Call-back', esc([R.CBT[e.cbType] || 'Call-back', e.called && 'called ' + R.hm(e.called)].filter(Boolean).join(' · '))]);
     rows.push(['Setting', esc([R.SET[e.setting], k === 'enc' && e.type, e.facility && e.facility.n].filter(Boolean).join(' · ')) || '<span class="muted">–</span>']);
     if (k !== 'shift') {
@@ -596,12 +757,12 @@
     if (stop) { const l = src.segs[src.segs.length - 1]; if (l && l.e == null) l.e = now; src.status = 'done'; }
     src.pt = group;
     if (stop || linkNew) await saveEnc(src, stop ? 'stop' : 'link', stop ? 'Stopped to start a new encounter for the same patient' : 'Linked: same patient, new encounter');
-    const ne = { id: uid(), kind: 'enc', label: e.label && kindOf(e) === 'enc' ? e.label : (e.label && e.label !== 'Call-back' ? e.label : 'Encounter'), initials: e.initials || '', chart: e.chart || '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], links: [], pt: group, ptFrom: e.id, created: now, updated: now };
+    const ne = { id: uid(), kind: 'enc', name: e.name || '', mrn: ptMrn(e), chart: ptMrn(e), billingNote: '', label: e.label && kindOf(e) === 'enc' ? e.label : (e.label && e.label !== 'Call-back' ? e.label : ''), initials: e.initials || '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], links: [], pt: group, ptFrom: e.id, created: now, updated: now };
     if (e.minor) { ne.minor = true; if (Number.isFinite(e.minorAge)) ne.minorAge = e.minorAge; }
     if (e.obstetric) ne.obstetric = true;
-    await saveEnc(ne, 'create', `Same patient as ${e.label || R.KIND[kindOf(e)]} ${R.hm(R.startOf(e))} (linked). Room/label, initials and chart carried over; codes left blank.`);
+    await saveEnc(ne, 'create', `Same patient as prior encounter ${R.hm(R.startOf(e))} (linked). Name, MRN, label and initials carried over; codes left blank.`);
     tab = 'today'; showTab(); render();
-    snack(`Started ${ne.label} · same patient`, async () => {
+    snack(`Started same patient`, async () => {
       const a = S.encs.find(x => x.id === src.id), b = S.encs.find(x => x.id === ne.id);
       if (!a || ((stop || linkNew) && a.updated !== src.updated) || (b && b.updated !== ne.updated)) return toast('Not undone: an entry changed');
       if (b) await deleteEnc(b, 'Same-patient encounter undone'); if (stop || linkNew) await saveEnc(clone(prev), 'undo', 'Same-patient encounter undone'); render(); toast('Undone');
@@ -643,8 +804,8 @@
   let rmEnt = null;
   function openRowMenu(e) {
     rmEnt = e; const k = kindOf(e);
-    $('#rmTitle').textContent = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : (e.label || R.KIND[k]);
-    $('#rmSub').textContent = [R.fmtDay(R.encDay(e)), R.hm(R.startOf(e)) + (R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''), e.initials, (e.codes || []).map(c => c.c).join(', ')].filter(Boolean).join(' · ');
+    $('#rmTitle').textContent = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : displayWho(e);
+    $('#rmSub').textContent = [R.fmtDay(R.encDay(e)), R.hm(R.startOf(e)) + (R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''), ptMrn(e), (e.codes || []).map(c => c.c).join(', ')].filter(Boolean).join(' · ');
     $('#rmSame').hidden = k === 'shift';
     const d = $('#rowMenu'); if (!d.open) d.showModal();
   }
@@ -700,7 +861,7 @@
     const timesChanged = prev ? st(prev) !== st({ segs }) : true;
     cur.segs = segs; cur.facility = eFac; cur.notes = clone((stored() && !isNew ? R.notesOf(stored()) : cur.notes) || []); delete cur.note;
     if (k !== 'shift') { cur.minor = $('#eMinor').checked; cur.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); cur.minorAge = cur.minor && Number.isFinite(ag) && ag >= 0 && ag < 18 ? ag : undefined; }
-    if (k === 'enc') { cur.label = $('#eLabel').value.trim() || cur.label || 'Encounter'; cur.initials = $('#eInit').value.trim().toUpperCase(); cur.chart = $('#eChart').value.trim(); cur.setting = $('#eSetting').value; cur.type = $('#eType').value.trim(); }
+    if (k === 'enc') { cur.name = ($('#eName') && $('#eName').value || '').trim(); cur.label = $('#eLabel').value.trim(); cur.initials = $('#eInit').value.trim().toUpperCase(); setMrn(cur, $('#eChart').value); cur.billingNote = ($('#eBillNote') && $('#eBillNote').value || '').trim(); cur.setting = $('#eSetting').value; cur.type = $('#eType').value.trim(); if (!cur.name && !cur.label) cur.label = 'Encounter'; }
     else { cur.setting = $('#eSetting2').value; }
     if (k === 'cb') { cur.cbType = $('#eCbType').value; cur.called = called; cur.links = $$('#eLinks input:checked').map(i => i.value); cur.label = cur.label || 'Call-back'; }
     if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; }
@@ -714,7 +875,7 @@
     if (!isNew) cur.edits = (cur.edits || []).concat(Date.now());
     for (const p of removedPhotos) await V.removePhoto(p);
     await saveEnc(cur, isNew ? 'create' : 'edit', isNew && cur.late ? 'Entered later (back-dated)' : (timesChanged && !isNew ? 'Times edited' : undefined));
-    const lbl = k === 'shift' ? 'arrival / departure' : cur.label; await closeEdit(true); render(); toast(`Saved ${lbl}`);
+    const lbl = k === 'shift' ? 'arrival / departure' : 'entry'; await closeEdit(true); render(); toast(`Saved ${lbl}`);
   });
   // a diagnostic code left in the field next to the code search: goes to the first fee code without one, else to the entry
   function applyPendingDx(c) {
@@ -726,7 +887,7 @@
     const c = clone(cur), segs = readSegs(), k = c.kind;
     if (segs.length && segs.every(x => x.s != null)) c.segs = sumSegs() || segs;
     c.facility = eFac; c.notes = clone(cur.notes || []); if ($('#eNoteText').value.trim()) c.noteDraft = $('#eNoteText').value;
-    if (k === 'enc') { c.label = $('#eLabel').value; c.initials = $('#eInit').value; c.chart = $('#eChart').value; c.setting = $('#eSetting').value; c.type = $('#eType').value; } else c.setting = $('#eSetting2').value;
+    if (k === 'enc') { c.name = $('#eName') ? $('#eName').value : ''; c.label = $('#eLabel').value; c.initials = $('#eInit').value; c.mrn = $('#eChart').value; c.chart = $('#eChart').value; c.billingNote = $('#eBillNote') ? $('#eBillNote').value : ''; c.setting = $('#eSetting').value; c.type = $('#eType').value; } else c.setting = $('#eSetting2').value;
     if (k !== 'shift') { c.minor = $('#eMinor').checked; c.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); c.minorAge = Number.isFinite(ag) ? ag : undefined; c.dx = $('#eDxQ').value; }
     if (k === 'cb') { c.cbType = $('#eCbType').value; c.called = parseLocal($('#eCalled').value); c.links = $$('#eLinks input:checked').map(i => i.value); }
     return { cur: c, isNew, addedPhotos, removedPhotos, at: Date.now(), mode: $('#editDlg').dataset.mode };
@@ -746,9 +907,9 @@
     for (const p of addedPhotos) await V.removePhoto(p);
     const gone = clone(S.encs.find(x => x.id === cur.id) || cur), ph = await deleteEnc(cur, '', true); addedPhotos = []; await closeEdit(true); render();
     const tm = setTimeout(() => { photoDel.delete(tm); ph.forEach(p => V.removePhoto(p)); }, 6000); photoDel.set(tm, ph);
-    snack(`Deleted ${gone.label || R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
+    snack(`Deleted ${R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
   };
-  const blank = (k, s, e) => ({ id: uid(), kind: k, label: '', initials: '', chart: '', setting: k === 'enc' ? S.settings.defSetting : 'H', facility: (activeShift() || {}).facility || S.settings.curFac || null, type: '', codes: [], notes: [], segs: [{ s, e }], status: e == null ? 'run' : 'done', photos: [], links: [], created: Date.now() });
+  const blank = (k, s, e) => ({ id: uid(), kind: k, name: '', mrn: '', billingNote: '', label: '', initials: '', chart: '', setting: k === 'enc' ? S.settings.defSetting : 'H', facility: (activeShift() || {}).facility || S.settings.curFac || null, type: '', codes: [], notes: [], segs: [{ s, e }], status: e == null ? 'run' : 'done', photos: [], links: [], created: Date.now() });
   $('#manualBtn').onclick = () => { const s = Date.now() - 30 * 60000; const e = blank('enc', s, s + 30 * 60000); e.late = true; openEdit(e, true); };
   $('#cbBtn').onclick = () => { const now = Date.now(); const e = blank('cb', now, null); e.called = now; e.cbType = 'return'; e.setting = 'H'; openEdit(e, true); };
   // entry history (from the audit log)
@@ -1334,8 +1495,9 @@
     const now = Date.now(), prev = clone(e), st = clone(e), l = st.segs[st.segs.length - 1]; if (l && l.e == null) l.e = now; st.status = 'done';
     await saveEnc(st, 'stop', 'Stopped by one-tap patient switch');
     const n = S.encs.filter(x => R.encDay(x) === today() && kindOf(x) === 'enc').length + 1;
-    const ne = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
-    await saveEnc(ne, 'create', 'Started by one-tap patient switch'); $('#qLabel').value = ''; render();
+    const qn = ($('#qName') && $('#qName').value || '').trim(), qm = ($('#qMrn') && $('#qMrn').value || '').trim();
+    const ne = { id: uid(), kind: 'enc', name: qn, mrn: qm, chart: qm, billingNote: '', label: (!qn && !qm) ? `Encounter ${n}` : '', initials: '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    await saveEnc(ne, 'create', 'Started by one-tap patient switch'); if ($('#qName')) $('#qName').value = ''; if ($('#qMrn')) $('#qMrn').value = ''; render();
     snack(`Switched to ${ne.label}`, async () => {
       const a = S.encs.find(x => x.id === st.id), b = S.encs.find(x => x.id === ne.id);
       if (!a || a.updated !== st.updated || (b && b.updated !== ne.updated)) return toast('Not undone: an entry changed');
@@ -1427,8 +1589,9 @@
   }
   async function startFrom(c) {
     const now = Date.now(), n = S.encs.filter(x => R.encDay(x) === today() && kindOf(x) === 'enc').length + 1, sh = activeShift();
-    const e = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: c.set || 'H', facility: c.fac || (sh ? sh.facility : S.settings.curFac) || null, type: '', codes: clone(c.codes), notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
-    await saveEnc(e, 'create', 'Started from a code set (track again)'); $('#qLabel').value = ''; tab = 'today'; showTab(); render(); toast(`Started ${e.label} · ${comboLbl(c)}`);
+    const qn = ($('#qName') && $('#qName').value || '').trim(), qm = ($('#qMrn') && $('#qMrn').value || '').trim();
+    const e = { id: uid(), kind: 'enc', name: qn, mrn: qm, chart: qm, billingNote: '', label: (!qn && !qm) ? `Encounter ${n}` : '', initials: '', setting: c.set || 'H', facility: c.fac || (sh ? sh.facility : S.settings.curFac) || null, type: '', codes: clone(c.codes), notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    await saveEnc(e, 'create', 'Started from a code set (track again)'); if ($('#qName')) $('#qName').value = ''; if ($('#qMrn')) $('#qMrn').value = ''; tab = 'today'; showTab(); render(); toast(`Started · ${comboLbl(c)}`);
   }
   async function toggleFav(c) {
     const k = comboKey(c), l = S.settings.favSets || [], i = l.findIndex(f => comboKey(f) === k), txt = c.codes.map(x => x.c + (x.dx ? ' (' + x.dx + ')' : '')).join(', ');
