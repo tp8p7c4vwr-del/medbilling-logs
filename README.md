@@ -1,4 +1,4 @@
-# Med Billing Logs ("Billing Logs")
+# MedBilling Logs ("MB Logs")
 
 Part of JFdeLara's Studio. A private, offline time and billing log for physicians: encounter timers,
 arrival/departure (time on site), call-backs, fee codes, photos and reports. Live: https://tp8p7c4vwr-del.github.io/medbilling-logs/

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the compact ICD-9 suggestion list for Med Billing Logs from MedBilling Fee Desk's bundled data.
+"""Build the compact ICD-9 suggestion list for MedBilling Logs from MedBilling Fee Desk's bundled data.
 Source: ../delara-medbilling/public/data/icd9.json (Alberta Health diagnostic codes, ICD-9 supplement) and meta.json.
 Output: public/data/icd9-AB.json = {"meta": {...credit...}, "codes": [[code, label], ...]}.
 Labels follow Fee Desk's display: sub-codes that read only "Unspecified" or "Ovary" get the parent category as a prefix.
