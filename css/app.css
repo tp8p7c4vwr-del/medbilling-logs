@@ -380,6 +380,31 @@ dialog.procdlg::backdrop{background:#0f2d2a}
 
 /* ===== v6: tablet and desktop layouts (phone layout below 768px is unchanged) ===== */
 .xw{display:none}
+/* v8: backups */
+.bkx{color:#3b4757;font-size:.74rem;line-height:1.35;margin:4px 0 2px}
+.warnbox .bkx{color:#4a2a12}
+.abon{margin:2px 0 4px}.abon b{font-size:.92rem}
+.abmode{margin:0 0 4px;color:#3b4757}
+.abloc{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;margin:6px 0;background:#f8fafb}
+.ablocn{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.ablocn .fl{font-size:.66rem;color:var(--muted);line-height:1.2}
+.ablocn b{font-size:.86rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.abloc .ghost{flex:0 0 auto}
+.ablast{margin:4px 0 0}.abstat{margin:2px 0 4px;color:#1f5f58}.abstat.bad,#abPwInfo.bad{color:var(--danger)}
+.abfmt{border:1px solid var(--line);border-radius:8px;padding:4px 9px 6px;margin:8px 0}
+.abfmt legend{padding:0 4px}
+.abfmt .chk{margin:4px 0}
+.fmtgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.warnbox.danger{background:#fdf0f0;border-color:#f0c4c4;color:#8f1717}
+.abpw{border-left:3px solid var(--teal-l);padding:0 0 0 8px;margin:2px 0 4px}
+.abpw .ghost.sm{margin:2px 0 2px 28px}
+#abPwInfo{margin:3px 0}
+.abhow{margin-top:4px}.abhow summary{cursor:pointer;color:var(--teal-d)}.abhow p{margin:4px 0}
+.abwarn{background:#fdf0f0;border:1px solid #f0c4c4;color:#8f1717}
+.abwarn p{margin:0 0 4px}
+.pwmeter{height:6px;border-radius:4px;background:#e5e9ee;overflow:hidden;margin:2px 0}
+.pwmeter i{display:block;height:100%;width:0;background:#c24141;transition:width .2s}
+.pwmeter i.f{background:#d99a2b}.pwmeter i.g{background:#2f8a6e}
 /* v7: entry details (view mode) with an action row, multiple notes, row quick-action sheet */
 .eacts{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:5px;margin:2px 0 6px;position:sticky;top:-10px;z-index:3;background:#fff;padding:4px 0}
 #editDlg[data-kind=shift] .eacts{grid-template-columns:1fr 1fr}

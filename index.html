@@ -66,7 +66,9 @@
 
 <main id="main">
   <section id="tab-today" class="panel">
-    <div class="card warnbox" id="bkRemind" hidden><p class="small" id="bkText"></p><div class="rowbtns"><button type="button" class="primary" id="bkNow">Back up now</button><button type="button" class="ghost" id="bkLater">Remind me later</button></div></div>
+    <div class="card warnbox" id="bkRemind" hidden><p class="small" id="bkText"></p><div class="rowbtns"><button type="button" class="primary" id="bkNow">Back up now</button><button type="button" class="ghost" id="bkLater">Remind me later</button></div><p class="bkx small" data-k="auto"></p></div>
+    <div class="card abwarn" id="abWarn" hidden role="status"><p class="small" id="abWarnTxt"></p><div class="rowbtns"><button type="button" class="ghost" id="abWarnAllow" hidden>Allow access</button><button type="button" class="ghost" id="abWarnRetry">Try again</button><button type="button" class="linkbtn sm" id="abWarnSet">Backup settings</button></div></div>
+    <div class="card warnbox" id="abRemind" hidden><p class="small" id="abRemindTxt"></p><div class="rowbtns"><button type="button" class="primary" id="abRemindNow">Back up now</button><button type="button" class="ghost" id="abRemindLater">Later</button></div><p class="bkx small" data-k="auto"></p></div>
     <div class="card onsite" id="onsite">
       <div class="osrow"><button type="button" class="facbtn" id="osFac" aria-label="Choose facility"><span class="fl">Facility</span><b id="osFacName">Choose…</b></button><button type="button" class="arrbtn" id="osBtn">Arrive</button></div>
       <p class="small muted" id="osInfo"></p>
@@ -134,9 +136,42 @@
       <div class="rowbtns"><button type="button" class="ghost" id="lockNow2">Lock now</button><button type="button" class="ghost" id="chPass">Change passcode</button></div>
       <p class="warnbox small">A forgotten passcode means the data can't be recovered. Keep an encrypted backup.</p>
     </div>
+    <div class="card" id="bkCard">
+      <h3>Backups</h3>
+      <label class="chk abon"><input type="checkbox" id="abOn"> <span><b>Automatic backups</b> <span class="small muted" id="abOnHint"></span></span></label>
+      <p class="small abmode" id="abMode"></p>
+      <div class="two">
+        <label class="fld">Frequency<select id="abEvery"><option value="60">Every hour</option><option value="120">Every 2 hours</option><option value="240">Every 4 hours</option><option value="1440">Daily</option></select></label>
+        <label class="fld">Keep last<select id="abKeep"><option value="6">6 backups</option><option value="12">12 backups</option><option value="24">24 backups</option><option value="48">48 backups</option><option value="72">72 backups</option><option value="168">168 backups</option></select></label>
+      </div>
+      <div class="abloc" id="abLocRow"><div class="ablocn"><span class="fl">Backup location</span><b id="abLocName">Not chosen</b></div><button type="button" class="ghost" id="abPick">Choose backup location</button></div>
+      <p class="small ablast"><b>Last backup:</b> <span id="abLast">never</span></p>
+      <p class="small abstat" id="abStat" role="status" aria-live="polite"></p>
+      <fieldset class="abfmt">
+        <legend class="fldl">Files in each backup</legend>
+        <label class="chk small"><input type="checkbox" checked disabled> <span><b>Encrypted backup (.mblbackup)</b>, always included. It's the only file the app can restore.</span></label>
+        <span class="small muted">Readable copies (off by default):</span>
+        <div class="fmtgrid"><label class="chk small"><input type="checkbox" class="abf" value="pdf"> PDF</label><label class="chk small"><input type="checkbox" class="abf" value="md"> Markdown (.md)</label><label class="chk small"><input type="checkbox" class="abf" value="docx"> Word (.docx)</label><label class="chk small"><input type="checkbox" class="abf" value="xlsx"> Excel (.xlsx)</label></div>
+        <div id="abReadBox">
+          <p class="warnbox small" id="abFmtWarn"></p>
+          <label class="chk small"><input type="checkbox" id="abZip" checked> <span><b>Password-protect readable copies</b> (AES-256 encrypted .zip). Recommended.</span></label>
+          <div id="abPwBox" class="abpw">
+            <label class="chk small"><input type="radio" name="abPwMode" value="passcode" checked> Use my app passcode</label>
+            <label class="chk small"><input type="radio" name="abPwMode" value="custom"> Use a separate backup password</label>
+            <button type="button" class="ghost sm" id="abPwSet">Set backup password…</button>
+            <p class="small" id="abPwInfo"></p>
+          </div>
+          <label class="chk small"><input type="checkbox" id="abNotes"> Include notes in readable copies</label>
+        </div>
+      </fieldset>
+      <div class="rowbtns"><button type="button" class="primary" id="abNow">Back up now</button></div>
+      <p class="bkx small" data-k="auto"></p>
+      <details class="abhow"><summary class="small">How backups work on this device</summary><div class="small" id="abHow"></div></details>
+    </div>
     <div class="card">
-      <h3>Encrypted backup</h3>
+      <h3>Encrypted backup (manual export and import)</h3>
       <div class="saverow"><button type="button" class="ghost" id="expAll" title="Save an encrypted backup file" aria-label="Save an encrypted backup file">Export</button><p class="small">Export saves all encounters and photos to one file, encrypted with your passcode, to keep a copy or move to another device.</p></div>
+      <p class="bkx small" data-k="export"></p>
       <div class="saverow"><button type="button" class="ghost" id="impAll" title="Load an encrypted backup file" aria-label="Load an encrypted backup file">Import</button><p class="small">Import loads a backup (you need the passcode it was made with). It is added to what is already here.</p></div>
       <input type="file" id="impFile" accept=".mblbackup,.json,application/json" hidden aria-label="Import backup file">
       <p class="small muted" id="storeInfo"></p>
@@ -309,6 +344,20 @@
     <div class="dlgbtns"><span></span><button type="button" class="ghost" id="rmClose">Cancel</button></div>
   </div>
 </dialog>
+
+<dialog id="bpDlg" aria-labelledby="bpTitle">
+  <form method="dialog" class="dlg" id="bpForm" autocomplete="off">
+    <h3 id="bpTitle">Backup password</h3>
+    <p class="small">Protects the readable backup copies (PDF, Markdown, Word, Excel) inside an AES-256 encrypted .zip. Use at least 12 characters; a few unrelated words work well.</p>
+    <label class="fld">New backup password<input type="password" id="bp1" autocomplete="new-password" maxlength="128"></label>
+    <div class="pwmeter" aria-hidden="true"><i id="bpBar"></i></div>
+    <p class="small" id="bpStr" aria-live="polite"></p>
+    <label class="fld">Repeat it<input type="password" id="bp2" autocomplete="new-password" maxlength="128"></label>
+    <p class="warnbox small"><b>Write it down somewhere safe.</b> If this password is lost, the protected copies can't be opened or recovered by anyone, including the developer. It is kept only inside the app's encrypted storage, never in plain text.</p>
+    <p class="err small" id="bpErr" role="alert"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="bpCancel">Cancel</button><button type="submit" class="primary" id="bpOk">Save password</button></div>
+  </form>
+</dialog>
 <dialog id="repDlg">
   <form method="dialog" class="dlg" id="repForm" autocomplete="off">
     <h3 id="pTitle">Report</h3>
@@ -402,7 +451,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 7 (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 8 (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -418,8 +467,9 @@
       <a href="#m-exp" data-go="m-exp">12. Reports and sharing safely</a>
       <a href="#m-audit" data-go="m-audit">13. Audit log</a>
       <a href="#m-ret" data-go="m-ret">14. Retention and backups</a>
-      <a href="#m-priv" data-go="m-priv">15. Privacy tips</a>
-      <a href="#m-faq" data-go="m-faq">16. FAQ and troubleshooting</a>
+      <a href="#m-bk" data-go="m-bk">15. Automatic backups</a>
+      <a href="#m-priv" data-go="m-priv">16. Privacy tips</a>
+      <a href="#m-faq" data-go="m-faq">17. FAQ and troubleshooting</a>
     </nav>
 
     <section id="m-start">
@@ -619,7 +669,7 @@
     <section id="m-audit">
       <h3>13. Audit log</h3>
       <ul>
-        <li>Every create, edit, delete, start/pause/stop, undo, arrival/departure and import is recorded with its time and the before/after values. So are added time, same-patient links, each note added, edited or deleted, review marks (and their removal), favourite code sets and holiday settings. The log is encrypted and append-only.</li>
+        <li>Every create, edit, delete, start/pause/stop, undo, arrival/departure and import is recorded with its time and the before/after values. So are added time, same-patient links, each note added, edited or deleted, review marks (and their removal), favourite code sets, holiday settings, backup settings, backups made with Back up now, and automatic backup failures and recoveries (never the backup password). The log is encrypted and append-only.</li>
         <li>Each record is chained to the one before it, so any change, removal or reordering is detected.</li>
         <li><b>Settings → Audit log:</b> <b>Check log</b> verifies the chain, <b>Deleted entries</b> lists what was deleted, <b>Export log</b> saves it as PDF or CSV (note text is left out unless you tick <b>Include notes</b>).</li>
       </ul>
@@ -637,14 +687,66 @@
       <h4>Backups</h4>
       <ul>
         <li>Your records exist only on this device. If the phone is lost, broken or reset, or the app or its website data is deleted, they're gone unless you have a backup.</li>
-        <li><b>Settings → Encrypted backup → Export</b>, confirm your passcode, then save the file (<i>medbilling-logs-backup-DATE.mblbackup</i>) somewhere safe that only you control. It's encrypted with your current passcode.</li>
+        <li><b>Automatic backups</b> (off until you turn them on) save a backup every hour or at the interval you choose: see section 15.</li>
+        <li><b>Settings → Encrypted backup (manual export and import) → Export</b>, confirm your passcode, then save the file (<i>medbilling-logs-backup-DATE.mblbackup</i>) somewhere safe that only you control. It's encrypted with your current passcode.</li>
         <li><b>Import</b> loads a backup (you need the passcode it was made with). It's added to what's already there. Use it to move to a new phone.</li>
+        <li><b>Under every backup button</b> (Back up now in Settings → Backups, the reminder banner on Today, and Export) a short line says how the file is encrypted, which password protects it, and that a lost password means no one, including the developer, can open or recover it (section 15).</li>
         <li><b>Reminders:</b> by default the app reminds you <b>monthly</b> with a banner on Today (<b>Back up now</b> or <b>Remind me later</b>). Change it to weekly, every 3 months or off under <b>Backup reminder</b>. "Last backup" shows when you last made one.</li>
       </ul>
     </section>
 
+    <section id="m-bk">
+      <h3>15. Automatic backups</h3>
+      <p>Open <b>Settings → Backups</b>. Automatic backups are <b>off</b> until you turn them on. Every change to these settings is kept in the audit log (the password itself never is).</p>
+      <h4>Settings</h4>
+      <ul>
+        <li><b>Automatic backups</b> on or off.</li>
+        <li><b>Frequency:</b> every hour (default), every 2 hours, every 4 hours, or daily. If nothing changed since the last backup, that interval is skipped (a backup is still saved at least once a day).</li>
+        <li><b>Keep last:</b> 24 backups by default (6 to 168). Older automatic backups in the folder are removed (rotated) together with their readable copies. Other files in the folder are never touched.</li>
+        <li><b>Choose backup location</b> (or <b>Change location</b>): pick the folder once. The first backup is saved straight away.</li>
+        <li><b>Last backup</b> shows the time, the folder, how many files and their size, and the status (OK, next backup time, or what went wrong).</li>
+        <li><b>Back up now</b> saves a backup immediately.</li>
+      </ul>
+      <h4>What protects each backup (shown under every backup button)</h4>
+      <p>Under <b>Back up now</b>, the reminder banner and <b>Export</b>, two or three short lines always say:</p>
+      <ul>
+        <li><b>The encryption:</b> for example <i>Encrypted with AES-256 (.mblbackup); readable copies in an AES-256 password-protected .zip.</i></li>
+        <li><b>The password:</b> your app passcode, or your app passcode for the .mblbackup and your separate backup password for the .zip.</li>
+        <li><b>If the password is lost, no one can open or recover the backup, including the developer.</b> There is no reset and no copy anywhere.</li>
+      </ul>
+      <h4>What's in each backup</h4>
+      <ul>
+        <li><b>Encrypted backup (.mblbackup)</b>, always included: every entry, note, photo and setting, encrypted with AES-256 (AES-GCM, key from your passcode with PBKDF2, 600,000 rounds). It opens only with the app passcode you had when it was made, through <b>Import</b>. It's the only file the app can restore.</li>
+        <li><b>Readable copies</b> (off by default): tick <b>PDF</b>, <b>Markdown (.md)</b>, <b>Word (.docx)</b> and/or <b>Excel (.xlsx)</b>. They list your entries like a report (all dates). Notes are left out unless you tick <b>Include notes in readable copies</b>.</li>
+      </ul>
+      <p class="mantip"><b>Readable copies contain patient details</b> (room, initials, chart/MRN, codes and, if ticked, notes). By default they are put inside an <b>AES-256 password-protected .zip</b>. Once someone unzips them they are not encrypted, so save backups only to a secure location you control.</p>
+      <h4>The .zip password</h4>
+      <ul>
+        <li><b>Use my app passcode</b> (default), or <b>Use a separate backup password</b>. A separate password needs at least 12 characters and passes a strength check. It is kept only inside the app's encrypted storage, never in plain text, and never in the audit log or the backup files.</li>
+        <li>A .zip password can be guessed much faster than your passcode can be attacked in a .mblbackup (zip files use a weaker key-stretching step). Use a long password, such as several words with numbers, especially if your passcode is short. The app warns you when it is.</li>
+        <li><b>Turning protection off</b> is possible but not recommended: readable copies are then saved as plain PDF, Markdown, Word and Excel files that anyone with access to the folder can read. The app asks you to confirm, and the line under Back up now says the readable copies are NOT encrypted.</li>
+        <li><b>Why not a password-protected PDF?</b> The PDF library in the app can only make the older RC4 PDF encryption, not AES-256, so PDF copies go inside the AES-256 .zip instead.</li>
+      </ul>
+      <h4>Opening the password-protected .zip</h4>
+      <ul>
+        <li><b>Windows:</b> 7-Zip (free) or WinRAR. File Explorer's built-in zip support can't open AES-256 zips.</li>
+        <li><b>Mac:</b> Keka, The Unarchiver or BetterZip, or Terminal: <i>tar -xf FILE.zip --passphrase PASSWORD</i> (or <i>7zz x FILE.zip</i> if 7-Zip is installed). Double-clicking in Finder (Archive Utility) and the <i>unzip</i> command can't open AES-256 zips.</li>
+        <li><b>iPhone / iPad:</b> the Files app can't open them; use an app such as iZip or Documents by Readdle. <b>Android:</b> use an app such as ZArchiver or RAR.</li>
+        <li>The .mblbackup is opened only by this app (<b>Settings → Encrypted backup → Import</b>).</li>
+      </ul>
+      <h4>How it works on each device</h4>
+      <ul>
+        <li><b>Chrome or Edge on a computer:</b> choose a folder once (for example in Documents, or a synced OneDrive, Google Drive or iCloud Drive folder). While the app is open and unlocked, a backup is saved at your interval, and again when the app locks or the tab is closed (if the browser allows the time). After the browser restarts, it may ask you once to <b>Allow access</b> to the folder again; a banner on Today asks for it.</li>
+        <li><b>iPhone and iPad app:</b> choose a folder in Files (On My iPhone, iCloud Drive or another provider). <b>Android app:</b> choose a folder on the phone or in a cloud drive such as Google Drive. Backups are saved while the app is open, and the app tries to finish one when it goes to the background. <b>Phones don't allow guaranteed background runs:</b> if the app stays closed, no backups happen until you open and unlock it again.</li>
+        <li><b>Safari, Firefox and other browsers without folder access</b> (including the Home Screen web app on iPhone): the app can't save to a folder by itself. With automatic backups on, a <b>Backup reminder</b> banner appears on Today at your interval. <b>Back up now</b> opens the share sheet (Save to Files, AirDrop…) or downloads the files; <b>Later</b> hides it until the next interval. Old copies aren't removed for you here.</li>
+        <li><b>Never while locked:</b> the key that decrypts your data only exists while the app is unlocked, so nothing runs while it's locked or closed. The backup started when it locks uses data already in memory and finishes in the background where possible.</li>
+      </ul>
+      <h4>If a backup fails</h4>
+      <p>A red banner on Today says what went wrong (for example the folder was moved or deleted, permission is needed, or the drive is full), with <b>Try again</b> and <b>Backup settings</b>. It never interrupts what you're doing, and your entries stay safe on this device. The app tries again automatically (within 15 minutes, or at your interval). Failures and recoveries are kept in the audit log.</p>
+    </section>
+
     <section id="m-priv">
-      <h3>15. Privacy tips</h3>
+      <h3>16. Privacy tips</h3>
       <ul>
         <li>Use room/bed labels and initials, not full names. Add a chart number only if you need it.</li>
         <li>Keep your phone's own screen lock on, and use a passcode you don't use anywhere else.</li>
@@ -657,7 +759,7 @@
     </section>
 
     <section id="m-faq">
-      <h3>16. FAQ and troubleshooting</h3>
+      <h3>17. FAQ and troubleshooting</h3>
       <dl class="manfaq">
         <dt>I forgot my passcode.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
         <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
@@ -678,6 +780,10 @@
         <dt>Can I add time to an entry, or start another encounter for the same patient?</dt><dd>Yes. Open the entry (or tap ⋯ on its History row) and use <b>+ Add time</b> or <b>Same patient, new encounter</b>. See section 5.</dd>
         <dt>Where did my old note go?</dt><dd>It is now the first note in the entry's <b>Notes</b> list, with the time the entry was created.</dd>
         <dt>Why aren't my notes in the report?</dt><dd>For privacy, notes are only included when you tick <b>Include notes</b> before tapping Create file.</dd>
+        <dt>How do I set up automatic backups?</dt><dd><b>Settings → Backups</b>: turn on <b>Automatic backups</b>, pick how often and how many to keep, then <b>Choose backup location</b>. In Safari you get an hourly reminder instead. See section 15.</dd>
+        <dt>I can't open the backup .zip on my Mac or PC.</dt><dd>It's AES-256 encrypted, which Finder and Windows File Explorer can't open. Use 7-Zip on Windows, or Keka / The Unarchiver on a Mac (or <i>tar -xf FILE.zip --passphrase PASSWORD</i> in Terminal), with the backup password shown under Back up now.</dd>
+        <dt>I lost my backup password.</dt><dd>No one can open those backups, including the developer. Set a new separate password (or switch back to the app passcode) and tap <b>Back up now</b> so new backups use it.</dd>
+        <dt>A red "Automatic backup didn't work" banner appeared.</dt><dd>Tap <b>Backup settings</b> and <b>Change location</b> to choose the folder again, or <b>Allow access</b> if the browser asks. Your entries are safe on the device in the meantime.</dd>
         <dt>Where can I get advice?</dt><dd>CMPA (1-800-267-6522), AMA billing support, or the CPSA. Links are in the Resources tab.</dd>
       </dl>
       <p class="small muted">MedBilling Logs is general information, not legal, billing or medico-legal advice. Part of JFdeLara's Studio.</p>
@@ -689,6 +795,8 @@
 <script src="js/vault.js"></script>
 <script src="js/search.js"></script>
 <script src="js/docx.js"></script>
+<script src="js/xlsx.js"></script>
+<script src="js/vendor/zip.min.js"></script>
 <script src="js/vendor/jspdf.umd.min.js"></script>
 <script src="js/report.js"></script>
 <script src="js/app.js"></script>

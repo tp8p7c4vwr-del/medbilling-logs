@@ -138,17 +138,22 @@
   }
   // ---------- CSV
   const csvCell = v => { let s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  function csv(encs, from, to, now, all, o) {
+  // one row per entry (CSV and the Excel "Entries" sheet share it)
+  function table(encs, from, to, now, all, o) {
     o = o || {};
     const head = ['date', 'kind', 'facility', 'zone', 'label', 'initials', 'chart', 'setting', 'type', 'callback_type', 'called', 'codes', 'diagnostic_code', 'start', 'end', 'minutes', 'units', 'time_periods'].concat(PERIODS.flatMap(p => [p.id + '_min', p.id + '_units']), ['linked', 'same_patient', 'entered_later', 'last_edited']).concat(o.notes ? ['notes'] : []);
-    const lines = [head.join(',')], iso = ts => { if (ts == null) return ''; const d = new Date(ts); return `${dayKey(ts)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+    const rows = [], iso = ts => { if (ts == null) return ''; const d = new Date(ts); return `${dayKey(ts)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
     const byId = new Map((all || encs).map(e => [e.id, e]));
     for (const e of select(encs, from, to)) {
       const m = minsOf(e, now), en = endOf(e), k = kindOf(e);
       const linked = (e.links || []).map(id => byId.get(id)).filter(Boolean).map(x => `${x.label} ${hm(startOf(x))}`).join('; ');
       const ps = periodSplit(e, now).parts, pv = PERIODS.flatMap(p => { const q = ps.find(x => x.id === p.id); return k === 'shift' ? ['', ''] : [q ? q.m : 0, q ? q.u : 0]; });
-      lines.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', e.label, e.initials, e.chart, SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), codesTxt(e), dxTxt(e), iso(startOf(e)), iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []).map(csvCell).join(','));
+      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', e.label, e.initials, e.chart, SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), codesTxt(e), dxTxt(e), iso(startOf(e)), iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
     }
+    return { head, rows };
+  }
+  function csv(encs, from, to, now, all, o) {
+    const t = table(encs, from, to, now, all, o), lines = [t.head.join(',')].concat(t.rows.map(r => r.map(csvCell).join(',')));
     return new Blob(['\ufeff' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
   }
   // ---------- photos helper
@@ -255,8 +260,45 @@
     foot();
     return new Blob([doc.output('arraybuffer')], { type: 'application/pdf' });
   }
+  // ---------- Markdown (v8 readable backup copy)
+  const mdc = v => String(v == null ? '' : v).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ').trim();
+  const mdTable = (head, rows) => [`| ${head.map(mdc).join(' | ')} |`, `|${head.map(() => '---').join('|')}|`].concat(rows.map(r => `| ${r.map(mdc).join(' | ')} |`)).join('\n');
+  function md(encs, from, to, o) {
+    o = o || {}; const list = select(encs, from, to), now = o.now || Date.now(), out = [], byId = new Map(encs.map(e => [e.id, e]));
+    out.push(`# ${title(from, to)}`, '', `> **${CONF}**`, '', `Generated ${new Date(now).toLocaleString()} by MedBilling Logs.`, '', `**Totals:** ${totTxt(totals(list, now))}`);
+    for (const [k, l] of byDay(list)) {
+      out.push('', `## ${fmtDay(k)}`, '', `_${totTxt(totals(l, now))}_`);
+      const sh = l.filter(e => kindOf(e) === 'shift'), en = l.filter(e => kindOf(e) === 'enc'), cb = l.filter(e => kindOf(e) === 'cb');
+      if (sh.length) out.push('', '### On site (arrival / departure)', '', mdTable(['Facility', 'Setting', 'Arrival', 'Departure', 'Time on site'], sh.map(e => { const r = row(e, now); return [r.fac, SET[e.setting] || '', r.start, r.end, r.site]; })));
+      if (en.length) out.push('', '### Encounters', '', mdTable(['Start', 'End', 'Min', 'Units', 'Setting', 'Room/bed', 'Initials', 'Chart/MRN', 'Type', 'Codes', 'Diagnostic code', 'Time periods'], en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.room, r.init, r.chart, r.type, r.codes, r.dx, r.per]; })));
+      if (cb.length) out.push('', '### Call-backs', '', mdTable(['Type', 'Called', 'Arrival', 'Departure', 'Min', 'Units', 'Facility', 'Codes', 'Diagnostic code', 'Time periods', 'Linked encounters'], cb.map(e => { const r = row(e, now); return [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.codes, r.dx, r.per, linkTxt(e, byId)]; })));
+      const sp = l.filter(e => samePt(e, encs).length);
+      if (sp.length) out.push('', 'Same patient: ' + mdc(sp.map(e => `${encCap(e)} <-> ${samePtTxt(e, encs)}`).join(' · ')));
+      if (o.notes) { const wn = l.filter(e => notesOf(e).length); if (wn.length) { out.push('', '### Notes', ''); for (const e of wn) for (const n of notesOf(e)) out.push(`- ${mdc(encCap(e) || KIND[kindOf(e)])} · [${noteStamp(n)}] ${mdc(n.x)}`); } }
+    }
+    if (!list.length) out.push('', 'No encounters in this period.');
+    if (!o.notes && list.some(e => notesOf(e).length)) out.push('', `_${NOTES_OFF}_`);
+    if (list.some(e => e.late)) out.push('', `_${LATE_NOTE}_`);
+    out.push('', `_${UNITS_NOTE}_`, '', `_${perLegend()}_`);
+    for (const c of o.credits || []) out.push('', `_${c}_`);
+    return new Blob([out.join('\n') + '\n'], { type: 'text/markdown;charset=utf-8' });
+  }
+  // ---------- Excel (v8 readable backup copy): Entries, Daily totals, About
+  function xlsx(encs, from, to, o) {
+    o = o || {}; const list = select(encs, from, to), now = o.now || Date.now();
+    const t = table(encs, from, to, now, encs, o), num = v => (typeof v === 'number' || (/^\d+$/.test(String(v)) && String(v).length < 10)) ? Number(v) : v;
+    const daily = [['date', 'hospital_encounters', 'hospital_min', 'hospital_units', 'clinic_encounters', 'clinic_min', 'clinic_units', 'callbacks', 'callback_min', 'callback_units', 'on_site_min', 'time_periods']];
+    for (const [k, l] of byDay(list)) { const x = totals(l, now); daily.push([k, x.H.n, x.H.m, x.H.u, x.C.n, x.C.m, x.C.u, x.cb.n, x.cb.m, x.cb.u, x.site.m, perTxt(x.perList || [])]); }
+    const tt = totals(list, now); daily.push(['TOTAL', tt.H.n, tt.H.m, tt.H.u, tt.C.n, tt.C.m, tt.C.u, tt.cb.n, tt.cb.m, tt.cb.u, tt.site.m, perTxt(tt.perList || [])]);
+    const about = [['MedBilling Logs'], [title(from, to)], [`Generated ${new Date(now).toLocaleString()}`], [CONF], [o.notes ? 'Notes are included (column "notes" on the Entries sheet).' : NOTES_OFF], [UNITS_NOTE], [perLegend()]].concat((o.credits || []).map(c => [c]));
+    const bytes = global.XlsxLite.build({ title: title(from, to), sheets: [
+      { name: 'Entries', rows: [t.head].concat(t.rows.map(r => r.map(num))), widths: t.head.map(h => h === 'notes' ? 60 : h === 'codes' || h === 'facility' || h === 'time_periods' || h === 'linked' || h === 'same_patient' ? 28 : 12) },
+      { name: 'Daily totals', rows: daily, widths: [12, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 40] },
+      { name: 'About', rows: about, widths: [120], header: false, wrap: true }] });
+    return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
   // ---------- audit log export
-  const ACT = { create: 'Created', start: 'Started', pause: 'Paused', resume: 'Resumed', stop: 'Stopped', arrive: 'Arrived', depart: 'Departed', edit: 'Edited', delete: 'Deleted', import: 'Imported', purge: 'Removed (retention)', 'prune-log': 'Log trimmed (retention)', review: 'Reviewed', unreview: 'Review cleared', restore: 'Restored (undo)', undo: 'Undone', 'fav-add': 'Code set saved', 'fav-remove': 'Code set removed', holiday: 'Holiday settings changed', addtime: 'Time added', 'note-add': 'Note added', 'note-edit': 'Note edited', 'note-delete': 'Note deleted', link: 'Linked (same patient)', migrate: 'Upgraded (notes)' };
+  const ACT = { create: 'Created', start: 'Started', pause: 'Paused', resume: 'Resumed', stop: 'Stopped', arrive: 'Arrived', depart: 'Departed', edit: 'Edited', delete: 'Deleted', import: 'Imported', purge: 'Removed (retention)', 'prune-log': 'Log trimmed (retention)', review: 'Reviewed', unreview: 'Review cleared', restore: 'Restored (undo)', undo: 'Undone', 'fav-add': 'Code set saved', 'fav-remove': 'Code set removed', holiday: 'Holiday settings changed', addtime: 'Time added', 'note-add': 'Note added', 'note-edit': 'Note edited', 'note-delete': 'Note deleted', link: 'Linked (same patient)', migrate: 'Upgraded (notes)', 'backup-settings': 'Backup settings changed', backup: 'Backup', 'backup-fail': 'Backup failed' };
   const summ = o => o ? [KIND[kindOf(o)], o.label || facTxt(o), o.initials, o.chart, (o.segs || []).map(s => hm(s.s) + '-' + (s.e == null ? '…' : hm(s.e))).join(' '), codesTxt(o), dxTxt(o) && 'Dx ' + dxTxt(o), notesOf(o).length && `${notesOf(o).length} note(s)`, o.pt && 'same-patient group'].filter(Boolean).join(' | ') : '';
   function diff(b, a, hideNotes) {
     if (!b || !a) return [];
@@ -320,5 +362,5 @@
     return t;
   }
   const RET_RULE = 'Retention: 10 years from the last entry; minors: the longer of 10 years or 2 years after age 18 (CPSA); obstetric: 10 years after the infant reaches majority (CMPA). Nothing is removed without your confirmation.';
-  global.BLR = { notesOf, noteStamp, notesTxt, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxShort, dxTxt, codesTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
+  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxShort, dxTxt, codesTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
 })(window);
