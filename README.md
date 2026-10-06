@@ -15,6 +15,17 @@ arrival/departure (time on site), call-backs, fee codes, photos and reports. Liv
 ## User manual
 Built into the app (v4): a full-screen page reachable from the lock screen, Settings → Help and the footer. It is part of `index.html`, so it works offline and holds no patient data.
 
+## Time periods and holidays (v5)
+The bar under the header shows the current Alberta billing time period (America/Edmonton time), the time left, and units elapsed/logged. Every encounter is tagged with its period(s); entries that cross a boundary are split by minutes and 15-minute units. The split appears in History totals, CSV (`time_periods` plus `<period>_min` / `<period>_units` columns), and a "Time periods" column with a legend in PDF/Word.
+
+- Periods live in one config object, `PERIOD_CFG` in `public/js/report.js`. They are **per user, so verify against the current SOMB**. No fee codes are attached.
+  - Weekday: overnight 00–07 (28 u), daytime 07–17 (regular), evening 17–22 (20 u), late evening 22–24 (8 u).
+  - Weekend/holiday: overnight 00–07 (28 u), daytime 07–22 (60 u), late evening 22–24 (8 u).
+- Statutory holidays bill like weekends. Alberta general holidays are calculated each year: New Year's Day, Family Day (3rd Mon Feb), Good Friday, Victoria Day, Canada Day, Heritage Day (1st Mon Aug, optional), Labour Day, National Day for Truth and Reconciliation (Sep 30), Thanksgiving, Remembrance Day, Christmas. Each one can be switched off in Settings, and "Today is a statutory holiday" covers any other day. Holiday changes are audit-logged.
+
+## Other v5 features
+Long-timer warnings (amber 60 min / red 3 h, configurable) with a Stop now / Stop at prompt on unlock; next-unit hint; week strip; Track again chips and favourite code sets (billing fields only); review checklist with a "Reviewed" mark that clears on edit; 5-second Undo; Last stop / ±5 min nudges; one-tap Next patient; day timeline; full-screen procedure timer (time only, wake lock). All in-app with no notifications, and every change is audit-logged.
+
 ## Audit log
 Every create, start/pause/stop, edit, delete, arrival/departure and import is appended to an encrypted, SHA-256 hash-chained log. Each record holds the time, the action, and before/after values. Deleted entries stay in the log. "Check log" verifies the chain and the head record. The log exports as PDF or CSV.
 
