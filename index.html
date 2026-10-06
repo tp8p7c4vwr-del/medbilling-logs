@@ -204,6 +204,29 @@
 <dialog id="editDlg">
   <form method="dialog" class="dlg" id="editForm" autocomplete="off">
     <h3 id="editTitle">Encounter</h3>
+    <div id="eView" class="eview">
+      <div class="eacts" role="group" aria-label="Entry actions">
+        <button type="button" class="eact" id="eaTime" aria-expanded="false" aria-controls="eAddTime"><span class="ei" aria-hidden="true">+</span>Add time</button>
+        <button type="button" class="eact notshift" id="eaSame" title="Start a new timer for this patient: room/label, initials and chart carried over, codes left blank"><span class="ei" aria-hidden="true">↔</span>Same patient, new encounter</button>
+        <button type="button" class="eact" id="eaEdit"><span class="ei" aria-hidden="true">✎</span>Edit</button>
+      </div>
+      <div class="addtime" id="eAddTime" hidden>
+        <span class="fldl" id="eAddLbl">Add time to this entry</span>
+        <div class="addbtns"><button type="button" data-add="5">+5 min</button><button type="button" data-add="15">+15 min</button><button type="button" data-add="30">+30 min</button><button type="button" id="eaSeg">New segment (start / end)…</button></div>
+        <p class="small muted" id="eAddInfo"></p>
+      </div>
+      <dl class="esum" id="eSummary"></dl>
+      <div class="rowbtns notshift" id="eRepRow"><button type="button" class="ghost" id="eRepeat" title="Start a new timer with the same setting, facility, fee codes and diagnostic codes (no patient details)">Track again <span class="small muted">(codes only)</span></button><button type="button" class="ghost" id="eFavSet">☆ Save code set</button></div>
+    </div>
+    <div class="notesbox" id="eNotesBox">
+      <div class="noteshead"><span class="fldl">Notes <span class="muted" id="eNoteCount"></span></span><button type="button" class="linkbtn sm" id="eNoteAdd">+ Add note</button></div>
+      <div class="notenew" id="eNoteNew" hidden>
+        <textarea id="eNoteText" maxlength="1000" rows="3" placeholder="Note (encrypted, kept on this device)" aria-label="New note"></textarea>
+        <div class="notebtns"><span class="small muted" id="eNoteLen">0 / 1000</span><button type="button" class="ghost sm" id="eNoteCancel">Cancel</button><button type="button" class="primary sm" id="eNoteSave">Save note</button></div>
+      </div>
+      <div class="notes" id="eNotes"></div>
+    </div>
+    <div id="eEditBox" class="eeditbox">
     <div class="seg kindseg" id="eKind" role="radiogroup" aria-label="Entry type"><button type="button" data-k="enc" role="radio">Encounter</button><button type="button" data-k="cb" role="radio">Call-back</button><button type="button" data-k="shift" role="radio">On site</button></div>
     <p class="latebadge small" id="eLate" hidden></p>
     <button type="button" class="facbtn wide2" id="eFac"><span class="fl">Facility</span><b id="eFacName">None</b></button>
@@ -238,7 +261,7 @@
       <p class="small muted fdhelp">For help with medical billing codes and diagnostic codes (ICD-9 / ICD-10), use <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></p>
       <p class="small muted credit" id="eCredit"></p>
     </div>
-    <label class="fld">Note (optional)<textarea id="eNote" maxlength="280" rows="2" placeholder="Short note"></textarea></label>
+    <div id="eNotesSlot"></div>
     <div class="notshift retflags"><span class="fldl">Record retention (optional)</span>
       <label class="chk small"><input type="checkbox" id="eMinor"> Minor (patient under 18)</label>
       <label class="fld minorage" hidden>Age at encounter (years, optional)<input id="eAge" type="number" min="0" max="17" inputmode="numeric" placeholder="unknown = keep longest"></label>
@@ -261,7 +284,7 @@
     <p class="small perline" id="ePer"></p>
     <p class="err small" id="eErr" role="alert"></p>
     <p class="warnbox small" id="eWarn" hidden></p>
-    <div class="rowbtns notshift" id="eRepRow"><button type="button" class="ghost" id="eRepeat" title="Start a new timer with the same setting, facility, fee codes and diagnostic codes (no patient details)">Track again</button><button type="button" class="ghost" id="eFavSet">☆ Save code set</button></div>
+    </div>
     <button type="button" class="linkbtn" id="eHist">History of this entry</button>
     <div class="dlgbtns">
       <button type="button" class="dangerbtn ghostdanger" id="eDelete">Delete</button>
@@ -271,6 +294,21 @@
     </div>
   </form>
 </dialog>
+
+<dialog id="rowMenu" class="sheet" aria-labelledby="rmTitle">
+  <div class="dlg">
+    <h3 id="rmTitle">Entry</h3>
+    <p class="small muted" id="rmSub"></p>
+    <div class="rmlist">
+      <button type="button" data-rmi="time"><span class="ei" aria-hidden="true">+</span>Add time</button>
+      <button type="button" data-rmi="note"><span class="ei" aria-hidden="true">✎</span>Add note</button>
+      <button type="button" data-rmi="same" id="rmSame"><span class="ei" aria-hidden="true">↔</span>Same patient, new encounter</button>
+      <button type="button" data-rmi="edit"><span class="ei" aria-hidden="true">⚙</span>Edit</button>
+      <button type="button" data-rmi="open"><span class="ei" aria-hidden="true">›</span>Open details</button>
+    </div>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="rmClose">Cancel</button></div>
+  </div>
+</dialog>
 <dialog id="repDlg">
   <form method="dialog" class="dlg" id="repForm" autocomplete="off">
     <h3 id="pTitle">Report</h3>
@@ -279,11 +317,12 @@
       <button type="button" data-fmt="pdf" role="radio" class="on">PDF</button><button type="button" data-fmt="docx" role="radio">Word</button><button type="button" data-fmt="csv" role="radio">CSV</button>
     </div>
     <label class="chk small" id="pPhotosL"><input type="checkbox" id="pPhotos"> Include photos</label>
+    <label class="chk small" id="pNotesL"><input type="checkbox" id="pNotes"> Include notes <span class="muted">(off by default for privacy)</span></label>
     <p class="small muted" id="pInfo"></p>
     <button type="button" class="primary wide" id="pMake">Create file</button>
     <div id="pReady" hidden>
       <p class="small"><b id="pName"></b> <span class="muted" id="pSize"></span></p>
-      <div class="warnbox small" id="pWarn"><b>Confidential.</b> This file can contain patient identifiers (initials, chart/MRN) and photos. Share it only with authorized recipients through secure, approved channels, following your health authority's privacy rules (e.g. Alberta HIA). Don't keep copies on shared devices.</div>
+      <div class="warnbox small" id="pWarn"><b>Confidential.</b> This file can contain patient identifiers (initials, chart/MRN), photos and notes. Share it only with authorized recipients through secure, approved channels, following your health authority's privacy rules (e.g. Alberta HIA). Don't keep copies on shared devices.</div>
       <label class="chk small"><input type="checkbox" id="pAck"> I understand and will share it securely.</label>
       <div class="rowbtns"><button type="button" class="primary" id="pShare" disabled>Share…</button><button type="button" class="ghost" id="pDown" disabled>Download</button></div>
     </div>
@@ -363,23 +402,24 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 6 (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 7 (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
       <a href="#m-site" data-go="m-site">3. Arrival, departure and call-backs</a>
       <a href="#m-enc" data-go="m-enc">4. Encounters: start, pause, stop</a>
-      <a href="#m-quick" data-go="m-quick">5. Track again and code sets</a>
-      <a href="#m-late" data-go="m-late">6. Past entries and "Entered later"</a>
-      <a href="#m-codes" data-go="m-codes">7. Billing and diagnostic codes</a>
-      <a href="#m-photo" data-go="m-photo">8. Photos and the lock</a>
-      <a href="#m-hist" data-go="m-hist">9. History, week strip and timeline</a>
-      <a href="#m-rev" data-go="m-rev">10. Review a day or week</a>
-      <a href="#m-exp" data-go="m-exp">11. Reports and sharing safely</a>
-      <a href="#m-audit" data-go="m-audit">12. Audit log</a>
-      <a href="#m-ret" data-go="m-ret">13. Retention and backups</a>
-      <a href="#m-priv" data-go="m-priv">14. Privacy tips</a>
-      <a href="#m-faq" data-go="m-faq">15. FAQ and troubleshooting</a>
+      <a href="#m-det" data-go="m-det">5. Entry details: add time, same patient, notes</a>
+      <a href="#m-quick" data-go="m-quick">6. Track again and code sets</a>
+      <a href="#m-late" data-go="m-late">7. Past entries and "Entered later"</a>
+      <a href="#m-codes" data-go="m-codes">8. Billing and diagnostic codes</a>
+      <a href="#m-photo" data-go="m-photo">9. Photos and the lock</a>
+      <a href="#m-hist" data-go="m-hist">10. History, week strip and timeline</a>
+      <a href="#m-rev" data-go="m-rev">11. Review a day or week</a>
+      <a href="#m-exp" data-go="m-exp">12. Reports and sharing safely</a>
+      <a href="#m-audit" data-go="m-audit">13. Audit log</a>
+      <a href="#m-ret" data-go="m-ret">14. Retention and backups</a>
+      <a href="#m-priv" data-go="m-priv">15. Privacy tips</a>
+      <a href="#m-faq" data-go="m-faq">16. FAQ and troubleshooting</a>
     </nav>
 
     <section id="m-start">
@@ -461,7 +501,7 @@
         <li><b>Forgotten timer:</b> a running encounter or call-back turns <b>amber</b> after 60 minutes and <b>red</b> after 3 hours (change this under Settings → Timers). Tap <b>Stop at…</b> on the card to set the real end time. If a timer is red when you unlock, the app asks: <b>Stop now</b>, <b>Stop at time</b> or <b>Keep running</b>. A corrected time is saved as "entered later" with a note in the audit log. All of this happens inside the app, with no notifications.</li>
         <li><b>Full-screen timer (⛶):</b> big digits for procedures, readable from a distance. It shows the time only (no room, initials or codes), plus Pause and Stop. The screen stays on where the browser allows it. Auto-lock still applies, so for long procedures set a longer auto-lock first.</li>
       </ul>
-      <p>Tap an encounter to add details: initials, chart/MRN, setting, type (consult, visit…), billing and diagnostic codes, photos, a short note, and the <b>Minor</b> or <b>Obstetric</b> flags that set how long the record is kept.</p>
+      <p>Tap an encounter to open its <b>details</b> (section 5). Tap <b>Edit</b> there to change any detail: initials, chart/MRN, setting, type (consult, visit…), billing and diagnostic codes, photos, notes, and the <b>Minor</b> or <b>Obstetric</b> flags that set how long the record is kept.</p>
       <ul>
         <li>The quick buttons (<b>now, 5, 15, 30 min ago, 1 h ago, End now</b>) fix start or end times in one tap. <b>+ Add time segment</b> adds another stretch.</li>
         <li>If times overlap another entry, you'll see a warning. Check the times, or tap <b>Save anyway</b> if it's correct (for example, two patients seen together).</li>
@@ -471,18 +511,38 @@
       </ul>
     </section>
 
+    <section id="m-det">
+      <h3>5. Entry details: add time, same patient, notes</h3>
+      <p>Tap any encounter, call-back or on-site entry to open its <b>details</b>. A row of three buttons sits at the top:</p>
+      <ul>
+        <li><b>+ Add time:</b> tap <b>+5</b>, <b>+15</b> or <b>+30 min</b>. On a finished or paused entry the end moves later (never past now; any remainder moves the start earlier). On a running timer the start moves earlier. The change is saved right away, marked "entered later" and kept in the audit log, and <b>Undo</b> appears beside it. <b>New segment (start / end)…</b> opens the editor with a new time segment to fill in.</li>
+        <li><b>↔ Same patient, new encounter:</b> starts a new timer for the same patient. The room/label, initials, chart/MRN, setting, facility and the Minor/Obstetric flags are carried over. Fee codes, diagnostic codes, notes and photos are left blank. If the first encounter is still running, it stops first. The two entries are linked: each shows a <b>Same patient</b> line in its details (tap it to jump to the other), History rows show <b>↔</b>, and the CSV report has a <i>same_patient</i> column. This is different from <b>Track again</b>, which copies only the codes and never patient details.</li>
+        <li><b>✎ Edit:</b> opens the full editor. Every field can be changed: start and end times and segments, room/label, initials, chart/MRN, setting, type, facility, fee codes, diagnostic codes, Minor/Obstetric flags, call-back type and time called, linked encounters and photos. <b>Save</b> records the before and after in the audit log. <b>Cancel</b> returns to the details without changes.</li>
+      </ul>
+      <p>Below the buttons is a summary of the entry: date and times, minutes, units and time periods, patient details, setting and facility, codes with diagnostic codes, retention, same-patient links and photos.</p>
+      <p><b>Notes.</b> An entry can have several notes, each with its own date and time.</p>
+      <ul>
+        <li>Tap <b>+ Add note</b>, type up to 1000 characters, and tap <b>Save note</b>. Notes save straight away, encrypted with the entry.</li>
+        <li>Each note has <b>Edit</b> and <b>Delete</b>. Edited notes show "(edited HH:MM)". A delete asks first. Every add, edit and delete is kept in the audit log, so a deleted note can still be found in the entry's history.</li>
+        <li>The newest note shows on a running card, with "+N more" if there are others. A ✎ on a History row means the entry has notes.</li>
+        <li>Notes from earlier versions (the single short note) were moved into the first note automatically.</li>
+        <li>Notes are left out of reports unless you tick <b>Include notes</b> when you create the report (section 12).</li>
+      </ul>
+      <p><b>Quick actions from a row.</b> In History, tap <b>⋯</b> at the end of a row, or press and hold any row (right-click on a computer), to get <b>Add time</b>, <b>Add note</b>, <b>Same patient, new encounter</b>, <b>Edit</b> and <b>Open details</b>.</p>
+    </section>
+
     <section id="m-quick">
-      <h3>5. Track again and code sets</h3>
+      <h3>6. Track again and code sets</h3>
       <ul>
         <li>The <b>Track again</b> chips on Today show your recent and favourite combinations, for example <i>03.03A · 780</i>. Tap one to start a timer with that setting, facility, fee code(s) and ICD-9 code(s) already filled in.</li>
         <li>Tap <b>☆</b> on a chip to save it as a favourite code set (★). Favourites come first. Tap ★ to remove it.</li>
-        <li>In any saved encounter, <b>Track again</b> starts a new timer with the same codes, and <b>☆ Save code set</b> saves them as a favourite.</li>
-        <li>Only billing fields are copied. Room labels, initials, chart numbers, notes and photos are never copied.</li>
+        <li>In any saved encounter's details, <b>Track again (codes only)</b> starts a new timer with the same codes, and <b>☆ Save code set</b> saves them as a favourite.</li>
+        <li>Only billing fields are copied. Room labels, initials, chart numbers, notes and photos are never copied. To carry the patient over instead (with blank codes), use <b>Same patient, new encounter</b> (section 5).</li>
       </ul>
     </section>
 
     <section id="m-late">
-      <h3>6. Past entries and "Entered later"</h3>
+      <h3>7. Past entries and "Entered later"</h3>
       <p>Use <b>+ Add past entry</b> on Today for something you didn't time live, or tap an empty spot in the day timeline. Set the start and end, add details, and save.</p>
       <ul>
         <li><b>Last stop</b> sets the start to when your previous entry today ended, so back-to-back patients have no gaps.</li>
@@ -492,13 +552,13 @@
       <p>To keep the record honest, the app marks an entry <b>Entered later</b> when:</p>
       <ul>
         <li>a new entry starts more than 2 minutes before it was saved (back-dated), or</li>
-        <li>you change the times of an existing entry.</li>
+        <li>you change the times of an existing entry, including with <b>+ Add time</b>.</li>
       </ul>
       <p>The badge shows when it was created and last edited. It also appears in reports (the <i>entered_later</i> and <i>last_edited</i> columns) and in the audit log. It isn't an error. It shows the times were entered afterwards rather than timed live.</p>
     </section>
 
     <section id="m-codes">
-      <h3>7. Billing and diagnostic codes</h3>
+      <h3>8. Billing and diagnostic codes</h3>
       <ol>
         <li>Open an encounter. Under <b>Fee codes and diagnostic codes</b>, check the fee schedule (province) on the right.</li>
         <li>In <b>Billing code</b>, type a code or a few words and tap a suggestion to add it.</li>
@@ -513,7 +573,7 @@
     </section>
 
     <section id="m-photo">
-      <h3>8. Photos and the lock</h3>
+      <h3>9. Photos and the lock</h3>
       <ul>
         <li>In an encounter, tap <b>Take photo</b> or <b>Attach photo</b>. Photos are resized, location data is removed, and they are stored only inside the app, encrypted. They aren't saved to your camera roll.</li>
         <li>Tap a thumbnail to view it or <b>Delete photo</b>.</li>
@@ -523,11 +583,11 @@
     </section>
 
     <section id="m-hist">
-      <h3>9. History, week strip and timeline</h3>
+      <h3>10. History, week strip and timeline</h3>
       <ul>
         <li><b>History</b> shows every entry on one page as compact rows: start time, duration, label and initials, billing code and diagnostic code.</li>
         <li>Rows are grouped by day (newest first) and by week. Each day shows its totals: number of encounters, Hospital minutes/units (H), Clinic minutes/units (C), call-backs (CB) and time on site.</li>
-        <li>Tap a row to open the details. In an entry, <b>History of this entry</b> shows every change made to it.</li>
+        <li>Tap a row to open the details. Tap <b>⋯</b> (or press and hold a row) for quick actions: Add time, Add note, Same patient, Edit. In an entry, <b>History of this entry</b> shows every change made to it.</li>
         <li>Each day also shows its <b>time periods</b> (for example <i>Eve 45m/3u · Late 20m/1u</i>).</li>
         <li><b>Week strip</b> (top of Today and History): Monday to Sunday with minutes and units under each day. Today is outlined, holidays are tinted, and ✓ marks reviewed days. Tap ‹ › or swipe to change weeks, and tap a day to jump to it. Tap <b>Today</b> (it turns teal when you're looking at another week) to go straight back to the current week; in History it also scrolls to today's entries. <b>Today</b> and <b>This week</b> totals sit beside it. On Today, the line under the strip splits today by Hospital, Clinic, call-backs and time period.</li>
         <li><b>Timeline</b> (Today, or a day in History) draws the day as blocks: on-site time as a shaded band, Hospital in teal, Clinic in orange, call-backs dashed. Gaps and overlaps are easy to see. Tap a block to open it, or tap an empty spot to add a past entry at that time.</li>
@@ -535,7 +595,7 @@
     </section>
 
     <section id="m-rev">
-      <h3>10. Review a day or week</h3>
+      <h3>11. Review a day or week</h3>
       <p>Before you submit claims, tap <b>Review day</b> on Today, or <b>Review</b> / <b>Review week</b> in History. The checklist shows:</p>
       <ul>
         <li><b>Fix:</b> timers still running or paused, and arrivals with no departure. These must be cleared before you can mark the period reviewed.</li>
@@ -546,27 +606,27 @@
     </section>
 
     <section id="m-exp">
-      <h3>11. Reports (CSV, PDF, Word) and sharing safely</h3>
+      <h3>12. Reports (CSV, PDF, Word) and sharing safely</h3>
       <ol>
         <li>On Today tap <b>Report / share today</b>, or on History pick <b>From</b> and <b>To</b> dates and tap <b>Create report</b>.</li>
-        <li>Choose <b>PDF</b>, <b>Word</b> or <b>CSV</b> (for spreadsheets). For PDF and Word, tick <b>Include photos</b> only if you need them.</li>
+        <li>Choose <b>PDF</b>, <b>Word</b> or <b>CSV</b> (for spreadsheets). For PDF and Word, tick <b>Include photos</b> only if you need them. <b>Include notes</b> is off by default; tick it only if the recipient needs your notes.</li>
         <li>Tap <b>Create file</b>, read the confidentiality notice, tick <b>I understand</b>, then <b>Share…</b> or <b>Download</b>.</li>
       </ol>
-      <p>Reports list each entry with times, minutes, units, facility, billing codes, a Diagnostic code column and a Time periods column (CSV also has minutes and units for each period). PDF and Word add daily and overall totals, including the period split.</p>
-      <p class="mantip"><b>Sharing safely:</b> a report can contain initials, chart numbers and photos. Send it only to authorized people through secure, approved channels (for example your clinic's secure system). Never use regular email or text. Delete downloaded copies from shared computers and from Downloads when you're done.</p>
+      <p>Reports list each entry with times, minutes, units, facility, billing codes, a Diagnostic code column and a Time periods column (CSV also has minutes and units for each period). PDF and Word add daily and overall totals, including the period split, and a line linking same-patient encounters. With <b>Include notes</b> ticked, PDF and Word list each day's notes under its tables and CSV adds a <i>notes</i> column; otherwise the file says notes were left out. The audit log export follows the same option: without it, note text is replaced by "(note not exported)".</p>
+      <p class="mantip"><b>Sharing safely:</b> a report can contain initials, chart numbers, photos and (if you include them) notes. Send it only to authorized people through secure, approved channels (for example your clinic's secure system). Never use regular email or text. Delete downloaded copies from shared computers and from Downloads when you're done.</p>
     </section>
 
     <section id="m-audit">
-      <h3>12. Audit log</h3>
+      <h3>13. Audit log</h3>
       <ul>
-        <li>Every create, edit, delete, start/pause/stop, undo, arrival/departure and import is recorded with its time and the before/after values. So are review marks (and their removal), favourite code sets and holiday settings. The log is encrypted and append-only.</li>
+        <li>Every create, edit, delete, start/pause/stop, undo, arrival/departure and import is recorded with its time and the before/after values. So are added time, same-patient links, each note added, edited or deleted, review marks (and their removal), favourite code sets and holiday settings. The log is encrypted and append-only.</li>
         <li>Each record is chained to the one before it, so any change, removal or reordering is detected.</li>
-        <li><b>Settings → Audit log:</b> <b>Check log</b> verifies the chain, <b>Deleted entries</b> lists what was deleted, <b>Export log</b> saves it as PDF or CSV.</li>
+        <li><b>Settings → Audit log:</b> <b>Check log</b> verifies the chain, <b>Deleted entries</b> lists what was deleted, <b>Export log</b> saves it as PDF or CSV (note text is left out unless you tick <b>Include notes</b>).</li>
       </ul>
     </section>
 
     <section id="m-ret">
-      <h3>13. Retention and backups</h3>
+      <h3>14. Retention and backups</h3>
       <h4>How long records are kept</h4>
       <ul>
         <li>At least <b>10 years from the last entry</b> (CPSA; CMPA recommends at least 10 years).</li>
@@ -584,7 +644,7 @@
     </section>
 
     <section id="m-priv">
-      <h3>14. Privacy tips</h3>
+      <h3>15. Privacy tips</h3>
       <ul>
         <li>Use room/bed labels and initials, not full names. Add a chart number only if you need it.</li>
         <li>Keep your phone's own screen lock on, and use a passcode you don't use anywhere else.</li>
@@ -597,14 +657,14 @@
     </section>
 
     <section id="m-faq">
-      <h3>15. FAQ and troubleshooting</h3>
+      <h3>16. FAQ and troubleshooting</h3>
       <dl class="manfaq">
         <dt>I forgot my passcode.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
         <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
         <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock.</dd>
         <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
         <dt>How do I move to a new phone?</dt><dd>On the old phone, Export a backup. On the new phone, install the app, create a passcode, then Import the backup with the passcode it was made with.</dd>
-        <dt>Why does an entry say "Entered later"?</dt><dd>It was back-dated or its times were edited. See section 4.</dd>
+        <dt>Why does an entry say "Entered later"?</dt><dd>It was back-dated, time was added, or its times were edited. See section 7.</dd>
         <dt>It says the times overlap.</dt><dd>Another entry covers the same time. Fix the times, or tap <b>Save anyway</b> if it's correct.</dd>
         <dt>Does it work without internet?</dt><dd>Yes, after the first open. Only the Resources and Fee Desk links need a connection.</dd>
         <dt>The app says "Updating to the new version…"</dt><dd>Wait a few seconds. If it says "Update ready", close the app completely and reopen it. Your data isn't affected.</dd>
@@ -615,6 +675,9 @@
         <dt>The full-screen timer went away.</dt><dd>Auto-lock still applies. Unlock and reopen it with ⛶, or set a longer auto-lock before a long procedure.</dd>
         <dt>I tapped Stop or Delete by mistake.</dt><dd>Tap <b>Undo</b> within 5 seconds. After that, edit the entry (a corrected time is marked "entered later"), or find deleted entries under Settings → Audit log → Deleted entries.</dd>
         <dt>Can I use it on a computer or tablet?</dt><dd>Yes. Open the same web address in Chrome, Edge, Safari or Firefox. On a tablet or computer, Today shows your controls on the left and the day's entries on the right. History becomes a table with end time, units, setting and facility, and time periods. Settings and Resources show in columns. Data stays in that browser on that device, encrypted. To move data between devices, use an encrypted backup (Settings → Encrypted backup).</dd>
+        <dt>Can I add time to an entry, or start another encounter for the same patient?</dt><dd>Yes. Open the entry (or tap ⋯ on its History row) and use <b>+ Add time</b> or <b>Same patient, new encounter</b>. See section 5.</dd>
+        <dt>Where did my old note go?</dt><dd>It is now the first note in the entry's <b>Notes</b> list, with the time the entry was created.</dd>
+        <dt>Why aren't my notes in the report?</dt><dd>For privacy, notes are only included when you tick <b>Include notes</b> before tapping Create file.</dd>
         <dt>Where can I get advice?</dt><dd>CMPA (1-800-267-6522), AMA billing support, or the CPSA. Links are in the Resources tab.</dd>
       </dl>
       <p class="small muted">MedBilling Logs is general information, not legal, billing or medico-legal advice. Part of JFdeLara's Studio.</p>
