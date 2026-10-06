@@ -2,8 +2,9 @@
 (function (global) {
   'use strict';
   const pad = n => String(n).padStart(2, '0');
-  const dayKey = ts => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-  const hm = ts => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  // dayKey/hm use America/Edmonton once edm() is defined below; provisional device-local until then
+  let dayKey = ts => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  let hm = ts => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
   const msOf = (e, now) => e.segs.reduce((a, s) => a + Math.max(0, (s.e == null ? (now || Date.now()) : s.e) - s.s), 0);
   const minsOf = (e, now) => Math.floor(msOf(e, now) / 60000);
   // 15-minute units: full 15-min blocks, plus one more if the remainder is 8 min or more (e.g. 38 min = 3 units).
@@ -55,10 +56,15 @@
   let edmFmt = null; try { edmFmt = new Intl.DateTimeFormat('en-CA', { timeZone: PERIOD_CFG.tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', weekday: 'short' }); } catch (e) { edmFmt = null; }
   const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   function edm(t) {   // wall-clock parts in America/Edmonton (falls back to device time if the zone is unavailable)
-    if (!edmFmt) { const d = new Date(t); return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), mi: d.getMinutes(), s: d.getSeconds(), wd: d.getDay(), key: dayKey(t) }; }
+    if (!edmFmt) { const d = new Date(t); return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), mi: d.getMinutes(), s: d.getSeconds(), wd: d.getDay(), key: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }; }
     const o = {}; for (const p of edmFmt.formatToParts(new Date(t))) o[p.type] = p.value;
     return { y: +o.year, mo: +o.month, d: +o.day, h: (+o.hour) % 24, mi: +o.minute, s: +o.second, wd: WD.indexOf(o.weekday), key: `${o.year}-${o.month}-${o.day}` };
   }
+  // Display times always as America/Edmonton 24h HH:MM (matches header clock; avoids <input type=time> 12h UI)
+  const hmEdm = ts => { const w = edm(ts); return `${pad(w.h)}:${pad(w.mi)}`; };
+  dayKey = ts => edm(ts).key;
+  hm = hmEdm;
+
   const ymd = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`, dow = (y, m, d) => new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   const nthMon = (y, m, n) => { let d = 1; while (dow(y, m, d) !== 1) d++; return ymd(y, m, d + 7 * (n - 1)); };
   function goodFriday(y) {   // anonymous Gregorian computus for Easter Sunday, minus 2 days
@@ -367,5 +373,5 @@
     return t;
   }
   const RET_RULE = 'Retention: 10 years from the last entry; minors: the longer of 10 years or 2 years after age 18 (CPSA); obstetric: 10 years after the infant reaches majority (CMPA). Nothing is removed without your confirmation.';
-  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxShort, dxTxt, codesTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
+  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxShort, dxTxt, codesTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, hmEdm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
 })(window);

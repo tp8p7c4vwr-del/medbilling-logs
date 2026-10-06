@@ -58,43 +58,52 @@ h3{margin:0 0 5px;font-size:.92rem;color:#24443f}
 .rowbtns .ghost{flex:1 1 120px}
 .empty{background:var(--card);border-radius:var(--r);padding:10px;color:var(--muted);text-align:center;font-size:.85rem;border:1px solid var(--line)}
 .units-note{margin:4px 2px;font-size:.72rem}
-/* v9 spreadsheet grid (Today + History) — horizontal scroll on phone */
-.rows{background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:auto;-webkit-overflow-scrolling:touch}
-.rows.sheet{margin-top:6px}
-.livecards{display:flex;flex-direction:column;gap:6px}
-.erow,.erowh{display:grid;grid-template-columns:minmax(88px,1.3fr) minmax(72px,.9fr) 58px 58px 54px minmax(72px,1fr) minmax(72px,.95fr) minmax(64px,.8fr) minmax(56px,.7fr) auto;gap:4px;align-items:center;padding:0 4px 0 6px;min-width:760px}
-.erow{min-height:40px;border-top:1px solid #eef1f4;border-left:3px solid var(--teal-m);font-size:.82rem;font-variant-numeric:tabular-nums}
-.erow:first-child{border-top:0}
-.erow:hover,.erow:focus-within{background:#f3faf8;outline:none}
-.erow.run{border-left-color:var(--fee)}.erow.pause{border-left-color:#dc8e2a}.erow.rk-cb{border-left-color:#e09538}.erow.rk-shift{border-left-color:#c9d3dd}
-.erow .t{color:var(--muted);display:flex;flex-direction:column;gap:0;min-width:0}
+/* v9b Excel / Sheets grid (Today + History) — real table, 1px cell borders, sticky header */
+.sheetwrap{background:#fff;border:1px solid #a8b4c0;border-radius:0;overflow:auto;-webkit-overflow-scrolling:touch;margin-top:6px;max-width:100%;box-shadow:none}
+table.sheet{border-collapse:collapse;border-spacing:0;width:100%;min-width:720px;table-layout:fixed;font-size:.82rem;font-variant-numeric:tabular-nums;background:#fff;color:var(--ink)}
+table.sheet col.c-name{width:14%}table.sheet col.c-mrn{width:11%}table.sheet col.c-in,table.sheet col.c-out{width:7%}table.sheet col.c-time{width:7%}table.sheet col.c-note{width:14%}table.sheet col.c-fee{width:12%}table.sheet col.c-dx{width:9%}table.sheet col.c-set{width:11%}table.sheet col.c-act{width:8%}
+table.sheet th,table.sheet td{border:1px solid #c5cdd6;padding:1px 4px;vertical-align:middle;height:34px;line-height:1.2;overflow:hidden;background-clip:padding-box}
+table.sheet thead th{position:sticky;top:0;z-index:3;background:#e8ecef;font-weight:700;font-size:.78rem;text-transform:none;letter-spacing:0;color:#1f2933;border:1px solid #c5cdd6;border-bottom:2px solid #9aa8b5;height:32px;text-align:left;white-space:nowrap;padding:4px 6px;box-shadow:inset 0 -1px 0 #9aa8b5}
+table.sheet tbody tr:nth-child(even){background:#f7f9fa}
+table.sheet tbody tr:hover,table.sheet tbody tr:focus-within{background:#eef5f3}
+table.sheet tbody tr.run{background:#fff8f0}
+table.sheet tbody tr.run:nth-child(even){background:#fff5ea}
+table.sheet tbody tr.pause{background:#fffced}
+table.sheet tbody tr.pause:nth-child(even){background:#fff9e0}
+table.sheet tbody tr.wr{background:#fff5f5}
+table.sheet tbody tr.wa{background:#fffbf2}
+.erow .t{color:var(--muted);min-width:0}
+.erow .t .pt{display:block;font-size:.58rem;font-weight:700;color:var(--fee-t);margin:0;white-space:nowrap;line-height:1.1}
 .erow .du{font-weight:600;color:#24443f;white-space:nowrap}
 .erow .du small{display:block;font-weight:500;font-size:.64rem;color:var(--muted);line-height:1}
 .erow .who,.erow .cname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .erow .fc{font-weight:600;color:var(--teal-d);min-width:0}
 .erow .dx{color:#4b3f72;min-width:0}
 .erow .xf{color:#3b4a5c;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.erow .xe.live{color:var(--fee-t);font-weight:600}
-.erow .ra{display:flex;gap:2px;align-items:center;justify-content:flex-end}
+.erow .xe.live,.xe.live{color:var(--fee-t);font-weight:600}
+.erow .ra{white-space:nowrap;text-align:right}
+.erow .ra .cont,.erow .ra .rmore{vertical-align:middle}
 .erow small{font-size:.68rem;color:var(--muted);margin-left:2px}
 .erow .nil{color:#b6c0cb}
-.erow i.b{font-style:normal;font-size:.64rem;font-weight:600;padding:0 5px;border-radius:999px;background:var(--teal-l);color:var(--teal-d);margin-left:3px;vertical-align:1px}
+.erow i.b{font-style:normal;font-size:.62rem;font-weight:600;padding:0 4px;border-radius:3px;background:var(--teal-l);color:var(--teal-d);margin-left:3px;vertical-align:1px;display:inline-block}
 .erow i.b.run{background:#fff6ec;color:var(--fee-t)}.erow i.b.pause{background:#fef5d8;color:#8a4b0c}.erow i.b.cb{background:#fef5d8;color:#8a4b0c}.erow i.b.late{background:#f0f3f7;color:#475569}
-.erow .cont{border:1px solid var(--ghost-b);background:#fff;color:var(--teal-d);border-radius:8px;min-width:30px;min-height:30px;padding:0;cursor:pointer;font-size:.7rem}
+.erow .cont{border:1px solid #c5cdd6;background:#fff;color:var(--teal-d);border-radius:3px;min-width:26px;min-height:26px;padding:0 4px;cursor:pointer;font-size:.68rem;line-height:1;margin-left:2px}
+.erow .cont.pausemini{color:#92400f;border-color:#e4a34f;background:#fffbf4}
 .erow .cont.stopmini{color:var(--danger-on);border-color:var(--danger-b);background:var(--danger-l)}
-.erowh{font-size:.62rem;text-transform:uppercase;letter-spacing:.35px;color:var(--muted);padding-top:3px;padding-bottom:2px;border-left:3px solid transparent;position:sticky;top:0;background:var(--card);z-index:2}
-#todayList .rows .erowh{border-bottom:1px solid #eef1f4}
-/* inline spreadsheet cells */
-.erow .cell{width:100%;min-width:0;border:1px solid transparent;background:transparent;border-radius:5px;padding:3px 4px;color:var(--ink);font:inherit;font-size:.82rem;min-height:30px}
-.erow .cell:hover{border-color:#d5dde5;background:#fff}
-.erow .cell:focus{outline:none;border-color:var(--teal-b);background:#fff;box-shadow:0 0 0 2px rgba(30,128,120,.15)}
-.erow .cell.ct{padding:2px 1px;font-variant-numeric:tabular-nums;font-size:.78rem}
+/* flush spreadsheet inputs — no pill borders until focus */
+.erow .cell{width:100%;min-width:0;border:0;background:transparent;border-radius:0;padding:2px 3px;color:var(--ink);font:inherit;font-size:.82rem;min-height:28px;box-shadow:none}
+.erow .cell:hover{background:rgba(255,255,255,.65)}
+.erow .cell:focus{outline:none;background:#fff;box-shadow:inset 0 0 0 2px var(--teal-b)}
+.erow .cell.ct{padding:1px 0;font-variant-numeric:tabular-nums;font-size:.78rem}
 .erow .ccode{display:flex;align-items:center;gap:2px;min-width:0}
 .erow .ccode .cell{flex:1 1 auto}
-.erow .pickfd,.erow .fdmini{flex:0 0 auto;border:1px solid var(--ghost-b);background:#fff;color:var(--teal-d);border-radius:6px;min-width:26px;min-height:26px;padding:0;cursor:pointer;font-size:.72rem;line-height:1;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+.erow .pickfd,.erow .fdmini{flex:0 0 auto;border:1px solid #c5cdd6;background:#fff;color:var(--teal-d);border-radius:3px;min-width:22px;min-height:22px;padding:0;cursor:pointer;font-size:.7rem;line-height:1;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
 .erow .pickfd:hover,.erow .fdmini:hover{background:#e7f5f2}
 .erow{-webkit-touch-callout:default;user-select:text}
 .erow .cell{-webkit-user-select:text;user-select:text}
+/* legacy .rows kept for any leftover wrappers */
+.rows{background:#fff;border:1px solid #c5cdd6;overflow:auto;-webkit-overflow-scrolling:touch}
+.livecards{display:none}
 /* history: one page, grouped by day */
 .week{margin:4px 0 8px}
 .weekh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:6px 2px 3px;font-weight:700;font-size:.8rem;color:#24443f}
@@ -323,11 +332,8 @@ dialog.mandlg{width:100vw;max-width:100vw;height:100vh;height:100dvh;max-height:
 .lwarn{margin:3px 0 0;font-size:.74rem;color:#7a4a06;line-height:1.3}
 .enc.wr .lwarn{color:#8a1c1c;font-weight:600}
 .lwarn .linkbtn{min-height:24px;padding:0 2px;font-size:.74rem}
-.erow.wa{border-left-color:#d99a2b}.erow.wr{border-left-color:#c24141;background:#fff8f8}
 .enc .acts .swbtn{flex:0 0 auto;padding:4px 8px;font-weight:600}
 .enc .acts .fsbtn{flex:0 0 auto;min-width:36px;padding:0 8px;font-size:1rem}
-.erow .t{display:flex;flex-direction:column;line-height:1.1}
-.erow .t .pt{font-size:.58rem;font-weight:700;color:var(--fee-t);margin:0;white-space:nowrap}
 /* history: day header and review marks */
 .dayh .sp{flex:1 1 auto}
 .dayh .linkbtn.sm{min-height:26px;padding:0 3px;font-size:.74rem}
@@ -459,9 +465,8 @@ dialog.procdlg::backdrop{background:#0f2d2a}
 .nonotes{margin:2px 0}
 .enc .note .nt{color:var(--muted);font-size:.7rem}.enc .note .nc{color:var(--muted);font-size:.7rem}
 .erow i.b.sp{background:#e9e4f7;color:#4b3f72}.erow i.b.nb{background:#f0f3f7;color:#475569}
-/* spreadsheet cells need text selection */
-.erow .rmore{border:1px solid transparent;background:none;color:var(--teal-d);border-radius:8px;min-width:30px;min-height:30px;padding:0;cursor:pointer;font-size:1.05rem;line-height:1;font-weight:700}
-.erow .rmore:hover,.erow .rmore:focus-visible{border-color:var(--ghost-b);background:#fff}
+.erow .rmore{border:1px solid transparent;background:none;color:var(--teal-d);border-radius:3px;min-width:26px;min-height:26px;padding:0;cursor:pointer;font-size:1rem;line-height:1;font-weight:700;margin-left:2px}
+.erow .rmore:hover,.erow .rmore:focus-visible{border-color:#c5cdd6;background:#fff}
 dialog.sheet{margin:auto auto 0;width:min(460px,100vw);border-radius:14px 14px 0 0;padding-bottom:env(safe-area-inset-bottom)}
 dialog.sheet h3{margin:0 0 1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 dialog.sheet .dlg>p{margin:0 0 6px}
@@ -494,16 +499,13 @@ dialog.sheet .dlg>p{margin:0 0 6px}
   .tagain{flex-wrap:wrap;overflow:visible}
   .tal{flex-basis:100%}
   .wd{min-height:48px}
-  /* History: table-like rows with extra columns (Today's list gets them at >= 1200px) */
-  #histList .erow,#histList .erowh,#todayList .erow,#todayList .erowh{grid-template-columns:minmax(120px,1.4fr) minmax(90px,.9fr) 64px 64px 58px minmax(100px,1.1fr) minmax(90px,1fr) minmax(72px,.8fr) minmax(80px,.9fr) auto;gap:6px;padding:0 8px 0 10px;min-width:0}
-  .erow{min-height:38px;font-size:.86rem}
+  /* Spreadsheet fills the column; sticky thead stays inside each .sheetwrap */
+  #todayList .sheetwrap,#histList .sheetwrap,#osList .sheetwrap{overflow:auto}
+  table.sheet{min-width:0;font-size:.86rem}
+  table.sheet th,table.sheet td{height:36px}
   .erow .xe{color:var(--muted);font-variant-numeric:tabular-nums}
   .erow .xf{color:#3b4a5c;font-size:.8rem}
   #histList .erow .t .pt,#todayList .erow .t .pt{display:none}
-  .erowh{font-size:.64rem;min-height:24px;align-items:end}
-  #histList>.erowh{position:sticky;top:calc(111px + env(safe-area-inset-top));z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
-  .rows{overflow:visible}
-  .erow,.erowh{min-width:0}
   .dayg{scroll-margin-top:150px}
   .dayh .d{font-size:.88rem}
   .dayt{font-size:.74rem}
@@ -530,7 +532,6 @@ dialog.sheet .dlg>p{margin:0 0 6px}
   #tab-history>*{grid-column:1;margin-top:0;min-width:0}
   #tab-history>#histList{grid-column:2;grid-row:1/-1}
   #tab-history>.card{margin-top:0}
-  #histList .erow,#histList .erowh,#todayList .erow,#todayList .erowh{grid-template-columns:minmax(140px,1.5fr) minmax(100px,1fr) 68px 68px 60px minmax(120px,1.2fr) minmax(100px,1fr) minmax(80px,.85fr) minmax(100px,1fr) auto;gap:8px;padding:0 8px 0 10px}
   #tab-data,#tab-res{columns:3}
   dialog.tldlg{width:min(860px,calc(100vw - 32px))}
 }
@@ -543,6 +544,6 @@ dialog.sheet .dlg>p{margin:0 0 6px}
 @media (max-width:420px){
   #quick{grid-template-columns:minmax(0,1fr) minmax(0,.85fr);grid-template-areas:"name mrn" "seg start";}
   .startbtn{width:100%}
-  .erow .xf,.erowh .xfh{display:none}
-  .erow,.erowh{grid-template-columns:minmax(80px,1.2fr) minmax(64px,.85fr) 52px 52px 50px minmax(64px,.9fr) minmax(64px,.85fr) minmax(56px,.75fr) auto;min-width:640px}
+  table.sheet .xf,table.sheet .xfh{display:none}
+  table.sheet{min-width:640px}
 }

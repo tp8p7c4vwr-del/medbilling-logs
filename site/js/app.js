@@ -202,8 +202,8 @@
   function noteLine(e) { const ns = R.notesOf(e); const bn = (e.billingNote || '').trim(); if (!bn && !ns.length) return ''; const x = bn || ns[ns.length - 1].x; return `<p class="note" data-a="edit">${esc(x.length > 140 ? x.slice(0, 140) + '…' : x)}${!bn && ns.length > 1 ? ` <span class="nc">+${ns.length - 1} more</span>` : ''}</p>`; }
   const ptCount = e => e.pt && S ? S.encs.filter(x => x.pt === e.pt).length : 0;
   const durTxt = (e, m) => kindOf(e) === 'shift' ? `${Math.floor(m / 60)}h${R.pad(m % 60)}` : `${m}m`;
-  const hmInput = ts => { if (ts == null) return ''; const d = new Date(ts); return `${R.pad(d.getHours())}:${R.pad(d.getMinutes())}`; };
-  // v9 spreadsheet row: editable patient / MRN / times / billing note / fee / dx; setting secondary; Fee Desk pick links
+  const hmInput = ts => { if (ts == null) return ''; return R.hm(ts); };  // America/Edmonton 24h HH:MM (same as header clock)
+  // v9b spreadsheet row: real <table> cells; live encounters stay in-grid (no timer cards)
   function rowHtml(e, cont, more) {
     const ms = R.msOf(e), m = Math.floor(ms / 60000), k = kindOf(e), st = e.status, cs = e.codes || [], dx = R.dxList(e);
     const who = displayWho(e), nameVal = ptName(e), mrnVal = ptMrn(e), noteVal = billingNoteOf(e);
@@ -220,10 +220,10 @@
     const mrnCell = editable
       ? `<input class="cell cm" data-f="mrn" maxlength="24" value="${esc(mrnVal)}" placeholder="MRN / PHN" aria-label="MRN or healthcare number"${migMrn} autocomplete="off" inputmode="text">`
       : '<span class="nil">–</span>';
-    const tinCell = `<input class="cell ct" data-f="tin" type="time" value="${hmInput(R.startOf(e))}" aria-label="Time in">`;
+    const tinCell = `<input class="cell ct" data-f="tin" type="text" inputmode="numeric" maxlength="5" placeholder="HH:MM" value="${hmInput(R.startOf(e))}" aria-label="Time in (24-hour)" autocomplete="off">`;
     const toutCell = st !== 'done' && en == null
-      ? `<span class="xe live">…</span>`
-      : `<input class="cell ct" data-f="tout" type="time" value="${hmInput(en)}" aria-label="Time out">`;
+      ? `<span class="xe live" data-out="${esc(e.id)}">…</span>`
+      : `<input class="cell ct" data-f="tout" type="text" inputmode="numeric" maxlength="5" placeholder="HH:MM" value="${hmInput(en)}" aria-label="Time out (24-hour)" autocomplete="off">`;
     const feeCell = editable
       ? `<span class="ccode"><input class="cell cf" data-f="fee" maxlength="40" value="${esc(feeVal)}" placeholder="Fee" aria-label="Billing fee code(s)" autocomplete="off"><button type="button" class="pickfd" data-kind="fee" title="Pick in Fee Desk" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<a class="fdmini" href="${esc(fdCodeHref(cs[0] && (cs[0].k || cs[0].c), cs[0] && cs[0].j || S.settings.prov))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk">ⓘ</a>` : ''}</span>`
       : '<span class="nil">–</span>';
@@ -234,22 +234,24 @@
       ? `<input class="cell cnote" data-f="billingNote" maxlength="200" value="${esc(noteVal)}" placeholder="Billing note" aria-label="Billing notes" autocomplete="off">`
       : '<span class="nil">–</span>';
     const acts = cont && st === 'done' ? `<button type="button" class="cont" data-a="resume" aria-label="Continue" title="Continue">▶</button>`
-      : st === 'run' ? `<button type="button" class="cont stopmini" data-a="stop" title="Stop">■</button>`
-      : st === 'pause' ? `<button type="button" class="cont" data-a="resume" title="Resume">▶</button>`
+      : st === 'run' ? `<button type="button" class="cont pausemini" data-a="pause" title="Pause" aria-label="Pause">❚❚</button><button type="button" class="cont stopmini" data-a="stop" title="Stop" aria-label="Stop">■</button>`
+      : st === 'pause' ? `<button type="button" class="cont" data-a="resume" title="Resume" aria-label="Resume">▶</button><button type="button" class="cont stopmini" data-a="stop" title="Stop" aria-label="Stop">■</button>`
       : more ? `<button type="button" class="rmore" data-a="more" aria-label="Actions" title="Add time, note, same patient, edit">⋯</button>` : '';
-    return `<div class="erow ${st} rk-${k}${wl ? ' w' + wl : ''}" data-id="${esc(e.id)}" role="row">
-      <span class="cname">${nameCell}${badge && editable ? badge : ''}</span>
-      <span class="cmrn">${mrnCell}</span>
-      <span class="t">${tinCell}${perTags(e)}</span>
-      <span class="xe">${toutCell}</span>
-      <span class="du" data-rm="${esc(e.id)}" data-k="${k}" title="${k === 'shift' ? '' : R.units(m) + ' units'}">${st === 'run' ? fmtDur(ms) : durTxt(e, m)}${k === 'shift' ? '' : `<small>${R.units(m)}u</small>`}</span>
-      <span class="cnote">${noteCell}</span>
-      <span class="fc">${feeCell}</span>
-      <span class="dx">${dxCell}</span>
-      <span class="xf" title="${esc(fac)}">${esc(fac)}</span>
-      <span class="ra">${acts}<button type="button" class="rmore" data-a="open" aria-label="Open details" title="Details">⧉</button></span></div>`;
+    return `<tr class="erow ${st} rk-${k}${wl ? ' w' + wl : ''}" data-id="${esc(e.id)}">
+      <td class="cname">${nameCell}${badge && editable ? badge : ''}</td>
+      <td class="cmrn">${mrnCell}</td>
+      <td class="t">${tinCell}${perTags(e)}</td>
+      <td class="xe">${toutCell}</td>
+      <td class="du" data-rm="${esc(e.id)}" data-k="${k}" title="${k === 'shift' ? '' : R.units(m) + ' units'}">${st === 'run' ? fmtDur(ms) : durTxt(e, m)}${k === 'shift' ? '' : `<small>${R.units(m)}u</small>`}</td>
+      <td class="cnote">${noteCell}</td>
+      <td class="fc">${feeCell}</td>
+      <td class="dx">${dxCell}</td>
+      <td class="xf" title="${esc(fac)}">${esc(fac)}</td>
+      <td class="ra">${acts}<button type="button" class="rmore" data-a="open" aria-label="Open details" title="Details">⧉</button></td></tr>`;
   }
-  const rowsHead = '<div class="erowh" aria-hidden="true"><span>Patient</span><span>MRN / PHN</span><span>In</span><span>Out</span><span>Time</span><span>Billing notes</span><span>Fee code</span><span>Dx</span><span class="xfh">Setting</span><span></span></div>';
+  const sheetHead = () => `<tr class="erowh"><th scope="col">Patient</th><th scope="col">MRN / PHN</th><th scope="col">In</th><th scope="col">Out</th><th scope="col">Time</th><th scope="col">Billing notes</th><th scope="col">Fee code</th><th scope="col">Dx</th><th scope="col" class="xfh">Setting</th><th scope="col" class="rah"></th></tr>`;
+  const sheetCols = '<colgroup><col class="c-name"><col class="c-mrn"><col class="c-in"><col class="c-out"><col class="c-time"><col class="c-note"><col class="c-fee"><col class="c-dx"><col class="c-set"><col class="c-act"></colgroup>';
+  const sheetTable = rows => `<div class="sheetwrap"><table class="sheet">${sheetCols}<thead>${sheetHead()}</thead><tbody>${rows}</tbody></table></div>`;
   function bindCards(root) {
     root.querySelectorAll('.erow').forEach(el => {
       longPress(el);
@@ -257,6 +259,7 @@
         if (el.dataset.lp) { delete el.dataset.lp; return; }
         const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return;
         const a = ev.target.closest('[data-a]');
+        if (a && a.dataset.a === 'pause') { ev.stopPropagation(); return act(e, 'pause'); }
         if (a && a.dataset.a === 'resume') { ev.stopPropagation(); return act(e, 'resume'); }
         if (a && a.dataset.a === 'stop') { ev.stopPropagation(); return act(e, 'stop'); }
         if (a && a.dataset.a === 'more') { ev.stopPropagation(); return openRowMenu(e); }
@@ -397,11 +400,9 @@
     renderOnsite();
     const list = S.encs.filter(e => kindOf(e) !== 'shift' && (R.encDay(e) === td || e.status !== 'done')).sort((a, b) => (a.status === 'done') - (b.status === 'done') || R.startOf(b) - R.startOf(a));
     renderStrip('today'); renderTrackAgain();
-    const live = list.filter(e => e.status !== 'done'), done = list.filter(e => e.status === 'done');
-    // v9: spreadsheet is the main path; running cards stay above for one-tap Pause/Stop on phone
-    const grid = list.length ? `<div class="rows sheet">${rowsHead}${list.map(e => rowHtml(e, true, true)).join('')}</div>` : '';
-    const liveCards = live.length ? `<div class="livecards">${live.map(e => card(e)).join('')}</div>` : '';
-    $('#todayList').innerHTML = list.length ? liveCards + grid : '<div class="empty">No encounters yet today. Enter a patient name and/or MRN below and tap <b>Start</b>.</div>';
+    // v9b: one Excel-like sheet; live encounters are first rows (In/Out/Time update; Pause/Stop in last column)
+    const grid = list.length ? sheetTable(list.map(e => rowHtml(e, true, true)).join('')) : '';
+    $('#todayList').innerHTML = list.length ? grid : '<div class="empty">No encounters yet today. Enter a patient name and/or MRN below and tap <b>Start</b>.</div>';
     bindCards($('#todayList'));
     $('#unitsNote').textContent = R.UNITS_NOTE;
     renderHistory(); renderRetention(); renderPbar(); renderPeriodSettings();
@@ -425,11 +426,11 @@
         const hol = R.holidayName(k);
         h += `<div class="dayg" id="d-${k}"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span>${hol ? `<i class="holb" title="${esc(hol)}">Holiday</i>` : ''}${rv[k] ? '<i class="rvb" title="Reviewed">✎ Reviewed</i>' : re[k] ? '<i class="rve" title="An entry changed after this day was reviewed">Edited after review</i>' : ''}<span class="sp"></span><button type="button" class="linkbtn sm" data-tl="${k}">Timeline</button><button type="button" class="linkbtn sm" data-rv="${k}">Review</button><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>
           <div class="dayt">${d.H.n + d.C.n} enc · H ${d.H.m}m/${d.H.u}u · C ${d.C.m}m/${d.C.u}u${d.cb.n ? ` · CB ${d.cb.n}/${d.cb.m}m` : ''}${d.site.n ? ` · on site ${R.hmin(d.site.m)}` : ''}${perShort(d)}</div>`;
-        h += `<div class="rows sheet">${l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e, false, true)).join('')}</div></div>`;
+        h += sheetTable(l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e, false, true)).join('')) + '</div>';
       }
       h += '</div>';
     }
-    $('#histList').innerHTML = rowsHead + h;
+    $('#histList').innerHTML = h;
     $$('#histList [data-rep]').forEach(b => b.addEventListener('click', () => openReport(b.dataset.rep, b.dataset.rep)));
     $$('#histList [data-rv]').forEach(b => b.addEventListener('click', () => openReview(b.dataset.rv, b.dataset.rv)));
     $$('#histList [data-rvw]').forEach(b => b.addEventListener('click', () => { const [f, t2] = b.dataset.rvw.split('|'); openReview(f, t2); }));
@@ -438,7 +439,7 @@
   }
   // live tick (display only; durations always computed from timestamps)
   setInterval(() => {
-    const d = new Date(); $('#clock').textContent = `${R.pad(d.getHours())}:${R.pad(d.getMinutes())}`;
+    $('#clock').textContent = R.hm(Date.now());  // America/Edmonton 24h, same source as In/Out cells
     if (!S) return;
     for (const e of S.encs) { if (e.status !== 'run') continue; const ms = R.msOf(e), m = Math.floor(ms / 60000), u = R.units(m);
       $$(`[data-rm="${CSS.escape(e.id)}"]`).forEach(el => { el.innerHTML = `${fmtDur(ms)}<small>${R.units(m)}u</small>`; });
@@ -505,7 +506,7 @@
 
   // ------------------------------------------------------------ edit dialog
   let cur = null, isNew = false, addedPhotos = [], removedPhotos = [];
-  const dtLocal = ts => { if (ts == null) return ''; const d = new Date(ts); return `${R.dayKey(ts)}T${R.pad(d.getHours())}:${R.pad(d.getMinutes())}`; };
+  const dtLocal = ts => { if (ts == null) return ''; return `${R.dayKey(ts)}T${R.hm(ts)}`; };
   const parseLocal = v => v ? new Date(v).getTime() : null;
   function segRow(s) { return `<div class="segrow"><label>Start<input type="datetime-local" class="ss" value="${dtLocal(s.s)}" required></label><label>End${s.e == null ? ' (running)' : ''}<input type="datetime-local" class="se" value="${dtLocal(s.e)}"></label><button type="button" class="x" aria-label="Remove segment">✕</button></div>`; }
   function bindSegs() { $$('#eSegs .x').forEach(b => b.onclick = () => { if ($$('#eSegs .segrow').length > 1) { b.closest('.segrow').remove(); sumSegs(); } }); $$('#eSegs input').forEach(i => i.oninput = sumSegs); }
@@ -935,7 +936,7 @@
     renderOnsiteInfo();
     const td = today(), list = S.encs.filter(e => kindOf(e) === 'shift' && R.encDay(e) === td).sort((a, b) => R.startOf(a) - R.startOf(b));
     let box = $('#osList'); if (!box) { box = document.createElement('div'); box.id = 'osList'; box.className = 'list'; $('#onsite').appendChild(box); }
-    const dn = list.filter(e => e.status !== 'run'); box.innerHTML = dn.length ? `<div class="rows">${dn.map(e => rowHtml(e)).join('')}</div>` : ''; bindCards(box);
+    const dn = list.filter(e => e.status !== 'run'); box.innerHTML = dn.length ? sheetTable(dn.map(e => rowHtml(e)).join('')) : ''; bindCards(box);
   }
   $('#osEdit').onclick = () => { const sh = activeShift(); if (sh) openEdit(sh); };
   $('#osFac').onclick = async () => {
@@ -1555,7 +1556,7 @@
   }
   // scroll a History day into view just below the sticky bars (header, period bar, tabs and, on wide screens, the column header)
   function scrollToDay(el) {
-    let below = $('#tabs').getBoundingClientRect().bottom; const hd = $('#histList > .erowh');
+    let below = $('#tabs').getBoundingClientRect().bottom; const hd = el.querySelector('thead th') || el.querySelector('.erowh');
     if (hd && getComputedStyle(hd).position === 'sticky') below += hd.offsetHeight;
     window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - below - 4), behavior: 'auto' });
     el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1200);
