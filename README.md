@@ -26,6 +26,9 @@ The bar under the header shows the current Alberta billing time period (America/
 ## Other v5 features
 Long-timer warnings (amber 60 min / red 3 h, configurable) with a Stop now / Stop at prompt on unlock; next-unit hint; week strip; Track again chips and favourite code sets (billing fields only); review checklist with a "Reviewed" mark that clears on edit; 5-second Undo; Last stop / ±5 min nudges; one-tap Next patient; day timeline; full-screen procedure timer (time only, wake lock). All in-app with no notifications, and every change is audit-logged.
 
+## Desktop and tablet (v6)
+Responsive layout. Phones (< 768px) are unchanged. At >= 768px the content is centred (max 1100px): Today shows the controls (arrival, week strip, Track again, actions) on the left and the day's entries on the right, History rows become a table (start, end, time, units, label, setting/facility, billing, Dx, time periods) with a sticky column header, and Settings/Resources flow into two columns. At >= 1200px (max 1360px): History puts the week strip and report form beside the table, Today's list gets the table columns too, and Settings/Resources use three columns. The week strip's **Today** button returns to the current week (and, in History, scrolls to today's entries) from any week.
+
 ## Audit log
 Every create, start/pause/stop, edit, delete, arrival/departure and import is appended to an encrypted, SHA-256 hash-chained log. Each record holds the time, the action, and before/after values. Deleted entries stay in the log. "Check log" verifies the chain and the head record. The log exports as PDF or CSV.
 
