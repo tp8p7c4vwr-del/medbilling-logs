@@ -43,6 +43,7 @@
     </form>
     <p class="small muted" id="lockMsg"></p>
     <p class="small muted">Encrypted on this device (AES-GCM, PBKDF2). No accounts, no analytics, nothing sent anywhere.</p>
+    <button type="button" class="linkbtn manlink">Help / User manual</button>
   </div>
 </section>
 <header class="top">
@@ -92,6 +93,7 @@
   </section>
 
   <section id="tab-data" class="panel" hidden>
+    <div class="card helpcard"><h3>Help</h3><button type="button" class="linkbtn manlink">Help / User manual</button><span class="small muted"> How to use the app, step by step. Works offline.</span></div>
     <div class="card">
       <h3>Defaults</h3>
       <div class="two">
@@ -171,6 +173,7 @@
   <p class="small muted">Time log only. Confirm time-based billing rules in your own schedule (e.g. Alberta SOMB) before submitting claims.</p>
   <p class="small muted">Passcode-locked and encrypted on this device. No accounts, analytics or trackers. Nothing is sent anywhere.</p>
   <p class="small muted fdhelp">For help with medical billing codes and diagnostic codes (ICD-9 / ICD-10), use <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></p>
+  <p class="small muted"><button type="button" class="linkbtn manlink">Help / User manual</button></p>
   <p class="small muted">Part of JFdeLara's Studio · <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" rel="noopener noreferrer">MedBilling Fee Desk</a></p>
   <div class="copyright">© 2026 MedBilling Logs. All rights reserved. This app is protected by copyright. Reproduction or duplication without permission is an infringement.</div>
 </footer>
@@ -295,6 +298,208 @@
     <div class="dlgbtns"><button type="button" class="dangerbtn ghostdanger" id="pvDel">Delete photo</button><span></span><button type="button" class="ghost" id="pvClose">Close</button></div>
   </div>
 </dialog>
+<!-- manual:start -->
+<dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
+  <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
+  <div class="man" id="manBody">
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 4 (October 2026).</p>
+    <nav class="mantoc" aria-label="Contents">
+      <a href="#m-start" data-go="m-start">1. Getting started</a>
+      <a href="#m-site" data-go="m-site">2. Arrival, departure and call-backs</a>
+      <a href="#m-enc" data-go="m-enc">3. Encounters: start, pause, stop</a>
+      <a href="#m-late" data-go="m-late">4. Past entries and "Entered later"</a>
+      <a href="#m-codes" data-go="m-codes">5. Billing and diagnostic codes</a>
+      <a href="#m-photo" data-go="m-photo">6. Photos and the lock</a>
+      <a href="#m-hist" data-go="m-hist">7. History and totals</a>
+      <a href="#m-exp" data-go="m-exp">8. Reports and sharing safely</a>
+      <a href="#m-audit" data-go="m-audit">9. Audit log</a>
+      <a href="#m-ret" data-go="m-ret">10. Retention and backups</a>
+      <a href="#m-priv" data-go="m-priv">11. Privacy tips</a>
+      <a href="#m-faq" data-go="m-faq">12. FAQ and troubleshooting</a>
+    </nav>
+
+    <section id="m-start">
+      <h3>1. Getting started</h3>
+      <h4>Add it to your Home Screen first</h4>
+      <p>Install the app before you create a passcode, then always open it from the Home Screen icon. It then opens full screen and works offline.</p>
+      <ul>
+        <li><b>iPhone / iPad (Safari):</b> open the app's web address, tap <b>Share</b> (square with an arrow), then <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+        <li><b>Android (Chrome):</b> open the web address, tap the <b>⋮</b> menu, then <b>Install app</b> or <b>Add to Home screen</b>.</li>
+      </ul>
+      <p class="mantip">On iPhone, the Home Screen app keeps its own storage, separate from Safari. Entries made in a Safari tab do not appear in the Home Screen app, so pick one and stick with it (the Home Screen app is best).</p>
+      <h4>First launch and your passcode</h4>
+      <ul>
+        <li>Create a passcode of at least 6 characters and type it twice.</li>
+        <li>Tick the two boxes: you understand a forgotten passcode can't be recovered, and you accept responsibility for keeping and backing up your records.</li>
+        <li>Your passcode is never stored anywhere. It makes the key that encrypts your data.</li>
+        <li>To change it later: <b>Settings → Lock → Change passcode</b>. Everything is re-encrypted with the new one.</li>
+      </ul>
+      <h4>If you forget the passcode</h4>
+      <p>No one can recover it or open your data, including the developer. The only way back in is <b>Forgot passcode?</b> on the lock screen: type DELETE to erase everything on this device and start again. If you have an encrypted backup and remember <i>that backup's</i> passcode, you can import it afterwards. This is why backups matter.</p>
+      <p>After 5 wrong passcodes in a row, the app makes you wait (30 seconds at first, longer with each further miss, up to 15 minutes).</p>
+      <h4>The screens</h4>
+      <ul>
+        <li><b>Today:</b> facility arrival/departure, today's totals, running and finished encounters, call-backs.</li>
+        <li><b>History:</b> every past entry on one page, with daily and weekly totals and reports.</li>
+        <li><b>Resources:</b> official billing, privacy and regulatory websites, including MedBilling Fee Desk.</li>
+        <li><b>Settings:</b> defaults, lock, backups, retention, audit log, this manual and Delete all data.</li>
+      </ul>
+    </section>
+
+    <section id="m-site">
+      <h3>2. Arrival, departure and call-backs</h3>
+      <h4>Time on site</h4>
+      <ol>
+        <li>On <b>Today</b>, tap <b>Facility</b> and pick your hospital (Alberta hospitals, grouped by AHS zone; type to filter). For a clinic or a site not listed, type a custom name under <b>Other / clinic</b>.</li>
+        <li>Tap <b>Arrive</b> when you get there. The button changes to <b>Depart</b>; tap it when you leave.</li>
+        <li>Forgot to tap Arrive? Tap <b>Edit arrival time / back-date</b> to set the real time.</li>
+      </ol>
+      <p>"Time on site today" adds up all your on-site periods for the day.</p>
+      <h4>Call-backs</h4>
+      <ol>
+        <li>Tap <b>+ Call-back</b>. Choose <b>Return to hospital</b> or <b>Phone call-back</b>, and set <b>Time called</b> (the time you were contacted).</li>
+        <li>Save. The call-back timer starts running from now (or set an earlier arrival time with the quick buttons).</li>
+        <li>Tap <b>Stop</b> when you finish. Under <b>Linked encounters</b>, tick the encounters seen during that call-back.</li>
+      </ol>
+      <p>Call-backs show a <b>CB</b> badge and have their own totals.</p>
+    </section>
+
+    <section id="m-enc">
+      <h3>3. Encounters: start, pause, stop</h3>
+      <ol>
+        <li>In the bar at the bottom, type a short room or bed label (for example <i>Rm 412</i>). Avoid names.</li>
+        <li>Choose <b>Hospital</b> or <b>Clinic</b>, then tap <b>Start</b>. A card with a live timer appears.</li>
+        <li><b>Pause</b> if you are interrupted, <b>Resume</b> to carry on. Each stretch of time is kept as a segment.</li>
+        <li>Tap <b>Stop</b> when you are done. Finished encounters show as compact rows; tap <b>▶</b> to continue one later.</li>
+      </ol>
+      <p>Tap an encounter to add details: initials, chart/MRN, setting, type (consult, visit…), billing and diagnostic codes, photos, a short note, and the <b>Minor</b> or <b>Obstetric</b> flags that set how long the record is kept.</p>
+      <ul>
+        <li>The quick buttons (<b>now, 5, 15, 30 min ago, 1 h ago, End now</b>) fix start or end times in one tap. <b>+ Add time segment</b> adds another stretch.</li>
+        <li>If times overlap another entry, you'll see a warning. Check the times, or tap <b>Save anyway</b> if it's correct (for example, two patients seen together).</li>
+        <li>Timers use clock times, so they keep counting when the app is locked, in the background, or the phone is off.</li>
+        <li>Units are shown as a guide: full 15-minute blocks, plus 1 if the remainder is 8 minutes or more (38 min = 3 units). Always confirm time-based billing rules in the Alberta SOMB.</li>
+        <li>To delete an entry, open it and tap <b>Delete</b>. It stays in the audit log.</li>
+      </ul>
+    </section>
+
+    <section id="m-late">
+      <h3>4. Past entries and "Entered later"</h3>
+      <p>Use <b>+ Add past entry</b> on Today for something you didn't time live. Set the start and end, add details, and save.</p>
+      <p>To keep the record honest, the app marks an entry <b>Entered later</b> when:</p>
+      <ul>
+        <li>a new entry starts more than 2 minutes before it was saved (back-dated), or</li>
+        <li>you change the times of an existing entry.</li>
+      </ul>
+      <p>The badge shows when it was created and last edited. It also appears in reports (the <i>entered_later</i> and <i>last_edited</i> columns) and in the audit log. It isn't an error. It shows the times were entered afterwards rather than timed live.</p>
+    </section>
+
+    <section id="m-codes">
+      <h3>5. Billing and diagnostic codes</h3>
+      <ol>
+        <li>Open an encounter. Under <b>Fee codes and diagnostic codes</b>, check the fee schedule (province) on the right.</li>
+        <li>In <b>Billing code</b>, type a code or a few words and tap a suggestion to add it.</li>
+        <li>In <b>Diagnostic code (ICD-9)</b> beside it, type a code or words and tap a suggestion. Each billing code you add gets its own diagnostic code field on the same row. You can also type any code that isn't in the list.</li>
+      </ol>
+      <ul>
+        <li>Suggestions come from lists built into the app (fee codes from MedBilling Fee Desk; ICD-9 from Alberta Health's diagnostic code supplement). They work offline and nothing you type is sent anywhere.</li>
+        <li><b>Look up in Fee Desk</b> opens MedBilling Fee Desk in a new tab with fees, rules and notes. It goes straight to the code only if what you typed is a known code. Otherwise it opens Fee Desk's home page. No patient information is ever put in the link.</li>
+        <li>Opening Fee Desk locks this app (it went to the background). Your unsaved entry is kept as an encrypted draft and reopens after you unlock.</li>
+        <li>Codes and fees are a convenience. Always confirm in the official Schedule of Medical Benefits before you submit claims.</li>
+      </ul>
+    </section>
+
+    <section id="m-photo">
+      <h3>6. Photos and the lock</h3>
+      <ul>
+        <li>In an encounter, tap <b>Take photo</b> or <b>Attach photo</b>. Photos are resized, location data is removed, and they are stored only inside the app, encrypted. They aren't saved to your camera roll.</li>
+        <li>Tap a thumbnail to view it or <b>Delete photo</b>.</li>
+        <li>Move clinical photos into the official patient record, then delete them here.</li>
+        <li><b>The lock:</b> the app locks whenever it goes to the background and after a period without use (Settings → Lock; 1 to 15 minutes, default 2). Tap <b>Lock</b> at the top right to lock right away. The camera doesn't trigger a lock while you take a photo.</li>
+      </ul>
+    </section>
+
+    <section id="m-hist">
+      <h3>7. History and totals</h3>
+      <ul>
+        <li><b>History</b> shows every entry on one page as compact rows: start time, duration, label and initials, billing code and diagnostic code.</li>
+        <li>Rows are grouped by day (newest first) and by week. Each day shows its totals: number of encounters, Hospital minutes/units (H), Clinic minutes/units (C), call-backs (CB) and time on site.</li>
+        <li>Tap a row to open the details. In an entry, <b>History of this entry</b> shows every change made to it.</li>
+        <li>Today's totals are at the top of the Today screen.</li>
+      </ul>
+    </section>
+
+    <section id="m-exp">
+      <h3>8. Reports (CSV, PDF, Word) and sharing safely</h3>
+      <ol>
+        <li>On Today tap <b>Report / share today</b>, or on History pick <b>From</b> and <b>To</b> dates and tap <b>Create report</b>.</li>
+        <li>Choose <b>PDF</b>, <b>Word</b> or <b>CSV</b> (for spreadsheets). For PDF and Word, tick <b>Include photos</b> only if you need them.</li>
+        <li>Tap <b>Create file</b>, read the confidentiality notice, tick <b>I understand</b>, then <b>Share…</b> or <b>Download</b>.</li>
+      </ol>
+      <p>Reports list each entry with times, minutes, units, facility, billing codes and a Diagnostic code column. PDF and Word add daily and overall totals.</p>
+      <p class="mantip"><b>Sharing safely:</b> a report can contain initials, chart numbers and photos. Send it only to authorized people through secure, approved channels (for example your clinic's secure system). Never use regular email or text. Delete downloaded copies from shared computers and from Downloads when you're done.</p>
+    </section>
+
+    <section id="m-audit">
+      <h3>9. Audit log</h3>
+      <ul>
+        <li>Every create, edit, delete, start/pause/stop, arrival/departure and import is recorded with its time and the before/after values. The log is encrypted and append-only.</li>
+        <li>Each record is chained to the one before it, so any change, removal or reordering is detected.</li>
+        <li><b>Settings → Audit log:</b> <b>Check log</b> verifies the chain, <b>Deleted entries</b> lists what was deleted, <b>Export log</b> saves it as PDF or CSV.</li>
+      </ul>
+    </section>
+
+    <section id="m-ret">
+      <h3>10. Retention and backups</h3>
+      <h4>How long records are kept</h4>
+      <ul>
+        <li>At least <b>10 years from the last entry</b> (CPSA; CMPA recommends at least 10 years).</li>
+        <li><b>Minor</b> flag: the longer of 10 years or 2 years after the patient turns 18.</li>
+        <li><b>Obstetric</b> flag: 10 years after the infant reaches majority (counted as 29 years).</li>
+        <li>Nothing is ever deleted automatically. <b>Settings → Records past retention</b> shows what is eligible, and you confirm before anything is removed. Any longer legal or College requirement comes first.</li>
+      </ul>
+      <h4>Backups</h4>
+      <ul>
+        <li>Your records exist only on this device. If the phone is lost, broken or reset, or the app or its website data is deleted, they're gone unless you have a backup.</li>
+        <li><b>Settings → Encrypted backup → Export</b>, confirm your passcode, then save the file (<i>medbilling-logs-backup-DATE.mblbackup</i>) somewhere safe that only you control. It's encrypted with your current passcode.</li>
+        <li><b>Import</b> loads a backup (you need the passcode it was made with). It's added to what's already there. Use it to move to a new phone.</li>
+        <li><b>Reminders:</b> by default the app reminds you <b>monthly</b> with a banner on Today (<b>Back up now</b> or <b>Remind me later</b>). Change it to weekly, every 3 months or off under <b>Backup reminder</b>. "Last backup" shows when you last made one.</li>
+      </ul>
+    </section>
+
+    <section id="m-priv">
+      <h3>11. Privacy tips</h3>
+      <ul>
+        <li>Use room/bed labels and initials, not full names. Add a chart number only if you need it.</li>
+        <li>Keep your phone's own screen lock on, and use a passcode you don't use anywhere else.</li>
+        <li>Keep the auto-lock short, and tap <b>Lock</b> before handing your phone to anyone.</li>
+        <li>Share reports only through secure, approved channels. Don't leave copies in Downloads or email.</li>
+        <li>This is a personal billing log, not the medical record. Chart every encounter in the patient's chart.</li>
+        <li>If your phone is lost or data may be exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away.</li>
+        <li>The app has no accounts, analytics or trackers, and it sends nothing anywhere. Files leave the device only when you share or download them.</li>
+      </ul>
+    </section>
+
+    <section id="m-faq">
+      <h3>12. FAQ and troubleshooting</h3>
+      <dl class="manfaq">
+        <dt>I forgot my passcode.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
+        <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
+        <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock.</dd>
+        <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
+        <dt>How do I move to a new phone?</dt><dd>On the old phone, Export a backup. On the new phone, install the app, create a passcode, then Import the backup with the passcode it was made with.</dd>
+        <dt>Why does an entry say "Entered later"?</dt><dd>It was back-dated or its times were edited. See section 4.</dd>
+        <dt>It says the times overlap.</dt><dd>Another entry covers the same time. Fix the times, or tap <b>Save anyway</b> if it's correct.</dd>
+        <dt>Does it work without internet?</dt><dd>Yes, after the first open. Only the Resources and Fee Desk links need a connection.</dd>
+        <dt>The app says "Updating to the new version…"</dt><dd>Wait a few seconds. If it says "Update ready", close the app completely and reopen it. Your data isn't affected.</dd>
+        <dt>A diagnostic code isn't in the suggestions.</dt><dd>Type it anyway; any code is accepted. Use <b>Look up in Fee Desk</b> to check it.</dd>
+        <dt>Are the units and codes official?</dt><dd>No. They're a guide. Confirm in the Alberta Schedule of Medical Benefits, or contact AMA billing support.</dd>
+        <dt>Where can I get advice?</dt><dd>CMPA (1-800-267-6522), AMA billing support, or the CPSA. Links are in the Resources tab.</dd>
+      </dl>
+      <p class="small muted">MedBilling Logs is general information, not legal, billing or medico-legal advice. Part of JFdeLara's Studio.</p>
+    </section>
+  </div>
+</dialog>
+<!-- manual:end -->
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="js/vault.js"></script>
 <script src="js/search.js"></script>

@@ -46,7 +46,7 @@
     if (!S && document.body.classList.contains('locked')) return;
     if (cur && $('#editDlg').open) { try { V.saveDraft(editSnapshot()).catch(() => {}); } catch (e) { /* locked already */ } }
     V.lock(); S = null; cur = null;
-    $$('dialog[open]').forEach(d => d.close());
+    $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
     ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
     $$('input:not([type=checkbox]):not([type=file]), textarea').forEach(i => { i.value = ''; });
@@ -81,6 +81,11 @@
   });
   $('#forgot').addEventListener('click', () => ask({ title: 'Forgot passcode', text: "The passcode is never stored, so there is no way to recover it or decrypt your data. If you can't remember it, the only option is to delete all data on this device and start again (you can then import an encrypted backup if you remember that backup's passcode). Type DELETE to erase everything.", fields: [{ id: 'conf', label: 'Type DELETE', type: 'text' }], ok: 'Delete everything', danger: true,
     check: v => v.conf.trim().toUpperCase() === 'DELETE' ? '' : 'Type DELETE to confirm.' }).then(async v => { if (!v) return; await V.wipe(); localStorage.removeItem(failKey); showLock('All data deleted. Create a new passcode.'); }));
+  // built-in user manual (static, offline; no patient data). Reachable from the lock screen, Settings and the footer.
+  const manDlg = $('#manDlg');
+  $$('.manlink').forEach(b => b.addEventListener('click', () => { if (!manDlg.open) { manDlg.showModal(); $('#manBody').scrollTop = 0; manDlg.scrollTop = 0; } }));
+  $('#manClose').addEventListener('click', () => manDlg.close());
+  $$('#manBody [data-go]').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); const t = document.getElementById(a.dataset.go); if (t) t.scrollIntoView({ block: 'start' }); }));
   async function afterUnlock(first) {
     const settings = Object.assign({}, DEF, await V.loadSettings());
     const encs = await V.loadAll();
