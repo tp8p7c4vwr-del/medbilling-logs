@@ -16,7 +16,7 @@
   const R = window.BLR, V = window.Vault;
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Date.now().toString(36) + '-' + Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, '0')).join('');
-  const DEF = { defSetting: 'H', autolock: 2, prov: 'AB', curFac: null, favFac: [], customFac: [], bkEvery: 30, lastBackup: 0, bkSnooze: 0,
+  const DEF = { defSetting: 'H', autolock: 2, prov: 'AB', curFac: null, favFac: [], customFac: [], bkEvery: 30, lastBackup: 0, bkSnooze: 0, abOn: false, abEvery: 60, abKeep: 24, abFmts: [], abZip: true, abPwMode: 'passcode', abNotes: false, abLoc: '',
     warnA: 60, warnR: 180, favSets: [], reviews: {}, revEdited: {}, holOff: [], holExtra: [] };   // v5: timer warnings, code sets, review marks, holidays
   const kindOf = R.kindOf, clone = o => JSON.parse(JSON.stringify(o));
   let FAC = null;
@@ -47,11 +47,12 @@
     if (!S && document.body.classList.contains('locked')) return;
     if (cur && $('#editDlg').open) { try { V.saveDraft(editSnapshot()).catch(() => {}); } catch (e) { /* locked already */ } }
     hideSnack(); flushPhotoDel(); stopWake();
-    V.lock(); S = null; cur = null;
+    if (S && S.settings.abOn && abLocOk && abMode() !== 'manual' && V.unlocked()) { try { runBackup('lock', abSnapshot()); } catch (e) { /* never block locking */ } }
+    V.lock(); S = null; cur = null; sessPass = null;
     $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
     ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo', '#eNotes', '#eSummary', '#rmSub'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
-    $$('input:not([type=checkbox]):not([type=file]), textarea').forEach(i => { i.value = ''; });
+    $$('input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea').forEach(i => { i.value = ''; });
     $('#pReady').hidden = true; repFile = null;
     showLock(msg || 'Locked.');
   }
@@ -62,7 +63,7 @@
     if (!$('#sAck').checked) return err.textContent = 'Please confirm you understand the warning.';
     if (!$('#sResp').checked) return err.textContent = 'Please accept the records responsibility statement.';
     err.textContent = ''; $('#sBtn').disabled = true; $('#sBtn').textContent = 'Creating…';
-    try { await V.create(a); $('#sPass').value = $('#sPass2').value = ''; await afterUnlock(true); }
+    try { await V.create(a); sessPass = a; $('#sPass').value = $('#sPass2').value = ''; await afterUnlock(true); }
     catch (e) { err.textContent = 'Could not create the vault: ' + e.message; }
     $('#sBtn').disabled = false; $('#sBtn').textContent = 'Create passcode';
   });
@@ -78,11 +79,11 @@
       err.textContent = f.n >= 5 ? `Wrong passcode. Wait ${Math.round((f.until - Date.now()) / 1000)} s before trying again.` : 'Wrong passcode.';
       $('#uPass').select(); return;
     }
-    localStorage.removeItem(failKey); err.textContent = ''; $('#uPass').value = '';
+    localStorage.removeItem(failKey); err.textContent = ''; sessPass = $('#uPass').value; $('#uPass').value = '';
     await afterUnlock(false);
   });
   $('#forgot').addEventListener('click', () => ask({ title: 'Forgot passcode', text: "The passcode is never stored, so there is no way to recover it or decrypt your data. If you can't remember it, the only option is to delete all data on this device and start again (you can then import an encrypted backup if you remember that backup's passcode). Type DELETE to erase everything.", fields: [{ id: 'conf', label: 'Type DELETE', type: 'text' }], ok: 'Delete everything', danger: true,
-    check: v => v.conf.trim().toUpperCase() === 'DELETE' ? '' : 'Type DELETE to confirm.' }).then(async v => { if (!v) return; await V.wipe(); localStorage.removeItem(failKey); showLock('All data deleted. Create a new passcode.'); }));
+    check: v => v.conf.trim().toUpperCase() === 'DELETE' ? '' : 'Type DELETE to confirm.' }).then(async v => { if (!v) return; await V.wipe(); await abForget(); localStorage.removeItem(failKey); showLock('All data deleted. Create a new passcode.'); }));
   // built-in user manual (static, offline; no patient data). Reachable from the lock screen, Settings and the footer.
   const manDlg = $('#manDlg');
   $$('.manlink').forEach(b => b.addEventListener('click', () => { if (!manDlg.open) { manDlg.showModal(); $('#manBody').scrollTop = 0; manDlg.scrollTop = 0; } }));
@@ -99,7 +100,7 @@
     R.setHolidays({ off: settings.holOff, extra: settings.holExtra });
     $('#defSetting').value = settings.defSetting; $('#autolock').value = String(settings.autolock); $('#warnA').value = String(settings.warnA); $('#warnR').value = String(settings.warnR);
     fillProv($('#defProv'), settings.prov);
-    renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings();
+    renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings(); abInit().catch(() => {});
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
     else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else checkLongTimers(); }
   }
@@ -852,10 +853,10 @@
   function checkBackupDue() {
     if (!S) return; const st = S.settings, days = st.bkEvery == null ? 30 : st.bkEvery, now = Date.now();
     const base = st.lastBackup || st.created || now, due = days > 0 && now - base > days * 86400000 && now > (st.bkSnooze || 0) && S.encs.length > 0;
-    $('#bkRemind').hidden = !due;
+    $('#bkRemind').hidden = !due || !!(st.abOn && !$('#abRemind').hidden);
     if (due) $('#bkText').textContent = st.lastBackup ? `Your last encrypted backup was ${Math.floor((now - st.lastBackup) / 86400000)} days ago. Your data lives only on this device; make a backup and keep it somewhere safe.` : 'You have not made an encrypted backup yet. Your data lives only on this device; make a backup and keep it somewhere safe.';
   }
-  $('#bkNow').onclick = () => $('#expAll').click();
+  $('#bkNow').onclick = () => abNow();
   $('#bkLater').onclick = async () => { S.settings.bkSnooze = Date.now() + 3 * 86400000; await saveSettings(); checkBackupDue(); };
   $('#retReview').onclick = async () => {
     const old = S.encs.filter(pastRet), live = new Map(S.encs.map(e => [e.id, e]));
@@ -959,7 +960,7 @@
   $('#chPass').onclick = async () => {
     const v = await ask({ title: 'Change passcode', text: 'All encounters and photos will be re-encrypted with the new passcode. A forgotten passcode means the data cannot be recovered.', ok: 'Change',
       fields: [{ id: 'old', label: 'Current passcode' }, { id: 'n1', label: 'New passcode (at least 6 characters)' }, { id: 'n2', label: 'Repeat new passcode' }],
-      check: async v => { if (v.n1.length < 6) return 'Use at least 6 characters.'; if (v.n1 !== v.n2) return 'The new passcodes do not match.'; return (await V.rekey(v.old, v.n1)) ? '' : 'Current passcode is wrong.'; } });
+      check: async v => { if (v.n1.length < 6) return 'Use at least 6 characters.'; if (v.n1 !== v.n2) return 'The new passcodes do not match.'; return (await V.rekey(v.old, v.n1)) ? ((sessPass = v.n1), '') : 'Current passcode is wrong.'; } });
     if (v) toast('Passcode changed');
   };
   $('#expAll').onclick = async () => {
@@ -995,8 +996,281 @@
   $('#wipe').onclick = async () => {
     const v = await ask({ title: 'Delete all data', text: 'This erases every encounter, arrival/departure, call-back, photo, the whole audit log, all settings and the passcode from this device. It cannot be undone and the developer cannot recover anything. Check your retention obligations and make an encrypted backup first. Enter your passcode and type DELETE ALL to confirm.', ok: 'Delete everything', danger: true, fields: [{ id: 'p', label: 'Passcode' }, { id: 'c', label: 'Type DELETE ALL', type: 'text' }],
       check: async v => v.c.trim().toUpperCase() !== 'DELETE ALL' ? 'Type DELETE ALL to confirm.' : ((await V.verify(v.p)) ? '' : 'Wrong passcode.') });
-    if (!v) return; S = null; await V.wipe(); localStorage.removeItem(failKey); lockNow('All data deleted.'); showLock('All data deleted. Create a new passcode to start again.');
+    if (!v) return; S = null; await V.wipe(); await abForget(); localStorage.removeItem(failKey); lockNow('All data deleted.'); showLock('All data deleted. Create a new passcode to start again.');
   };
+
+  // ============================================================ v8 backups: automatic (folder / native) or reminder + share
+  // The .mblbackup is always written (AES-256-GCM, current passcode). Optional readable copies (PDF / Markdown / Word / Excel)
+  // go into an AES-256 password-protected .zip by default. Nothing runs while locked: the key is needed and is only in memory.
+  const AB_PRE = 'medbilling-logs-auto-', AB_RX = /^medbilling-logs-auto-(\d{4}-\d{2}-\d{2}_\d{6})(?:-readable)?\.(?:mblbackup|zip|pdf|md|docx|xlsx)$/;
+  const FMTS = { pdf: 'PDF', md: 'Markdown', docx: 'Word', xlsx: 'Excel' };
+  const EVERY = { 60: 'every hour', 120: 'every 2 hours', 240: 'every 4 hours', 1440: 'daily' };
+  const CAPN = window.Capacitor, NATIVE = !!(CAPN && CAPN.isNativePlatform && CAPN.isNativePlatform());
+  let mbb, sessPass = null, abBusy = null, abLocOk = false, abStatusCache = {};
+  function MBB() { if (mbb !== undefined) return mbb; mbb = null; if (NATIVE) { try { mbb = (CAPN.Plugins && CAPN.Plugins.MBBackup) || (CAPN.registerPlugin ? CAPN.registerPlugin('MBBackup') : null); } catch (e) { mbb = null; } } return mbb; }
+  function abMode() { if (NATIVE) return MBB() ? 'native' : 'manual'; return typeof window.showDirectoryPicker === 'function' && window.isSecureContext ? 'fsa' : 'manual'; }
+  const platform = () => NATIVE ? CAPN.getPlatform() : 'web';
+  // folder handle + last status live in a small separate IndexedDB store (no patient data: a folder handle, times, file names)
+  const KV = (() => {
+    let db = null;
+    const open = () => db ? Promise.resolve(db) : new Promise((res, rej) => { const r = indexedDB.open('bl-backup-loc', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => { db = r.result; db.onversionchange = () => { db.close(); db = null; }; res(db); }; r.onerror = () => rej(r.error); });
+    const run = (mode, fn) => open().then(d => new Promise((res, rej) => { const t = d.transaction('kv', mode), q = fn(t.objectStore('kv')); t.oncomplete = () => res(q ? q.result : undefined); t.onerror = () => rej(t.error); }));
+    return { get: k => run('readonly', s => s.get(k)), set: (k, v) => run('readwrite', s => s.put(v, k)), del: k => run('readwrite', s => s.delete(k)), drop: () => new Promise(res => { if (db) { db.close(); db = null; } const r = indexedDB.deleteDatabase('bl-backup-loc'); r.onsuccess = r.onerror = r.onblocked = () => res(); }) };
+  })();
+  const abGet = async () => (abStatusCache = (await KV.get('st').catch(() => null)) || {});
+  const abPut = async o => { const st = Object.assign(await abGet(), o); await KV.set('st', st).catch(() => {}); abStatusCache = st; return st; };
+  async function abForget() { try { if (MBB()) await MBB().clearFolder(); } catch (e) { /* ignore */ } await KV.drop(); abStatusCache = {}; }
+  const errMsg = e => {
+    const n = (e && e.name) || '', m = String((e && (e.message || e.errorMessage)) || e || 'unknown error');
+    if (n === 'NotFoundError' || /could not be found|not found|no such file/i.test(m)) return 'The backup folder can\'t be found (moved, renamed or deleted?). Choose the location again.';
+    if (n === 'NotAllowedError' || n === 'SecurityError' || /permission/i.test(m)) return 'This device needs your OK to save in the backup folder. Choose the location again or allow access.';
+    if (n === 'QuotaExceededError' || /no space|quota|full/i.test(m)) return 'The backup location is full. Free up space or choose another location.';
+    return m.slice(0, 200);
+  };
+  const abErr = (code, m) => Object.assign(new Error(m), { code });
+  const stampOf = ts => { const d = new Date(ts); return `${R.dayKey(ts)}_${R.pad(d.getHours())}${R.pad(d.getMinutes())}${R.pad(d.getSeconds())}`; };
+  const blobB64 = async b => { const u = new Uint8Array(await b.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+  // password strength (rough entropy estimate): 12+ characters and about 60 bits or more counts as strong enough
+  function pwStrength(p) {
+    p = p || ''; if (!p) return { bits: 0, label: 'Empty', ok: false };
+    let cs = 0; if (/[a-z]/.test(p)) cs += 26; if (/[A-Z]/.test(p)) cs += 26; if (/\d/.test(p)) cs += 10; if (/[^A-Za-z0-9]/.test(p)) cs += 33;
+    let bits = Math.log2(Math.max(cs, 2)) * Math.min(p.length, new Set(p).size * 2);
+    if (/^(.)\1*$/.test(p) || /(password|passcode|passw0rd|qwerty|123456|abcdef|letmein|medbilling|welcome|admin|iloveyou)/i.test(p)) bits = Math.min(bits, 20);
+    bits = Math.round(bits); const label = bits < 40 ? 'Weak' : bits < 60 ? 'Fair' : bits < 80 ? 'Strong' : 'Very strong';
+    return { bits, label, ok: p.length >= 12 && bits >= 60 };
+  }
+  const readable = st => (st.abFmts || []).filter(f => FMTS[f]);
+  // the always-visible lines under every backup button: encryption, which password, and that a lost password can't be recovered
+  function bkExplain(kind) {
+    const st = (S && S.settings) || DEF, fm = readable(st), zipOn = st.abZip !== false, custom = st.abPwMode === 'custom';
+    const L3 = 'If the password is lost, no one can open or recover the backup, including the developer.';
+    if (kind === 'export') return `Encrypted with AES-256 (.mblbackup).<br>Password: your app passcode.<br>${L3}`;
+    const l1 = 'Encrypted with AES-256 (.mblbackup)' + (fm.length ? (zipOn ? '; readable copies in an AES-256 password-protected .zip.' : '; <b>readable copies are NOT encrypted</b>.') : '.');
+    const l2 = fm.length && zipOn && custom ? 'Passwords: app passcode (.mblbackup), backup password (.zip).' : 'Password: your app passcode.';
+    return `${l1}<br>${l2}<br>${L3}`;
+  }
+  function renderExplain() { $$('.bkx').forEach(p => { p.innerHTML = bkExplain(p.dataset.k); }); }
+  // writer for the chosen location
+  async function abTarget(interactive) {
+    const m = abMode();
+    if (m === 'fsa') {
+      const h = await KV.get('dir'); if (!h) throw abErr('nolocation', 'No backup location chosen yet.');
+      let p = await h.queryPermission({ mode: 'readwrite' }).catch(() => 'denied');
+      if (p !== 'granted' && interactive) p = await h.requestPermission({ mode: 'readwrite' }).catch(() => 'denied');
+      if (p !== 'granted') throw abErr('permission', `This browser needs your OK to keep saving to the folder "${h.name}".`);
+      return { name: h.name,
+        write: async (name, blob) => { const fh = await h.getFileHandle(name, { create: true }); const w = await fh.createWritable(); try { await w.write(blob); await w.close(); } catch (e) { try { await w.abort(); } catch (x) { /* ignore */ } throw e; } },
+        list: async () => { const out = []; for await (const [n, x] of h.entries()) if (x.kind === 'file') out.push(n); return out; },
+        remove: n => h.removeEntry(n) };
+    }
+    if (m === 'native') {
+      const P = MBB(), st = await P.status();
+      if (!st.hasFolder) throw abErr('nolocation', 'No backup location chosen yet.');
+      if (st.ok === false) throw abErr('permission', st.message || 'The app no longer has access to the backup folder. Choose it again.');
+      return { name: st.name, write: async (name, blob) => { await P.writeFile({ name, data: await blobB64(blob), mime: blob.type || 'application/octet-stream' }); }, list: async () => (await P.listFiles()).files || [], remove: name => P.deleteFile({ name }) };
+    }
+    throw abErr('manual', 'This browser can\'t save to a folder automatically.');
+  }
+  async function abHasLocation() { try { const m = abMode(); if (m === 'fsa') return !!(await KV.get('dir')); if (m === 'native') return !!(await MBB().status()).hasFolder; } catch (e) { /* ignore */ } return false; }
+  // synchronous snapshot: captures the key (inside Vault), the decrypted entries and the zip password before a lock clears them
+  function abSnapshot() {
+    const st = clone(S.settings), encP = V.autoBackup(), seqP = V.headSeq(); encP.catch(() => {}); seqP.catch(() => {});
+    return { encP, seqP, encs: S.encs, st, at: Date.now(), credits: credits(S.encs), pw: st.abPwMode === 'custom' ? (st.abPw || '') : sessPass };
+  }
+  async function zipFiles(docs, pw, name) {
+    const Z = window.zip; if (!Z || !Z.ZipWriter) throw abErr('zip', 'The encryption library did not load. Reload the app.');
+    Z.configure({ useWebWorkers: false });
+    const w = new Z.ZipWriter(new Z.BlobWriter('application/zip'), { password: pw, encryptionStrength: 3, zipCrypto: false, level: typeof CompressionStream === 'function' ? 6 : 0 });
+    for (const d of docs) await w.add(d.name, new Z.BlobReader(d.blob));
+    return new File([await w.close()], name, { type: 'application/zip' });
+  }
+  async function abFiles(snap, stamp, prefix) {
+    const st = snap.st, files = [new File([JSON.stringify(await snap.encP)], `${prefix}${stamp}.mblbackup`, { type: 'application/octet-stream' })];
+    const fm = readable(st); if (!fm.length) return files;
+    const list = snap.encs, now = snap.at, days = list.map(e => R.encDay(e)).sort(), td = R.dayKey(now);
+    const from = days[0] || td, to = days.length && days[days.length - 1] > td ? days[days.length - 1] : td, o = { photos: false, notes: !!st.abNotes, credits: snap.credits, now };
+    const docs = [];
+    for (const f of fm) docs.push({ name: `billing-log-${stamp}.${f}`, blob: f === 'pdf' ? await R.pdf(list, from, to, o) : f === 'docx' ? await R.docx(list, from, to, o) : f === 'md' ? R.md(list, from, to, o) : R.xlsx(list, from, to, o) });
+    if (st.abZip !== false) {
+      if (!snap.pw) throw abErr('password', st.abPwMode === 'custom' ? 'Set a backup password in Settings → Backups (needed for the protected copies).' : 'The protected copies need your app passcode: lock and unlock the app once.');
+      files.push(await zipFiles(docs, snap.pw, `${prefix}${stamp}-readable.zip`));
+    } else docs.forEach(d => files.push(new File([d.blob], `${prefix}${stamp}.${d.name.split('.').pop()}`, { type: d.blob.type })));
+    return files;
+  }
+  async function abRotate(tg, keep) {
+    const by = new Map();
+    for (const n of await tg.list()) { const m = AB_RX.exec(n); if (m) { if (!by.has(m[1])) by.set(m[1], []); by.get(m[1]).push(n); } }
+    let n = 0; for (const s of [...by.keys()].sort().reverse().slice(keep)) for (const f of by.get(s)) { await tg.remove(f); n++; }
+    return n;
+  }
+  const kb = n => n < 1024 * 1024 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+  // reason: interval | lock | now | unlock. Never interrupts: failures only update the status and the warning banner.
+  async function runBackup(reason, snap) {
+    if (abBusy) return abBusy;
+    abBusy = (async () => {
+      const kv = await abGet(), now = snap.at, wasOk = kv.ok !== false;
+      try {
+        if (reason !== 'now' && reason !== 'pick') {
+          const seq = await snap.seqP;
+          if (seq === kv.seq && wasOk && (reason === 'lock' || now - (kv.last || 0) < 86400000)) { if (reason !== 'lock') await abPut({ lastTry: now, checked: now }); return 'nochange'; }
+        }
+        const tg = await abTarget(reason === 'now' || reason === 'pick');
+        const files = await abFiles(snap, stampOf(now), AB_PRE);
+        for (const f of files) await tg.write(f.name, f);
+        let rotMsg = '', removed = 0;
+        try { removed = await abRotate(tg, snap.st.abKeep || 24); } catch (e) { rotMsg = 'Saved, but older backups could not be removed: ' + errMsg(e); }
+        await abPut({ last: now, lastTry: now, checked: now, ok: true, msg: rotMsg, code: '', files: files.map(f => f.name), size: files.reduce((a, f) => a + f.size, 0), removed, seq: await snap.seqP, where: tg.name });
+        abLocOk = true;
+        if (S && V.unlocked()) {
+          S.settings.lastBackup = now; S.settings.bkSnooze = 0; await saveSettings();
+          if (reason === 'now' || reason === 'pick' || !wasOk) { await V.appendAudit({ action: 'backup', note: `${reason === 'now' ? 'Backup made (Back up now)' : reason === 'pick' ? 'First backup to the new location' : 'Automatic backups working again'}: ${files.length} file(s) saved to "${tg.name}"` + (removed ? `; ${removed} older file(s) rotated out` : '') }); await abPut({ seq: await V.headSeq() }); }
+          checkBackupDue();
+        }
+        return 'ok';
+      } catch (e) {
+        await abPut({ lastTry: now, ok: false, msg: errMsg(e), code: e.code || '' });
+        if (e.code === 'permission' || e.code === 'nolocation') abLocOk = false;
+        if (S && V.unlocked() && wasOk && reason !== 'lock') { try { await V.appendAudit({ action: 'backup-fail', note: `${reason === 'now' ? 'Back up now' : 'Automatic backup'} failed: ${errMsg(e)}` }); } catch (x) { /* ignore */ } }
+        return 'fail';
+      } finally { if (S) abRender(); }
+    })();
+    try { return await abBusy; } finally { abBusy = null; if (reason === 'lock' && MBB() && MBB().backgroundDone) MBB().backgroundDone().catch(() => {}); }
+  }
+  // share sheet / download (Safari and other browsers without folder access, or no location chosen yet)
+  async function abShare() {
+    const snap = abSnapshot(); let files;
+    try { files = await abFiles(snap, stampOf(snap.at), 'medbilling-logs-backup-'); } catch (e) { await abPut({ lastTry: snap.at, ok: false, msg: errMsg(e), code: e.code || '' }); abRender(); return toast('Backup not made: ' + errMsg(e), 4000); }
+    let r = 'downloaded';
+    if (navigator.canShare && navigator.canShare({ files })) {
+      pickStart();
+      try { await navigator.share({ files, title: 'MedBilling Logs backup' }); r = 'shared'; }
+      catch (e) { if (e.name === 'AbortError') r = 'cancelled'; else files.forEach((f, i) => setTimeout(() => download(f), i * 500)); }
+      finally { pickEnd(); }
+    } else files.forEach((f, i) => setTimeout(() => download(f), i * 500));
+    if (r === 'cancelled' || !S) return;
+    S.settings.lastBackup = snap.at; S.settings.bkSnooze = 0; await saveSettings();
+    await V.appendAudit({ action: 'backup', note: `Backup ${r} (${files.length} file(s): ${files.map(f => f.name.split('.').pop()).join(', ')})` });
+    await abPut({ last: snap.at, lastTry: snap.at, ok: true, msg: '', code: '', files: files.map(f => f.name), size: files.reduce((a, f) => a + f.size, 0), seq: await V.headSeq(), where: r === 'shared' ? 'share sheet' : 'Downloads', snooze: 0 });
+    checkBackupDue(); abRender(); toast(r === 'shared' ? 'Backup shared' : 'Backup downloaded');
+  }
+  async function abNow() {
+    if (!S) return;
+    if (abMode() !== 'manual' && await abHasLocation()) {
+      $('#abNow').disabled = true; $('#abStat').textContent = 'Backing up…';
+      const r = await runBackup('now', abSnapshot()); $('#abNow').disabled = false;
+      toast(r === 'ok' ? `Backup saved to "${abStatusCache.where}"` : 'Backup failed. See Settings → Backups.', 3000);
+    } else await abShare();
+  }
+  async function abTick() {
+    if (!S) return; const st = S.settings, kv = await abGet(), now = Date.now(), every = (st.abEvery || 60) * 60000;
+    if (!st.abOn) return abRender();
+    if (abMode() === 'manual') return abRender();
+    if (abBusy || now - (kv.lastTry || 0) < (kv.ok === false ? Math.min(every, 15 * 60000) : every)) return;
+    if (!(await abHasLocation())) return abRender();
+    await runBackup('interval', abSnapshot());
+  }
+  setInterval(() => { abTick().catch(() => {}); }, 30000);
+  // after unlock: check folder access (asks again when the browser requires it), then catch up if a backup is due
+  async function abInit() {
+    const kv = await abGet(); if (kv.last && kv.last > (S.settings.lastBackup || 0)) { S.settings.lastBackup = kv.last; await saveSettings(); }
+    abLocOk = false;
+    if (abMode() === 'fsa') { const h = await KV.get('dir').catch(() => null); if (h) { let p = await h.queryPermission({ mode: 'readwrite' }).catch(() => 'denied'); if (p === 'prompt' && S.settings.abOn) p = await h.requestPermission({ mode: 'readwrite' }).catch(() => 'prompt'); abLocOk = p === 'granted'; } }
+    else if (abMode() === 'native') { try { const s = await MBB().status(); abLocOk = !!(s.hasFolder && s.ok !== false); } catch (e) { abLocOk = false; } }
+    abRender(); setTimeout(() => { abTick().catch(() => {}); }, 4000);
+  }
+  async function abSet(changes, note) { Object.assign(S.settings, changes); await saveSettings(); await V.appendAudit({ action: 'backup-settings', note }); abRender(); }
+  function modeText() {
+    const m = abMode(), pl = platform();
+    if (m === 'fsa') return { short: 'This browser can save backups straight to a folder you choose.', how: '<p>Choose a folder once (for example a folder in Documents, or a synced OneDrive / Google Drive / iCloud Drive folder on this computer). While the app is open and unlocked, a backup is saved there at the interval you pick, and again when the app locks or the tab is closed (if the browser allows the time). Nothing runs while the app is closed or locked, because the key that decrypts your data exists only while unlocked.</p><p>If there were no changes since the last backup, the app skips that interval (it still writes one at least daily). After you restart the browser, Chrome or Edge may ask you once to allow access to the folder again.</p>' };
+    if (m === 'native') return { short: (pl === 'ios' ? 'Choose a folder in Files (iCloud Drive or On My iPhone/iPad).' : 'Choose a folder on this phone or in a cloud drive (for example Google Drive).') + ' Backups run while the app is open; phones don\'t allow guaranteed background runs.',
+      how: `<p>While the app is open and unlocked, a backup is saved at the interval you pick, and again when the app goes to the background.</p><p><b>Phones don't allow guaranteed background runs.</b> ${pl === 'ios' ? 'iOS' : 'Android'} pauses the app soon after you leave it, so if the app stays closed, no backups happen until you open and unlock it again. A backup started as the app goes to the background usually finishes, but it is not guaranteed.</p><p>${pl === 'ios' ? 'iCloud Drive uploads the files when iOS decides to; check the Files app to confirm they arrived.' : 'Cloud folders (Google Drive and others) upload the files when the provider\'s app syncs.'}</p>` };
+    return { short: 'This browser can\'t save to a folder automatically (Safari and some others don\'t allow it).', how: '<p>With automatic backups on, a reminder appears at the top of Today at the interval you pick (hourly by default). <b>Back up now</b> opens the share sheet (Save to Files, AirDrop…) or downloads the files. Old copies aren\'t removed automatically here; delete them yourself. For fully automatic backups, use Chrome or Edge on a computer, or the iPhone / Android app.</p>' };
+  }
+  async function abRender() {
+    if (!S) return; const st = S.settings, kv = await abGet(), m = abMode(), fm = readable(st), mt = modeText(), loc = m === 'manual' ? '' : (st.abLoc || '');
+    if (!S) return;
+    $('#abOn').checked = !!st.abOn; $('#abOnHint').textContent = st.abOn ? `(on, ${EVERY[st.abEvery || 60]})` : '(off)';
+    $('#abEvery').value = String(st.abEvery || 60); $('#abKeep').value = String(st.abKeep || 24);
+    $('#abMode').textContent = mt.short; $('#abHow').innerHTML = mt.how;
+    $('#abLocRow').hidden = m === 'manual'; $('#abKeep').closest('label').hidden = m === 'manual';
+    $('#abLocName').textContent = loc || 'Not chosen'; $('#abLocName').classList.toggle('muted', !loc);
+    $('#abPick').textContent = loc ? 'Change location' : 'Choose backup location';
+    $('#abLast').textContent = kv.last ? `${new Date(kv.last).toLocaleString()}${kv.where ? ` · ${kv.where}` : ''}${kv.files ? ` · ${kv.files.length} file(s), ${kb(kv.size || 0)}` : ''}` : (st.lastBackup ? new Date(st.lastBackup).toLocaleString() : 'never');
+    let stat = '', bad = false;
+    if (kv.ok === false) { bad = true; stat = `Last attempt failed (${new Date(kv.lastTry).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}): ${kv.msg}`; }
+    else if (st.abOn && m !== 'manual' && !loc) { bad = true; stat = 'Choose a backup location to start automatic backups.'; }
+    else if (st.abOn && m !== 'manual') stat = `OK. Next backup ${kv.lastTry ? 'around ' + new Date(kv.lastTry + (st.abEvery || 60) * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'shortly'}${kv.checked && kv.checked > (kv.last || 0) ? ' (no changes at the last check)' : ''}.${kv.msg ? ' ' + kv.msg : ''}`;
+    else if (st.abOn) stat = 'Reminder mode: you\'ll be reminded at the interval you picked.';
+    else stat = 'Automatic backups are off.';
+    $('#abStat').textContent = stat; $('#abStat').classList.toggle('bad', bad);
+    $$('#bkCard .abf').forEach(c => { c.checked = fm.includes(c.value); });
+    $('#abReadBox').hidden = !fm.length;
+    const zipOn = st.abZip !== false; $('#abZip').checked = zipOn; $('#abPwBox').hidden = !zipOn;
+    $('#abFmtWarn').classList.toggle('danger', !zipOn);
+    $('#abFmtWarn').innerHTML = zipOn ? '<b>Readable copies contain patient details</b> (room, initials, chart/MRN, codes' + (st.abNotes ? ', notes' : '') + '). They are inside an AES-256 password-protected .zip, but once someone unzips them they are <b>not encrypted</b>. Save backups only to a secure location you control.'
+      : '<b>Warning: readable copies are NOT encrypted.</b> PDF, Markdown, Word and Excel files contain patient details (room, initials, chart/MRN, codes' + (st.abNotes ? ', notes' : '') + ') that anyone with access to the folder can read. Only use this for a secure, private location, and turn password protection back on if you can.';
+    $$('input[name=abPwMode]').forEach(r => { r.checked = r.value === (st.abPwMode || 'passcode'); });
+    const custom = st.abPwMode === 'custom'; $('#abPwSet').hidden = !custom; $('#abPwSet').textContent = st.abPw ? 'Change backup password…' : 'Set backup password…';
+    const ps = pwStrength(custom ? st.abPw : sessPass);
+    $('#abPwInfo').innerHTML = custom ? (st.abPw ? `Separate backup password set (${esc(ps.label.toLowerCase())}). It is kept only in the app's encrypted storage.` : '<b>No backup password set yet.</b> Protected copies can\'t be made until you set one.')
+      : (ps.ok ? 'The .zip opens with your app passcode.' : '<b>Your app passcode is short for files that leave this device.</b> A .zip password can be guessed much faster than your passcode, so a separate backup password of 12+ characters is safer.');
+    $('#abPwInfo').classList.toggle('bad', custom ? !st.abPw : !ps.ok);
+    renderExplain();
+    // banners on Today (never block anything)
+    const w = $('#abWarn');
+    if (st.abOn && m !== 'manual' && kv.ok === false) { w.hidden = false; $('#abWarnTxt').innerHTML = `<b>Automatic backup didn't work</b> (${new Date(kv.lastTry).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}): ${esc(kv.msg)} Your entries are safe on this device.`; $('#abWarnAllow').hidden = kv.code !== 'permission' || m !== 'fsa'; }
+    else if (st.abOn && m === 'fsa' && loc && !abLocOk && (await KV.get('dir').catch(() => null))) { w.hidden = false; $('#abWarnTxt').innerHTML = `<b>Automatic backups are paused.</b> This browser needs your OK to keep saving to "${esc(loc)}".`; $('#abWarnAllow').hidden = false; }
+    else w.hidden = true;
+    const every = (st.abEvery || 60) * 60000, due = st.abOn && m === 'manual' && Date.now() - Math.max(kv.last || 0, kv.snooze || 0) >= every;
+    $('#abRemind').hidden = !due;
+    if (due) $('#abRemindTxt').innerHTML = `<b>Backup reminder.</b> ${kv.last ? `Your last backup was ${new Date(kv.last).toLocaleString()}.` : 'You haven\'t made a backup here yet.'} This browser can't save backups automatically, so tap Back up now to share or download them.`;
+    if (due) $('#bkRemind').hidden = true;
+  }
+  // ---- settings handlers (every change is audit-logged; passwords never appear in the log)
+  $('#abOn').onchange = async () => { const on = $('#abOn').checked; await abSet({ abOn: on }, on ? `Automatic backups turned on (${EVERY[S.settings.abEvery || 60]}, keep ${S.settings.abKeep || 24}; ${abMode() === 'manual' ? 'reminder mode in this browser' : 'location: ' + (S.settings.abLoc || 'not chosen')})` : 'Automatic backups turned off'); if (on) { await abPut({ snooze: 0 }); abTick(); } };
+  $('#abEvery').onchange = () => abSet({ abEvery: +$('#abEvery').value }, `Backup frequency: ${EVERY[$('#abEvery').value]}`);
+  $('#abKeep').onchange = () => abSet({ abKeep: +$('#abKeep').value }, `Keep the last ${$('#abKeep').value} automatic backups (older ones are rotated out)`);
+  $$('#bkCard .abf').forEach(c => c.onchange = () => { const l = $$('#bkCard .abf').filter(x => x.checked).map(x => x.value); abSet({ abFmts: l }, l.length ? `Readable backup copies: ${l.map(f => FMTS[f]).join(', ')} (plus the encrypted .mblbackup)` : 'Readable backup copies: none (encrypted .mblbackup only)'); });
+  $('#abNotes').onchange = () => abSet({ abNotes: $('#abNotes').checked }, $('#abNotes').checked ? 'Readable backup copies: notes included' : 'Readable backup copies: notes left out');
+  $('#abZip').onchange = async () => {
+    if ($('#abZip').checked) return abSet({ abZip: true }, 'Readable backup copies: AES-256 password-protected .zip turned on');
+    const ok = await ask({ title: 'Turn off password protection?', text: 'Readable copies (PDF, Markdown, Word, Excel) will be saved as plain files that are NOT encrypted. They contain patient details, and anyone who can open the backup folder can read them. Only do this if the folder is secure and private.', ok: 'Turn off protection', danger: true });
+    if (!ok || !S) { $('#abZip').checked = true; return; }
+    await abSet({ abZip: false }, 'Readable backup copies: password protection turned OFF (plain files, not encrypted)');
+  };
+  $$('input[name=abPwMode]').forEach(r => r.onchange = async () => { if (!r.checked) return; await abSet({ abPwMode: r.value }, r.value === 'custom' ? 'Readable-copy password: separate backup password' : 'Readable-copy password: app passcode'); if (r.value === 'custom' && !S.settings.abPw) openPwDlg(); });
+  $('#abPick').onclick = async () => {
+    if (!S) return; const m = abMode(); let name;
+    if (m === 'fsa') {
+      let h; try { h = await window.showDirectoryPicker({ id: 'mbl-backups', mode: 'readwrite', startIn: 'documents' }); } catch (e) { if (e.name !== 'AbortError') toast('Could not open the folder picker: ' + errMsg(e), 4000); return; }
+      const p = await h.requestPermission({ mode: 'readwrite' }).catch(() => 'denied'); if (p !== 'granted') return toast('Permission to save in that folder was not given', 3500);
+      await KV.set('dir', h); name = h.name;
+    } else if (m === 'native') {
+      pickStart(); try { name = (await MBB().pickFolder()).name; } catch (e) { if (!/cancel/i.test(errMsg(e))) toast('Could not use that folder: ' + errMsg(e), 4000); return; } finally { pickEnd(); }
+    } else return;
+    if (!S) return; abLocOk = true; await abPut({ ok: true, msg: '', code: '' });
+    await abSet({ abLoc: name }, `Backup location chosen: "${name}"`); toast(`Backups will be saved to "${name}"`, 3000);
+    if (S.settings.abOn) runBackup('pick', abSnapshot());
+  };
+  $('#abNow').onclick = abNow;
+  $('#abRemindNow').onclick = abNow;
+  $('#abRemindLater').onclick = async () => { await abPut({ snooze: Date.now() }); abRender(); };
+  $('#abWarnRetry').onclick = () => { if (S) abNow(); };
+  $('#abWarnAllow').onclick = async () => { const h = await KV.get('dir').catch(() => null); if (!h) return; const p = await h.requestPermission({ mode: 'readwrite' }).catch(() => 'denied'); abLocOk = p === 'granted'; if (abLocOk) { await abPut({ ok: true, msg: '', code: '' }); toast('Access allowed'); runBackup('now', abSnapshot()); } else toast('Access not allowed'); abRender(); };
+  $('#abWarnSet').onclick = () => { tab = 'data'; showTab(); setTimeout(() => $('#bkCard').scrollIntoView({ block: 'start' }), 50); };
+  // ---- separate backup password (strength check; kept only inside the encrypted settings)
+  function openPwDlg() { $('#bp1').value = $('#bp2').value = ''; $('#bpErr').textContent = ''; pwMeter(); $('#bpDlg').showModal(); setTimeout(() => $('#bp1').focus(), 50); }
+  function pwMeter() { const s = pwStrength($('#bp1').value), pct = Math.min(100, Math.round(s.bits / 90 * 100)); const bar = $('#bpBar'); bar.style.width = pct + '%'; bar.className = s.bits < 40 ? 'w' : s.bits < 60 ? 'f' : 'g'; $('#bpStr').textContent = $('#bp1').value ? `Strength: ${s.label}${s.ok ? '' : ' · use 12+ characters and mix words, numbers or symbols'}` : 'At least 12 characters.'; }
+  $('#bp1').addEventListener('input', pwMeter);
+  $('#abPwSet').onclick = openPwDlg;
+  $('#bpCancel').onclick = () => $('#bpDlg').close();
+  $('#bpForm').addEventListener('submit', async ev => {
+    ev.preventDefault(); const a = $('#bp1').value, b = $('#bp2').value, s = pwStrength(a);
+    if (!s.ok) return $('#bpErr').textContent = 'Too weak. Use at least 12 characters with a mix of words, numbers or symbols.';
+    if (a !== b) return $('#bpErr').textContent = 'The passwords do not match.';
+    const had = !!S.settings.abPw; $('#bp1').value = $('#bp2').value = ''; $('#bpDlg').close();
+    await abSet({ abPw: a, abPwMode: 'custom' }, had ? 'Separate backup password changed' : 'Separate backup password set'); toast('Backup password saved');
+  });
 
   // ============================================================ v5 features (all on-device; every data change goes through saveEnc/deleteEnc and the audit log)
   // ---- 1. forgotten-timer warning (amber, then red) + unlock prompt. In-app only; no notifications.

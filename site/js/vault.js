@@ -141,7 +141,7 @@
   const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
   async function backup(pass) {
     const k0 = await verify(pass); if (!k0) return null;
-    const encs = await loadAll(), settings = await loadSettings(), photos = [];
+    const encs = await loadAll(), settings = await loadSettings(), photos = []; delete settings.abPw;
     for (const p of await all('photo')) { const b = await decBytes(k0, p); const m = p.mct ? await decJSON(k0, { iv: p.miv, ct: p.mct }) : {}; photos.push({ id: p.id, eid: p.eid, m, b: b64(b) }); }
     const salt = crypto.getRandomValues(new Uint8Array(16)), k = await derive(pass, salt, ITER);
     const audit = await loadAudit();
@@ -149,6 +149,21 @@
     return { app: 'MedBilling Logs', kind: 'encrypted-backup', version: 1, created: new Date().toISOString(), kdf: 'PBKDF2-SHA-256', iter: ITER, cipher: 'AES-GCM-256',
       salt: b64(salt), iv: b64(o.iv), ct: b64(new Uint8Array(o.ct)) };
   }
+  // v8 automatic backups: same file format as backup(), encrypted with the in-memory vault key and the vault's own salt,
+  // so it opens with the current passcode, but no passcode prompt is needed. The key is captured synchronously at the
+  // start, so a backup begun just before the app locks can finish; nothing can start while locked.
+  async function autoBackup() {
+    const k = need(); const m = await get('meta', 'vault');
+    const encs = []; for (const r of await all('enc')) { try { encs.push(await decJSON(k, r)); } catch (e) { /* skip unreadable */ } }
+    const sr = await get('meta', 'settings'); const settings = sr ? await decJSON(k, sr) : {}; delete settings.abPw;
+    const photos = []; for (const p of await all('photo')) { try { const b = await decBytes(k, p); const pm = p.mct ? await decJSON(k, { iv: p.miv, ct: p.mct }) : {}; photos.push({ id: p.id, eid: p.eid, m: pm, b: b64(b) }); } catch (e) { /* skip */ } }
+    const audit = []; for (const r of (await all('audit')).sort((a, b) => a.id < b.id ? -1 : 1)) { try { audit.push(await decJSON(k, r)); } catch (e) { audit.push({ seq: +r.id, broken: true }); } }
+    const o = await encJSON(k, { encounters: encs, settings, photos, audit });
+    return { app: 'MedBilling Logs', kind: 'encrypted-backup', version: 1, created: new Date().toISOString(), kdf: 'PBKDF2-SHA-256', iter: m.iter, cipher: 'AES-GCM-256', auto: true,
+      salt: b64(m.salt), iv: b64(o.iv), ct: b64(new Uint8Array(o.ct)) };
+  }
+  // number of the last audit record (used to skip automatic backups when nothing changed)
+  async function headSeq() { const k = need(); const hr = await get('meta', 'auditHead'); if (!hr) return 0; try { return (await decJSON(k, hr)).seq; } catch (e) { return -1; } }
   async function openBackup(file, pass) {
     if (!file || file.kind !== 'encrypted-backup' || !file.ct) throw new Error('Not a MedBilling Logs encrypted backup');
     const k = await derive(pass, unb64(file.salt), file.iter || ITER);
@@ -159,5 +174,5 @@
     key = null; if (db) { db.close(); db = null; }
     await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); });
   }
-  global.Vault = { saveDraft, loadDraft, clearDraft, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
+  global.Vault = { saveDraft, loadDraft, clearDraft, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, autoBackup, headSeq, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
 })(window);
