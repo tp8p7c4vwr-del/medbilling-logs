@@ -50,7 +50,7 @@
     V.lock(); S = null; cur = null;
     $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
-    ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
+    ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo', '#eNotes', '#eSummary', '#rmSub'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
     $$('input:not([type=checkbox]):not([type=file]), textarea').forEach(i => { i.value = ''; });
     $('#pReady').hidden = true; repFile = null;
     showLock(msg || 'Locked.');
@@ -92,6 +92,7 @@
     const settings = Object.assign({}, DEF, await V.loadSettings());
     const encs = await V.loadAll();
     S = { encs, settings };
+    await migrateNotes();
     if (first) { settings.created = Date.now(); settings.respAccepted = Date.now(); await V.saveSettings(settings); }
     quickSet = settings.defSetting; lastAct = Date.now();
     document.body.classList.remove('locked'); window.scrollTo(0, 0);
@@ -101,6 +102,16 @@
     renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings();
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
     else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else checkLongTimers(); }
+  }
+  // v7: the single 280-character note of older versions becomes the first timestamped note (audit-logged, stays encrypted)
+  async function migrateNotes() {
+    for (let i = 0; i < S.encs.length; i++) {
+      const e = S.encs[i]; if (Array.isArray(e.notes) || !('note' in e)) continue;
+      const before = clone(e), x = clone(e), txt = String(e.note || '').trim();
+      x.notes = txt ? [{ id: 'n0', t: e.created || R.startOf(e), x: txt }] : []; delete x.note;
+      S.encs[i] = x; await V.save(x);
+      if (txt) await V.appendAudit({ action: 'migrate', eid: x.id, kind: kindOf(x), before, after: clone(x), note: 'Note moved into the new notes list (v7)' });
+    }
   }
   // inactivity + background auto-lock
   ['pointerdown', 'keydown', 'input', 'wheel', 'touchstart'].forEach(t => document.addEventListener(t, () => { lastAct = Date.now(); }, { passive: true, capture: true }));
@@ -115,13 +126,13 @@
   $('#lockNow2').addEventListener('click', () => lockNow());
 
   // ------------------------------------------------------------ persistence
-  async function saveEnc(e, action, note) {
+  async function saveEnc(e, action, note, quiet) {
     const i = S.encs.findIndex(x => x.id === e.id), before = i < 0 ? null : clone(S.encs[i]);
     e.kind = kindOf(e); e.updated = Date.now();
     if (i < 0) S.encs.push(e); else S.encs[i] = e;
     await V.save(e);
     await V.appendAudit({ action: action || (before ? 'edit' : 'create'), eid: e.id, kind: e.kind, before, after: clone(e), note: note || undefined });
-    await reviewTouch([before, e], `${R.KIND[e.kind] || 'entry'} ${action || 'edit'} after review`);
+    if (!quiet) await reviewTouch([before, e], `${R.KIND[e.kind] || 'entry'} ${action || 'edit'} after review`);
   }
   // defer: keep the photos for a few seconds so Undo can bring the entry back whole (removed on timeout or lock)
   async function deleteEnc(e, note, defer) {
@@ -141,7 +152,7 @@
     ev.preventDefault(); if (!S) return;
     const now = Date.now(), n = S.encs.filter(e => R.encDay(e) === today()).length + 1;
     const sh = activeShift(), fac = sh ? sh.facility : S.settings.curFac;
-    const e = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: quickSet, facility: fac || null, type: '', codes: [], note: '', segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    const e = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: quickSet, facility: fac || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
     await saveEnc(e, 'create'); $('#qLabel').value = ''; tab = 'today'; showTab(); render(); toast(`Started ${e.label}`);
   });
   async function act(e, a, note) {
@@ -163,22 +174,24 @@
     const fsb = `<button type="button" class="ghost fsbtn" data-a="full" aria-label="Full-screen procedure timer" title="Full-screen timer">⛶</button>`;
     const acts = st === 'run' ? `<button type="button" class="pausebtn" data-a="pause">Pause</button><button type="button" class="stopbtn" data-a="stop">Stop</button>${k === 'enc' ? '<button type="button" class="ghost swbtn" data-a="switch" title="Stop this encounter and start the next one">Next pt</button>' : ''}${fsb}`
       : st === 'pause' ? `<button type="button" class="resumebtn" data-a="resume">Resume</button><button type="button" class="stopbtn" data-a="stop">Stop</button>${fsb}`
-      : `<button type="button" class="ghost" data-a="edit">Edit</button><button type="button" class="ghost" data-a="resume">Continue</button>`;
+      : `<button type="button" class="ghost" data-a="editf">Edit</button><button type="button" class="ghost" data-a="resume">Continue</button>`;
     const wl = warnLvl(e);
     return `<div class="enc ${st} ${k}${wl ? ' w' + wl : ''}" data-id="${esc(e.id)}">
       <div class="r1"><span class="lbl" data-a="edit">${esc(k === 'shift' ? (e.facility ? e.facility.n : 'On site') : (e.label || (k === 'cb' ? 'Call-back' : 'Encounter')))}</span>${(e.photos || []).length ? `<span class="pc">📷 ${e.photos.length}</span>` : ''}${late}${k === 'cb' ? '<span class="badge cb">Call-back</span>' : k === 'shift' ? '<span class="badge">On site</span>' : `<span class="badge ${e.setting}">${R.SET[e.setting]}</span>`}${st !== 'done' ? `<span class="badge st ${st}">${st === 'run' ? 'Running' : 'Paused'}</span>` : ''}</div>
-      <p class="meta" data-a="edit">${esc(meta)}</p>${e.note ? `<p class="note" data-a="edit">${esc(e.note)}</p>` : ''}
+      <p class="meta" data-a="edit">${esc(meta)}</p>${noteLine(e)}
       <div class="timer" data-t="${esc(e.id)}">${st === 'done' ? m + ' min' : fmtDur(ms)}</div>
       <div class="units" data-u="${esc(e.id)}" data-k="${k}">${unitsHtml(e, m)}</div>
       ${st === 'run' && k !== 'shift' ? `<p class="lwarn" data-w="${esc(e.id)}"${wl ? '' : ' hidden'}>${warnHtml(e)}</p>` : ''}
       ${compact ? '' : `<div class="acts">${acts}</div>`}</div>`;
   }
+  function noteLine(e) { const ns = R.notesOf(e); if (!ns.length) return ''; const n = ns[ns.length - 1]; return `<p class="note" data-a="edit"><span class="nt">${R.hm(n.t)}</span> ${esc(n.x.length > 140 ? n.x.slice(0, 140) + '…' : n.x)}${ns.length > 1 ? ` <span class="nc">+${ns.length - 1} more</span>` : ''}</p>`; }
+  const ptCount = e => e.pt && S ? S.encs.filter(x => x.pt === e.pt).length : 0;
   // compact one-line row: start time · duration · label/initials · billing code · diagnostic code (tap = details)
   const durTxt = (e, m) => kindOf(e) === 'shift' ? `${Math.floor(m / 60)}h${R.pad(m % 60)}` : `${m}m`;
-  function rowHtml(e, cont) {
+  function rowHtml(e, cont, more) {
     const ms = R.msOf(e), m = Math.floor(ms / 60000), k = kindOf(e), st = e.status, cs = e.codes || [], dx = R.dxList(e);
     const who = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : [e.label || (k === 'cb' ? 'Call-back' : 'Encounter'), e.initials].filter(Boolean).join(' · ');
-    const badge = (st === 'run' ? '<i class="b run">Running</i>' : st === 'pause' ? '<i class="b pause">Paused</i>' : '') + (k === 'cb' ? '<i class="b cb">CB</i>' : k === 'shift' ? '<i class="b">On site</i>' : '') + (e.late ? '<i class="b late" title="Entered later">*</i>' : '') + ((e.photos || []).length ? `<i class="b">📷${e.photos.length}</i>` : '');
+    const badge = (st === 'run' ? '<i class="b run">Running</i>' : st === 'pause' ? '<i class="b pause">Paused</i>' : '') + (k === 'cb' ? '<i class="b cb">CB</i>' : k === 'shift' ? '<i class="b">On site</i>' : '') + (e.late ? '<i class="b late" title="Entered later">*</i>' : '') + ((e.photos || []).length ? `<i class="b">📷${e.photos.length}</i>` : '') + (ptCount(e) > 1 ? '<i class="b sp" title="Same patient as another encounter">↔</i>' : '') + (R.notesOf(e).length ? `<i class="b nb" title="${R.notesOf(e).length} note(s)">✎${R.notesOf(e).length > 1 ? R.notesOf(e).length : ''}</i>` : '');
     const wl = warnLvl(e), en = R.endOf(e), fac = k === 'shift' ? '' : [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') : R.SET[e.setting], e.facility && e.facility.n].filter(Boolean).join(' · ');
     const pp = k === 'shift' ? [] : R.periodSplit(e).parts;
     // v6: extra cells (.xw) are shown only on tablet/desktop widths (>= 768px); the phone row is unchanged
@@ -188,22 +201,32 @@
       <span class="fc" title="${esc(cs.map(c => c.c).join(', '))}">${cs.length ? esc(cs[0].c) + (cs.length > 1 ? `<small>+${cs.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
       <span class="dx" title="${esc(dx.join(', '))}">${dx.length ? esc(dx[0]) + (dx.length > 1 ? `<small>+${dx.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
       <span class="xw xp" title="${esc(R.perTxt(pp))}">${pp.length ? esc(R.perTxt(pp, true).replace(/ min\//g, 'm/').replace(/ u/g, 'u')) : ''}</span>
-      ${cont ? `<button type="button" class="cont" data-a="resume" aria-label="Continue ${esc(who)}" title="Continue">▶</button>` : ''}</div>`;
+      ${cont ? `<button type="button" class="cont" data-a="resume" aria-label="Continue ${esc(who)}" title="Continue">▶</button>` : more ? `<button type="button" class="rmore" data-a="more" aria-label="Actions for ${esc(who)}" title="Add time, add note, same patient, edit">⋯</button>` : ''}</div>`;
   }
   const rowsHead = '<div class="erowh" aria-hidden="true"><span>Start</span><span class="xw">End</span><span>Time</span><span class="xw">Units</span><span>Label · initials</span><span class="xw">Setting · facility</span><span>Billing</span><span>Dx</span><span class="xw">Time periods</span></div>';
   function bindCards(root) {
     root.querySelectorAll('.erow').forEach(el => {
-      const go = ev => { const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return; const a = ev.target.closest('[data-a]'); if (a && a.dataset.a === 'resume') { ev.stopPropagation(); return act(e, 'resume'); } openEdit(e); };
-      el.addEventListener('click', go); el.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(ev); } });
+      const go = ev => { if (el.dataset.lp) { delete el.dataset.lp; return; } const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return; const a = ev.target.closest('[data-a]'); if (a && a.dataset.a === 'resume') { ev.stopPropagation(); return act(e, 'resume'); } if (a && a.dataset.a === 'more') { ev.stopPropagation(); return openRowMenu(e); } openEdit(e); };
+      el.addEventListener('click', go); longPress(el); el.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(ev); } });
     });
     root.querySelectorAll('.enc').forEach(el => el.addEventListener('click', ev => {
       const a = ev.target.closest('[data-a]'); const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return;
       if (!a || a.dataset.a === 'edit') return openEdit(e);
+      if (a.dataset.a === 'editf') return openEdit(e, false, { edit: true });
       if (a.dataset.a === 'switch') return switchPatient(e);
       if (a.dataset.a === 'full') return openProc(e);
       if (a.dataset.a === 'stopat') return longPrompt(e, false);
       act(e, a.dataset.a);
     }));
+  }
+  // v7: long-press (or right-click) on a row opens the quick-action sheet
+  function longPress(el) {
+    let t = null, x0 = 0, y0 = 0;
+    const clear = () => { clearTimeout(t); t = null; };
+    el.addEventListener('pointerdown', ev => { if (ev.button > 0 || ev.target.closest('button')) return; x0 = ev.clientX; y0 = ev.clientY; clear(); t = setTimeout(() => { t = null; el.dataset.lp = '1'; setTimeout(() => { delete el.dataset.lp; }, 900); const e = S && S.encs.find(x => x.id === el.dataset.id); if (e) { if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} openRowMenu(e); } }, 500); });
+    el.addEventListener('pointermove', ev => { if (t && (Math.abs(ev.clientX - x0) > 8 || Math.abs(ev.clientY - y0) > 8)) clear(); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => el.addEventListener(n, clear));
+    el.addEventListener('contextmenu', ev => { ev.preventDefault(); clear(); const e = S && S.encs.find(x => x.id === el.dataset.id); if (e) openRowMenu(e); });
   }
   function totHtml(list) {
     const t = R.totals(list);
@@ -240,7 +263,7 @@
         const hol = R.holidayName(k);
         h += `<div class="dayg" id="d-${k}"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span>${hol ? `<i class="holb" title="${esc(hol)}">Holiday</i>` : ''}${rv[k] ? '<i class="rvb" title="Reviewed">✎ Reviewed</i>' : re[k] ? '<i class="rve" title="An entry changed after this day was reviewed">Edited after review</i>' : ''}<span class="sp"></span><button type="button" class="linkbtn sm" data-tl="${k}">Timeline</button><button type="button" class="linkbtn sm" data-rv="${k}">Review</button><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>
           <div class="dayt">${d.H.n + d.C.n} enc · H ${d.H.m}m/${d.H.u}u · C ${d.C.m}m/${d.C.u}u${d.cb.n ? ` · CB ${d.cb.n}/${d.cb.m}m` : ''}${d.site.n ? ` · on site ${R.hmin(d.site.m)}` : ''}${perShort(d)}</div>`;
-        h += `<div class="rows">${l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e)).join('')}</div></div>`;
+        h += `<div class="rows">${l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e, false, true)).join('')}</div></div>`;
       }
       h += '</div>';
     }
@@ -467,11 +490,12 @@
   function syncCalled() { if (calledTouched || !cur || cur.kind !== 'cb') return; const r = $('#eSegs .segrow .ss'); const st = r && parseLocal(r.value), c = parseLocal($('#eCalled').value); if (st && (!c || c > st)) $('#eCalled').value = dtLocal(st); }
   $('#eSegs').addEventListener('input', () => syncCalled());
   function lateText(e) { return e.late ? `Entered later${e.edits && e.edits.length ? ' · last edited ' + R.tsTxt(e.edits[e.edits.length - 1]) : ''}${e.created ? ' · created ' + R.tsTxt(e.created) : ''}` : ''; }
-  function openEdit(e, fresh) {
-    isNew = !!fresh; calledTouched = !fresh; cur = clone(e); cur.kind = kindOf(cur); cur.codes = cur.codes || []; cur.photos = cur.photos || []; cur.links = cur.links || []; addedPhotos = []; removedPhotos = []; overlapOk = false;
+  function openEdit(e, fresh, opt) {
+    opt = opt || {};
+    isNew = !!fresh; calledTouched = !fresh; cur = clone(e); cur.kind = kindOf(cur); cur.codes = cur.codes || []; cur.photos = cur.photos || []; cur.links = cur.links || []; cur.notes = clone(R.notesOf(cur)); delete cur.note; addedPhotos = []; removedPhotos = []; overlapOk = false;
     $('#eKind').hidden = !fresh;
     $('#eLabel').value = cur.label || ''; $('#eInit').value = cur.initials || ''; $('#eChart').value = cur.chart || '';
-    $('#eSetting').value = cur.setting || 'H'; $('#eSetting2').value = cur.setting || 'H'; $('#eType').value = cur.type || ''; $('#eNote').value = cur.note || '';
+    $('#eSetting').value = cur.setting || 'H'; $('#eSetting2').value = cur.setting || 'H'; $('#eType').value = cur.type || '';
     $('#eCbType').value = cur.cbType || 'return'; $('#eCalled').value = dtLocal(cur.called);
     eFac = cur.facility || null; showFac($('#eFacName'), eFac);
     $('#eMinor').checked = !!cur.minor; $('#eObs').checked = !!cur.obstetric; $('#eAge').value = Number.isFinite(cur.minorAge) ? cur.minorAge : ''; showRet();
@@ -484,11 +508,156 @@
     $('#eDelete').hidden = !!fresh; $('#eHist').hidden = !!fresh; $('#ePhotos').innerHTML = ''; thumbs();
     $('#eRepRow').hidden = !!fresh || cur.kind === 'shift'; syncFavBtn();
     setKind(cur.kind);
-    $('#editDlg').showModal();
+    noteEdit = null; $('#eNoteNew').hidden = true; $('#eNoteText').value = ''; renderNotes();
+    $('#eAddTime').hidden = true; $('#eaTime').setAttribute('aria-expanded', 'false'); $('#eaTime').classList.remove('on'); $('#eAddInfo').textContent = '';
+    setMode(fresh || opt.edit ? 'edit' : 'view');
+    if (!$('#editDlg').open) $('#editDlg').showModal();
+    if (opt.panel === 'time') toggleAddTime(true);
+    if (opt.panel === 'note') openNoteNew();
+    if (!opt.panel) { const d = $('#editDlg'); d.scrollTop = 0; $('#editForm').scrollTop = 0; }
   }
+  // ---- v7 entry details: view mode (summary + action row) and edit mode (the full form)
+  let noteEdit = null;
+  function setMode(m) {
+    const d = $('#editDlg'); d.dataset.mode = m;
+    const view = m === 'view';
+    $('#eView').hidden = !view; $('#eEditBox').hidden = view;
+    $('#eSave').hidden = view; $('#eCancel').textContent = view ? 'Close' : 'Cancel';
+    const box = $('#eNotesBox');
+    if (view) $('#eView').after(box); else $('#eNotesSlot').appendChild(box);
+    const k = cur ? cur.kind : 'enc';
+    $('#editTitle').textContent = isNew ? (k === 'cb' ? 'New call-back' : k === 'shift' ? 'Arrival / departure' : 'New encounter') : (view ? (k === 'shift' ? 'On site' : k === 'cb' ? 'Call-back' : 'Encounter') + ' details' : 'Edit ' + (k === 'shift' ? 'arrival / departure' : k === 'cb' ? 'call-back' : 'encounter'));
+    if (view) renderSummary();
+  }
+  function stored() { return cur && S.encs.find(x => x.id === cur.id); }
+  function renderSummary() {
+    const e = stored() || cur; if (!e) return; const k = kindOf(e), m = Math.floor(R.msOf(e) / 60000), st = e.status;
+    const segs = (e.segs || []).map(x => `${R.hm(x.s)}–${x.e == null ? (k === 'shift' ? 'on site' : 'running') : R.hm(x.e)}`).join(', ');
+    const pp = k === 'shift' ? [] : R.periodSplit(e).parts;
+    const rows = [];
+    rows.push(['When', `${R.fmtDay(R.encDay(e))}<br>${esc(segs)}${(e.segs || []).length > 1 ? ` <span class="muted">(${e.segs.length} segments)</span>` : ''}`]);
+    rows.push(['Time', k === 'shift' ? esc(R.hmin(m)) + ' on site' : `<b>${m} min · ${R.units(m)} unit${R.units(m) === 1 ? '' : 's'}</b>${st === 'run' ? ' <span class="badge st run">Running</span>' : st === 'pause' ? ' <span class="badge st pause">Paused</span>' : ''}${pp.length ? `<br><span class="muted">${esc(R.perTxt(pp))}</span>` : ''}`]);
+    if (k === 'enc') rows.push(['Patient', [e.label && `<b>${esc(e.label)}</b>`, e.initials && esc(e.initials), e.chart && 'Chart ' + esc(e.chart)].filter(Boolean).join(' · ') || '<span class="muted">–</span>']);
+    if (k === 'cb') rows.push(['Call-back', esc([R.CBT[e.cbType] || 'Call-back', e.called && 'called ' + R.hm(e.called)].filter(Boolean).join(' · '))]);
+    rows.push(['Setting', esc([R.SET[e.setting], k === 'enc' && e.type, e.facility && e.facility.n].filter(Boolean).join(' · ')) || '<span class="muted">–</span>']);
+    if (k !== 'shift') {
+      const cs = e.codes || [];
+      rows.push(['Codes', cs.length ? cs.map(c => `<span class="sc"><b>${esc(c.c)}</b>${c.dx ? ` <span class="dxc">Dx ${esc(c.dx)}</span>` : ''}${c.d ? ` <span class="muted">${esc(c.d.length > 60 ? c.d.slice(0, 60) + '…' : c.d)}</span>` : ''}</span>`).join('') + (e.dx ? `<span class="sc"><span class="dxc">Dx ${esc(e.dx)}</span></span>` : '') : (e.dx ? `<span class="dxc">Dx ${esc(e.dx)}</span>` : '<span class="muted">None yet. Tap Edit to add fee and diagnostic codes.</span>')]);
+      if (k === 'cb' && (e.links || []).length) rows.push(['Linked', (e.links || []).map(id => S.encs.find(x => x.id === id)).filter(Boolean).map(x => `<button type="button" class="linkbtn sm" data-open="${esc(x.id)}">${esc(x.label || 'Encounter')} ${R.hm(R.startOf(x))}</button>`).join(' ')]);
+      const fl = [e.minor && ('Minor' + (Number.isFinite(e.minorAge) ? ` (age ${e.minorAge})` : '')), e.obstetric && 'Obstetric'].filter(Boolean);
+      rows.push(['Retention', esc((fl.length ? fl.join(' · ') + ' · ' : '') + 'keep until ' + new Date(R.retainUntil(e)).toLocaleDateString())]);
+    }
+    const same = R.samePt(e, S.encs);
+    if (same.length) rows.push(['Same patient', same.map(x => `<button type="button" class="linkbtn sm splink" data-open="${esc(x.id)}">↔ ${esc(x.label || R.KIND[kindOf(x)])} · ${R.encDay(x) === R.encDay(e) ? '' : esc(R.encDay(x)) + ' '}${R.hm(R.startOf(x))}${(x.codes || []).length ? ' · ' + esc(x.codes.map(c => c.c).join(', ')) : ''}</button>`).join('')]);
+    if ((e.photos || []).length) rows.push(['Photos', `📷 ${e.photos.length} (tap Edit to view)`]);
+    if (e.late) rows.push(['Status', esc(lateText(e))]);
+    $('#eSummary').innerHTML = rows.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('');
+    $$('#eSummary [data-open]').forEach(b => b.onclick = () => { const x = S.encs.find(y => y.id === b.dataset.open); if (x) openEdit(x); });
+    $('#eaSame').hidden = k === 'shift';
+    $('#eAddLbl').textContent = st === 'run' ? 'Add time (running: the start moves earlier)' : 'Add time to the end of this entry';
+  }
+  function toggleAddTime(on) {
+    const p = $('#eAddTime'); on = on == null ? p.hidden : on; p.hidden = !on; $('#eaTime').setAttribute('aria-expanded', String(on)); $('#eaTime').classList.toggle('on', on);
+    if (on) p.scrollIntoView({ block: 'nearest' });
+  }
+  $('#eaTime').onclick = () => toggleAddTime();
+  $('#eaEdit').onclick = () => { if (cur) { setMode('edit'); $('#editForm').scrollTop = 0; $('#editDlg').scrollTop = 0; } };
+  $('#eaSame').onclick = async () => { const e = stored(); if (!e) return; await closeEdit(false); await samePatient(e); };
+  $$('#eAddTime [data-add]').forEach(b => b.onclick = async () => {
+    const e = stored(); if (!e) return; const r = await addTime(e, +b.dataset.add); if (!r) return;
+    openEdit(r.x); toggleAddTime(true);
+    $('#eAddInfo').innerHTML = `${esc(r.msg)} <button type="button" class="linkbtn sm" id="eAddUndo">Undo</button>`;
+    $('#eAddUndo').onclick = async () => { await r.undo(); const y = S && S.encs.find(z => z.id === r.x.id); if (y) { openEdit(y); toggleAddTime(true); $('#eAddInfo').textContent = 'Undone.'; } };
+  });
+  $('#eaSeg').onclick = () => { if (!cur) return; setMode('edit'); $('#eAddSeg').click(); const rows = $$('#eSegs .segrow'); const last = rows[rows.length - 1]; if (last) { last.scrollIntoView({ block: 'center' }); last.querySelector('.ss').focus(); } };
+  // quick add: running = start earlier; finished/paused = later end (capped at now, the rest goes before the start)
+  async function addTime(e, min) {
+    const now = Date.now(), prev = clone(e), x = clone(e), sg = x.segs, ms = min * 60000, last = sg[sg.length - 1];
+    let how;
+    if (last.e == null) { sg[0].s -= ms; how = `start ${R.hm(prev.segs[0].s)} → ${R.hm(sg[0].s)}`; }
+    else {
+      const room = Math.max(0, Math.min(ms, now - last.e)), rest = ms - room;
+      const pe = last.e; last.e += room; if (rest > 0) sg[0].s -= rest;
+      how = [room > 0 && `end ${R.hm(pe)} → ${R.hm(last.e)}`, rest > 0 && `start ${R.hm(prev.segs[0].s)} → ${R.hm(sg[0].s)}`].filter(Boolean).join(', ');
+    }
+    x.late = true; x.edits = (x.edits || []).concat(now);
+    await saveEnc(x, 'addtime', `Added ${min} min (${how})`); render();
+    const ov = S.encs.filter(y => y.id !== x.id && kindOf(y) === kindOf(x) && ovl(x.segs, y.segs)).length;
+    const undo = () => undoTo(prev, x, 'Add time undone');
+    snack(`Added ${min} min to ${x.label || R.KIND[kindOf(x)]}`, undo);
+    return { x, undo, msg: `Added ${min} min: ${how}.${ov ? ` Overlaps ${ov} other ${kindOf(x) === 'cb' ? 'call-back' : 'encounter'}${ov > 1 ? 's' : ''} (allowed).` : ''}` };
+  }
+  // same patient, new encounter: room/label, initials and chart carried over; codes left blank; both entries linked
+  async function samePatient(e) {
+    if (!S || kindOf(e) === 'shift') return;
+    const now = Date.now(), prev = clone(e), src = clone(e), group = e.pt || e.id;
+    const stop = src.status !== 'done', linkNew = !src.pt;
+    if (stop) { const l = src.segs[src.segs.length - 1]; if (l && l.e == null) l.e = now; src.status = 'done'; }
+    src.pt = group;
+    if (stop || linkNew) await saveEnc(src, stop ? 'stop' : 'link', stop ? 'Stopped to start a new encounter for the same patient' : 'Linked: same patient, new encounter');
+    const ne = { id: uid(), kind: 'enc', label: e.label && kindOf(e) === 'enc' ? e.label : (e.label && e.label !== 'Call-back' ? e.label : 'Encounter'), initials: e.initials || '', chart: e.chart || '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], links: [], pt: group, ptFrom: e.id, created: now, updated: now };
+    if (e.minor) { ne.minor = true; if (Number.isFinite(e.minorAge)) ne.minorAge = e.minorAge; }
+    if (e.obstetric) ne.obstetric = true;
+    await saveEnc(ne, 'create', `Same patient as ${e.label || R.KIND[kindOf(e)]} ${R.hm(R.startOf(e))} (linked). Room/label, initials and chart carried over; codes left blank.`);
+    tab = 'today'; showTab(); render();
+    snack(`Started ${ne.label} · same patient`, async () => {
+      const a = S.encs.find(x => x.id === src.id), b = S.encs.find(x => x.id === ne.id);
+      if (!a || ((stop || linkNew) && a.updated !== src.updated) || (b && b.updated !== ne.updated)) return toast('Not undone: an entry changed');
+      if (b) await deleteEnc(b, 'Same-patient encounter undone'); if (stop || linkNew) await saveEnc(clone(prev), 'undo', 'Same-patient encounter undone'); render(); toast('Undone');
+    });
+  }
+  // ---- notes: several timestamped notes per entry, each up to 1000 characters, encrypted with the entry
+  function renderNotes() {
+    if (!cur) return; const ns = cur.notes || [];
+    $('#eNoteCount').textContent = ns.length ? `(${ns.length})` : '';
+    $('#eNotes').innerHTML = ns.length ? ns.slice().reverse().map(n => noteEdit === n.id
+      ? `<div class="note editing" data-n="${esc(n.id)}"><textarea class="ned" maxlength="1000" rows="3" aria-label="Edit note">${esc(n.x)}</textarea><div class="notebtns"><span class="small muted nlen">${n.x.length} / 1000</span><button type="button" class="ghost sm" data-nc>Cancel</button><button type="button" class="primary sm" data-ns>Save</button></div></div>`
+      : `<div class="note" data-n="${esc(n.id)}"><div class="nmeta"><span>${esc(R.noteStamp(n))}</span><span class="nacts"><button type="button" class="linkbtn sm" data-ne aria-label="Edit note">Edit</button><button type="button" class="linkbtn sm dl" data-nd aria-label="Delete note">Delete</button></span></div><div class="ntext">${esc(n.x)}</div></div>`).join('')
+      : `<p class="small muted nonotes">No notes yet.${isNew ? '' : ' Notes save right away and are encrypted on this device.'}</p>`;
+    $$('#eNotes [data-ne]').forEach(b => b.onclick = () => { noteEdit = b.closest('.note').dataset.n; renderNotes(); const t = $('#eNotes .ned'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } });
+    $$('#eNotes [data-nc]').forEach(b => b.onclick = () => { noteEdit = null; renderNotes(); });
+    $$('#eNotes .ned').forEach(t => t.oninput = () => { t.closest('.note').querySelector('.nlen').textContent = `${t.value.length} / 1000`; });
+    $$('#eNotes [data-ns]').forEach(b => b.onclick = async () => { const id = b.closest('.note').dataset.n, v = b.closest('.note').querySelector('.ned').value.trim(); if (!v) return toast('A note cannot be empty. Use Delete instead.'); const n = cur.notes.find(x => x.id === id); if (!n || n.x === v) { noteEdit = null; return renderNotes(); } await noteOp('note-edit', l => l.map(x => x.id === id ? Object.assign({}, x, { x: v.slice(0, 1000), u: Date.now() }) : x), `Note from ${R.noteStamp(n)} edited`); noteEdit = null; renderNotes(); toast('Note updated'); });
+    $$('#eNotes [data-nd]').forEach(b => b.onclick = async () => { const id = b.closest('.note').dataset.n, n = cur.notes.find(x => x.id === id); if (!n) return; const ok = await ask({ title: 'Delete note', text: `Delete the note from ${R.noteStamp(n)}? A copy stays in the encrypted audit log.`, ok: 'Delete', danger: true }); if (!ok || !cur) return; await noteOp('note-delete', l => l.filter(x => x.id !== id), `Note from ${R.noteStamp(n)} deleted`); renderNotes(); toast('Note deleted'); });
+  }
+  async function noteOp(action, fn, label) {
+    cur.notes = fn(clone(cur.notes || []));
+    if (isNew) return;                 // a new entry saves its notes with the form
+    const st = stored(); if (!st) return;
+    const x = clone(st); x.notes = clone(cur.notes); delete x.note;
+    await saveEnc(x, action, label, true); render();
+    if ($('#editDlg').dataset.mode === 'view') renderSummary();
+  }
+  function openNoteNew() { $('#eNoteNew').hidden = false; $('#eNoteAdd').hidden = true; const t = $('#eNoteText'); $('#eNoteLen').textContent = `${t.value.length} / 1000`; t.scrollIntoView({ block: 'center' }); t.focus(); }
+  function closeNoteNew() { $('#eNoteNew').hidden = true; $('#eNoteAdd').hidden = false; $('#eNoteText').value = ''; }
+  $('#eNoteAdd').onclick = openNoteNew;
+  $('#eNoteCancel').onclick = closeNoteNew;
+  $('#eNoteText').addEventListener('input', () => { $('#eNoteLen').textContent = `${$('#eNoteText').value.length} / 1000`; });
+  $('#eNoteSave').onclick = async () => {
+    if (!cur) return; const v = $('#eNoteText').value.trim(); if (!v) return toast('Type a note first');
+    const n = { id: uid(), t: Date.now(), x: v.slice(0, 1000) };
+    await noteOp('note-add', l => l.concat(n), `Note added (${v.length} characters)`); closeNoteNew(); renderNotes(); toast(isNew ? 'Note added. It saves with the entry.' : 'Note saved');
+  };
+  // ---- v7 row quick actions (History ⋯ button, or long-press / right-click on any row)
+  let rmEnt = null;
+  function openRowMenu(e) {
+    rmEnt = e; const k = kindOf(e);
+    $('#rmTitle').textContent = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : (e.label || R.KIND[k]);
+    $('#rmSub').textContent = [R.fmtDay(R.encDay(e)), R.hm(R.startOf(e)) + (R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''), e.initials, (e.codes || []).map(c => c.c).join(', ')].filter(Boolean).join(' · ');
+    $('#rmSame').hidden = k === 'shift';
+    const d = $('#rowMenu'); if (!d.open) d.showModal();
+  }
+  $('#rmClose').onclick = () => $('#rowMenu').close();
+  $('#rowMenu').addEventListener('click', ev => { if (ev.target === $('#rowMenu')) $('#rowMenu').close(); });
+  $$('#rowMenu [data-rmi]').forEach(b => b.onclick = async () => {
+    const e = rmEnt && S && S.encs.find(x => x.id === rmEnt.id); $('#rowMenu').close(); if (!e) return;
+    const a = b.dataset.rmi;
+    if (a === 'same') return samePatient(e);
+    openEdit(e, false, a === 'edit' ? { edit: true } : a === 'time' ? { panel: 'time' } : a === 'note' ? { panel: 'note' } : {});
+  });
   async function closeEdit(saved) {
     if (!saved) for (const p of addedPhotos) await V.removePhoto(p);
-    cur = null; addedPhotos = []; removedPhotos = []; $('#editDlg').close();
+    cur = null; addedPhotos = []; removedPhotos = []; noteEdit = null; closeNoteNew(); $('#editDlg').close();
   }
   function showRet() {
     $('.minorage').hidden = !$('#eMinor').checked;
@@ -497,7 +666,10 @@
     $('#eRet').textContent = `Keep until at least ${new Date(t).toLocaleDateString()}. Nothing is deleted without your confirmation.`;
   }
   ['#eMinor', '#eObs', '#eAge'].forEach(s2 => $(s2).addEventListener('input', showRet));
-  $('#eCancel').onclick = () => closeEdit(false);
+  $('#eCancel').onclick = async () => {
+    if (cur && !isNew && $('#editDlg').dataset.mode === 'edit' && stored()) { for (const p of addedPhotos) await V.removePhoto(p); addedPhotos = []; removedPhotos = []; return openEdit(stored()); }
+    closeEdit(false);
+  };
   $('#editDlg').addEventListener('cancel', ev => { ev.preventDefault(); closeEdit(false); });
   $('#eAddSeg').onclick = () => { const segs = readSegs(), last = segs[segs.length - 1]; const s = last && last.e ? last.e + 60000 : Date.now(); $('#eSegs').insertAdjacentHTML('beforeend', segRow({ s, e: s + 15 * 60000 })); bindSegs(); sumSegs(); setKind(cur.kind); };
   const ovl = (a, b) => a.some(x => b.some(y => x.s < (y.e == null ? Date.now() : y.e) && y.s < (x.e == null ? Date.now() : x.e)));
@@ -525,7 +697,7 @@
     const prev = S.encs.find(x => x.id === cur.id);
     const st = o => JSON.stringify((o.segs || []).map(x => [Math.floor(x.s / 60000), x.e == null ? null : Math.floor(x.e / 60000)]));
     const timesChanged = prev ? st(prev) !== st({ segs }) : true;
-    cur.segs = segs; cur.facility = eFac; cur.note = $('#eNote').value.trim();
+    cur.segs = segs; cur.facility = eFac; cur.notes = clone((stored() && !isNew ? R.notesOf(stored()) : cur.notes) || []); delete cur.note;
     if (k !== 'shift') { cur.minor = $('#eMinor').checked; cur.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); cur.minorAge = cur.minor && Number.isFinite(ag) && ag >= 0 && ag < 18 ? ag : undefined; }
     if (k === 'enc') { cur.label = $('#eLabel').value.trim() || cur.label || 'Encounter'; cur.initials = $('#eInit').value.trim().toUpperCase(); cur.chart = $('#eChart').value.trim(); cur.setting = $('#eSetting').value; cur.type = $('#eType').value.trim(); }
     else { cur.setting = $('#eSetting2').value; }
@@ -552,17 +724,19 @@
   function editSnapshot() {
     const c = clone(cur), segs = readSegs(), k = c.kind;
     if (segs.length && segs.every(x => x.s != null)) c.segs = sumSegs() || segs;
-    c.facility = eFac; c.note = $('#eNote').value;
+    c.facility = eFac; c.notes = clone(cur.notes || []); if ($('#eNoteText').value.trim()) c.noteDraft = $('#eNoteText').value;
     if (k === 'enc') { c.label = $('#eLabel').value; c.initials = $('#eInit').value; c.chart = $('#eChart').value; c.setting = $('#eSetting').value; c.type = $('#eType').value; } else c.setting = $('#eSetting2').value;
     if (k !== 'shift') { c.minor = $('#eMinor').checked; c.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); c.minorAge = Number.isFinite(ag) ? ag : undefined; c.dx = $('#eDxQ').value; }
     if (k === 'cb') { c.cbType = $('#eCbType').value; c.called = parseLocal($('#eCalled').value); c.links = $$('#eLinks input:checked').map(i => i.value); }
-    return { cur: c, isNew, addedPhotos, removedPhotos, at: Date.now() };
+    return { cur: c, isNew, addedPhotos, removedPhotos, at: Date.now(), mode: $('#editDlg').dataset.mode };
   }
   function restoreDraft(d) {
-    const c = d.cur, dx = c.dx; delete c.dx;
+    const c = d.cur, dx = c.dx, nd = c.noteDraft; delete c.dx; delete c.noteDraft;
     const orig = S.encs.find(x => x.id === c.id);
     if (!d.isNew && !orig) return;   // entry no longer exists
-    openEdit(c, d.isNew);
+    if (!d.isNew) c.notes = clone(R.notesOf(orig));   // notes were saved as they were made
+    openEdit(c, d.isNew, { edit: d.mode !== 'view' });
+    if (nd) { $('#eNoteText').value = nd; openNoteNew(); }
     if (dx) { $('#eDxQ').value = dx; dxSync($('#eDxQ')); }
     addedPhotos = d.addedPhotos || []; removedPhotos = d.removedPhotos || [];
   }
@@ -573,7 +747,7 @@
     const tm = setTimeout(() => { photoDel.delete(tm); ph.forEach(p => V.removePhoto(p)); }, 6000); photoDel.set(tm, ph);
     snack(`Deleted ${gone.label || R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
   };
-  const blank = (k, s, e) => ({ id: uid(), kind: k, label: '', initials: '', chart: '', setting: k === 'enc' ? S.settings.defSetting : 'H', facility: (activeShift() || {}).facility || S.settings.curFac || null, type: '', codes: [], note: '', segs: [{ s, e }], status: e == null ? 'run' : 'done', photos: [], links: [], created: Date.now() });
+  const blank = (k, s, e) => ({ id: uid(), kind: k, label: '', initials: '', chart: '', setting: k === 'enc' ? S.settings.defSetting : 'H', facility: (activeShift() || {}).facility || S.settings.curFac || null, type: '', codes: [], notes: [], segs: [{ s, e }], status: e == null ? 'run' : 'done', photos: [], links: [], created: Date.now() });
   $('#manualBtn').onclick = () => { const s = Date.now() - 30 * 60000; const e = blank('enc', s, s + 30 * 60000); e.late = true; openEdit(e, true); };
   $('#cbBtn').onclick = () => { const now = Date.now(); const e = blank('cb', now, null); e.called = now; e.cbType = 'return'; e.setting = 'H'; openEdit(e, true); };
   // entry history (from the audit log)
@@ -612,7 +786,7 @@
     const sh = activeShift(), now = Date.now();
     if (sh) { const e = clone(sh); e.segs[e.segs.length - 1].e = now; e.status = 'done'; await saveEnc(e, 'depart'); render(); return toast(`Departed ${e.facility ? e.facility.n : ''}`); }
     let f = S.settings.curFac; if (!f) { f = await pickFacility(); if (f === undefined) return; S.settings.curFac = f; await saveSettings(); }
-    const e = { id: uid(), kind: 'shift', label: '', facility: f, setting: (f && f.set) || 'H', segs: [{ s: now, e: null }], status: 'run', note: '', codes: [], photos: [], created: now };
+    const e = { id: uid(), kind: 'shift', label: '', facility: f, setting: (f && f.set) || 'H', segs: [{ s: now, e: null }], status: 'run', notes: [], codes: [], photos: [], created: now };
     await saveEnc(e, 'arrive'); render(); toast(`Arrived${f ? ' at ' + f.n : ''}`);
   };
 
@@ -724,18 +898,18 @@
     $('#pTitle').textContent = repMode === 'audit' ? 'Export audit log' : 'Report';
     $('#repForm .fmt [data-fmt=docx]').hidden = repMode === 'audit'; $('#pPhotosL').hidden = repMode === 'audit';
     if (repMode === 'audit' && fmt === 'docx') fmt = 'pdf';
-    $('#pFrom').value = from; $('#pTo').value = to; $('#pReady').hidden = true; repFile = null; $('#pErr').textContent = ''; $('#pAck').checked = false; setFmt(fmt);
+    $('#pFrom').value = from; $('#pTo').value = to; $('#pReady').hidden = true; repFile = null; $('#pErr').textContent = ''; $('#pAck').checked = false; $('#pNotes').checked = false; $('#pNotesL').lastChild.textContent = repMode === 'audit' ? ' (off: note text is left out of the log export)' : ' (off by default for privacy)'; setFmt(fmt);
     $('#repDlg').showModal();
   }
   function setFmt(f) { fmt = f; $$('#repForm .fmt button').forEach(b => { const on = b.dataset.fmt === f; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); $('#pPhotos').disabled = f === 'csv'; repInfo(); $('#pReady').hidden = true; repFile = null; }
   async function repInfo() {
     if (!S) return; const f = $('#pFrom').value || '0', t = $('#pTo').value || '9';
     if (repMode === 'audit') { const n = (await V.loadAudit()).filter(r => { const k = R.dayKey(r.ts); return k >= f && k <= t; }).length; $('#pInfo').textContent = `${n} audit record${n === 1 ? '' : 's'} in this period. The export includes the integrity check result and each record's hashes.`; return; }
-    const l = R.select(S.encs, f, t), np = l.reduce((a, e) => a + (e.photos || []).length, 0), n = k => l.filter(e => kindOf(e) === k).length;
-    $('#pInfo').textContent = `${n('enc')} encounter${n('enc') === 1 ? '' : 's'}, ${n('cb')} call-back${n('cb') === 1 ? '' : 's'}, ${n('shift')} on-site period${n('shift') === 1 ? '' : 's'}${np ? `, ${np} photo${np === 1 ? '' : 's'}` : ''} in this period.` + (fmt === 'csv' ? ' CSV has no photos.' : '');
+    const l = R.select(S.encs, f, t), np = l.reduce((a, e) => a + (e.photos || []).length, 0), nn = l.reduce((a, e) => a + R.notesOf(e).length, 0), n = k => l.filter(e => kindOf(e) === k).length;
+    $('#pInfo').textContent = `${n('enc')} encounter${n('enc') === 1 ? '' : 's'}, ${n('cb')} call-back${n('cb') === 1 ? '' : 's'}, ${n('shift')} on-site period${n('shift') === 1 ? '' : 's'}${np ? `, ${np} photo${np === 1 ? '' : 's'}` : ''} in this period.` + (fmt === 'csv' ? ' CSV has no photos.' : '') + (nn ? ` ${nn} note${nn === 1 ? '' : 's'}: ${$('#pNotes').checked ? 'included' : 'not included'}.` : '');
   }
   $$('#repForm .fmt button').forEach(b => b.onclick = () => setFmt(b.dataset.fmt));
-  ['#pFrom', '#pTo', '#pPhotos'].forEach(s => $(s).addEventListener('change', () => { repInfo(); $('#pReady').hidden = true; repFile = null; }));
+  ['#pFrom', '#pTo', '#pPhotos', '#pNotes'].forEach(s => $(s).addEventListener('change', () => { repInfo(); $('#pReady').hidden = true; repFile = null; }));
   $('#pClose').onclick = () => { $('#repDlg').close(); repFile = null; };
   $('#repToday').onclick = () => openReport(today(), today());
   $('#repRange').onclick = () => { const f = $('#rFrom').value, t = $('#rTo').value; if (!f || !t) return toast('Choose both dates'); openReport(f <= t ? f : t, f <= t ? t : f); };
@@ -748,11 +922,11 @@
       let blob, name;
       if (repMode === 'audit') {
         const recs = await V.loadAudit(), chk = await V.verifyAudit();
-        blob = fmt === 'csv' ? R.auditCsv(recs, from, to) : await R.auditPdf(recs, from, to, chk);
+        blob = fmt === 'csv' ? R.auditCsv(recs, from, to, { notes: $('#pNotes').checked }) : await R.auditPdf(recs, from, to, chk, { notes: $('#pNotes').checked });
         name = (from === to ? `audit-log-${from}` : `audit-log-${from}_to_${to}`) + '.' + (fmt === 'csv' ? 'csv' : 'pdf');
       } else {
-        const list = R.select(S.encs, from, to), o = { photos: $('#pPhotos').checked, loadPhoto: id => V.loadPhoto(id), credits: credits(list), now: Date.now() };
-        blob = fmt === 'csv' ? R.csv(S.encs, from, to, o.now) : fmt === 'docx' ? await R.docx(S.encs, from, to, o) : await R.pdf(S.encs, from, to, o);
+        const list = R.select(S.encs, from, to), o = { photos: $('#pPhotos').checked, notes: $('#pNotes').checked, loadPhoto: id => V.loadPhoto(id), credits: credits(list), now: Date.now() };
+        blob = fmt === 'csv' ? R.csv(S.encs, from, to, o.now, S.encs, o) : fmt === 'docx' ? await R.docx(S.encs, from, to, o) : await R.pdf(S.encs, from, to, o);
         name = R.fname(from, to, fmt);
       }
       repFile = new File([blob], name, { type: blob.type });
@@ -816,7 +990,7 @@
     }
     const have = new Set((await V.photoIds()).map(p => p.id));
     for (const p of data.photos || []) if (!have.has(p.id)) { await V.restorePhoto(p); photos++; }
-    render(); toast(`Imported: ${added} new, ${updated} updated, ${photos} photo(s)`, 3500);
+    await migrateNotes(); render(); toast(`Imported: ${added} new, ${updated} updated, ${photos} photo(s)`, 3500);
   });
   $('#wipe').onclick = async () => {
     const v = await ask({ title: 'Delete all data', text: 'This erases every encounter, arrival/departure, call-back, photo, the whole audit log, all settings and the passcode from this device. It cannot be undone and the developer cannot recover anything. Check your retention obligations and make an encrypted backup first. Enter your passcode and type DELETE ALL to confirm.', ok: 'Delete everything', danger: true, fields: [{ id: 'p', label: 'Passcode' }, { id: 'c', label: 'Type DELETE ALL', type: 'text' }],
@@ -886,7 +1060,7 @@
     const now = Date.now(), prev = clone(e), st = clone(e), l = st.segs[st.segs.length - 1]; if (l && l.e == null) l.e = now; st.status = 'done';
     await saveEnc(st, 'stop', 'Stopped by one-tap patient switch');
     const n = S.encs.filter(x => R.encDay(x) === today() && kindOf(x) === 'enc').length + 1;
-    const ne = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], note: '', segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    const ne = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
     await saveEnc(ne, 'create', 'Started by one-tap patient switch'); $('#qLabel').value = ''; render();
     snack(`Switched to ${ne.label}`, async () => {
       const a = S.encs.find(x => x.id === st.id), b = S.encs.find(x => x.id === ne.id);
@@ -979,7 +1153,7 @@
   }
   async function startFrom(c) {
     const now = Date.now(), n = S.encs.filter(x => R.encDay(x) === today() && kindOf(x) === 'enc').length + 1, sh = activeShift();
-    const e = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: c.set || 'H', facility: c.fac || (sh ? sh.facility : S.settings.curFac) || null, type: '', codes: clone(c.codes), note: '', segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    const e = { id: uid(), kind: 'enc', label: $('#qLabel').value.trim() || `Encounter ${n}`, initials: '', chart: '', setting: c.set || 'H', facility: c.fac || (sh ? sh.facility : S.settings.curFac) || null, type: '', codes: clone(c.codes), notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
     await saveEnc(e, 'create', 'Started from a code set (track again)'); $('#qLabel').value = ''; tab = 'today'; showTab(); render(); toast(`Started ${e.label} · ${comboLbl(c)}`);
   }
   async function toggleFav(c) {
@@ -1038,7 +1212,7 @@
     $('#rvTitle').textContent = from === to ? `Review ${R.fmtDay(from)}` : `Review week ${R.fmtDay(from)} – ${R.fmtDay(to)}`;
     $('#rvSub').textContent = `${list.length} entr${list.length === 1 ? 'y' : 'ies'} on ${days.length} day${days.length === 1 ? '' : 's'}. Tap an item to fix it.`;
     $('#rvList').innerHTML = !list.length ? '<p class="small muted">No entries in this period.</p>' : iss.length ? iss.map((x, i) => `<button type="button" class="rvrow ${x.lvl}" data-i="${i}"><span class="rvt">${x.lvl === 'block' ? 'Fix' : x.lvl === 'warn' ? 'Check' : 'Info'}</span><span class="rvw">${esc(R.encDay(x.e).slice(5))} ${R.hm(R.startOf(x.e))} · ${esc(kindOf(x.e) === 'shift' ? (x.e.facility ? x.e.facility.n : 'On site') : x.e.label || R.KIND[kindOf(x.e)])}</span><span class="rvi">${esc(x.t)}</span></button>`).join('') : '<p class="small ok">✓ Nothing to fix: no running timers, missing codes, overlaps or missing departures.</p>';
-    $$('#rvList .rvrow').forEach(b => b.onclick = () => openEdit(iss[+b.dataset.i].e));
+    $$('#rvList .rvrow').forEach(b => b.onclick = () => openEdit(iss[+b.dataset.i].e, false, { edit: true }));
     const all = days.length && days.every(d => rv[d]);
     $('#rvState').textContent = all ? `✎ Reviewed ${new Date(Math.max(...days.map(d => rv[d].at))).toLocaleString()}. Any change to these entries removes the mark.` : nb ? 'Stop running timers and record departures before marking this reviewed.' : '';
     const b = $('#rvMark'); b.disabled = !list.length || nb > 0 || all; b.textContent = all ? 'Reviewed' : nw ? `Mark reviewed (${nw} flagged)` : 'Mark reviewed';
