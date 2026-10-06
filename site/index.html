@@ -53,6 +53,10 @@
   </a>
   <span class="topr"><span class="clock" id="clock" aria-hidden="true"></span><button type="button" class="lockbtn" id="lockNow" aria-label="Lock now" title="Lock now">Lock</button></span>
 </header>
+<div class="pbar" id="pbar" role="status" aria-label="Billing time period">
+  <div class="pb1"><b id="pbName">Time period</b><span class="pbh" id="pbHrs"></span><span class="pbu" id="pbUnits"></span></div>
+  <div class="pb2"><div class="pbtrack" aria-hidden="true"><div class="pbfill" id="pbFill"></div></div><span class="pbr" id="pbLeft"></span></div>
+</div>
 <nav class="tabs" id="tabs" role="tablist">
   <button type="button" role="tab" data-tab="today" class="on" aria-selected="true">Today</button>
   <button type="button" role="tab" data-tab="history" aria-selected="false">History</button>
@@ -68,13 +72,15 @@
       <p class="small muted" id="osInfo"></p>
       <button type="button" class="linkbtn" id="osEdit" hidden>Edit arrival time / back-date</button>
     </div>
-    <div class="totals" id="todayTotals" aria-live="polite"></div>
+    <div class="wstrip" id="todayTotals" aria-live="polite"></div>
+    <div class="tagain" id="trackAgain" hidden></div>
     <div id="todayList" class="list"></div>
-    <div class="rowbtns"><button type="button" class="ghost" id="cbBtn">+ Call-back</button><button type="button" class="ghost" id="manualBtn">+ Add past entry</button><button type="button" class="ghost" id="repToday">Report / share today</button></div>
+    <div class="rowbtns"><button type="button" class="ghost" id="cbBtn">+ Call-back</button><button type="button" class="ghost" id="manualBtn">+ Add past entry</button><button type="button" class="ghost" id="tlToday">Timeline</button><button type="button" class="ghost" id="rvToday">Review day</button><button type="button" class="ghost" id="repToday">Report / share today</button></div>
     <p class="small muted units-note" id="unitsNote"></p>
   </section>
 
   <section id="tab-history" class="panel" hidden>
+    <div class="wstrip" id="wsHist"></div>
     <div id="histList"></div>
     <div class="card">
       <h3>Report a day or date range</h3>
@@ -102,6 +108,23 @@
         <label class="fld">Fee schedule
           <select id="defProv"></select></label>
       </div>
+    </div>
+    <div class="card">
+      <h3>Timers</h3>
+      <div class="two">
+        <label class="fld">Amber after
+          <select id="warnA"><option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option><option value="90">90 min</option><option value="120">2 h</option></select></label>
+        <label class="fld">Red after
+          <select id="warnR"><option value="120">2 h</option><option value="180">3 h</option><option value="240">4 h</option><option value="360">6 h</option></select></label>
+      </div>
+      <p class="small muted">A running encounter or call-back turns amber, then red. If a timer is red when you unlock, the app asks whether to stop it now or at an earlier time (saved as entered later). In-app only: no notifications.</p>
+    </div>
+    <div class="card" id="perCard">
+      <h3>Time periods and holidays <span class="draft">Per user · verify against the current SOMB</span></h3>
+      <div id="perTable" class="pertable"></div>
+      <label class="chk small"><input type="checkbox" id="holToday"> <span id="holTodayL">Today is a statutory holiday (bill like a weekend)</span></label>
+      <p class="small muted" id="holInfo"></p>
+      <details class="holdet"><summary class="small">Alberta general holidays, calculated each year (<span id="holYear"></span>)</summary><div id="holList" class="hollist"></div></details>
     </div>
     <div class="card">
       <h3>Lock</h3>
@@ -230,12 +253,15 @@
       <input type="file" id="eCamIn" accept="image/*" capture="environment" hidden aria-label="Take photo">
       <input type="file" id="eFileIn" accept="image/*" multiple hidden aria-label="Attach photo">
     </div>
-    <div class="quick"><span class="fldl" id="eQLbl">Started</span><button type="button" data-ago="0">now</button><button type="button" data-ago="5">5 min ago</button><button type="button" data-ago="15">15 min ago</button><button type="button" data-ago="30">30 min ago</button><button type="button" data-ago="60">1 h ago</button><button type="button" data-end="1" class="endnow">End now</button></div>
+    <div class="quick"><span class="fldl" id="eQLbl">Started</span><button type="button" data-ago="0">now</button><button type="button" data-ago="5">5 min ago</button><button type="button" data-ago="15">15 min ago</button><button type="button" data-ago="30">30 min ago</button><button type="button" data-ago="60">1 h ago</button><button type="button" data-last="1" title="Start when your previous entry ended">Last stop</button><button type="button" data-end="1" class="endnow">End now</button></div>
+    <div class="quick nudge"><span class="fldl">Start</span><button type="button" data-nudge="s" data-d="-5" aria-label="Start 5 minutes earlier">−5</button><button type="button" data-nudge="s" data-d="5" aria-label="Start 5 minutes later">+5</button><span class="fldl">End</span><button type="button" data-nudge="e" data-d="-5" aria-label="End 5 minutes earlier">−5</button><button type="button" data-nudge="e" data-d="5" aria-label="End 5 minutes later">+5</button><span class="fldl">Length</span><button type="button" data-dur="15">+15</button><button type="button" data-dur="30">+30</button></div>
     <div class="segs" id="eSegs"></div>
     <button type="button" class="linkbtn" id="eAddSeg">+ Add time segment</button>
     <p class="small muted" id="eSum"></p>
+    <p class="small perline" id="ePer"></p>
     <p class="err small" id="eErr" role="alert"></p>
     <p class="warnbox small" id="eWarn" hidden></p>
+    <div class="rowbtns notshift" id="eRepRow"><button type="button" class="ghost" id="eRepeat" title="Start a new timer with the same setting, facility, fee codes and diagnostic codes (no patient details)">Track again</button><button type="button" class="ghost" id="eFavSet">☆ Save code set</button></div>
     <button type="button" class="linkbtn" id="eHist">History of this entry</button>
     <div class="dlgbtns">
       <button type="button" class="dangerbtn ghostdanger" id="eDelete">Delete</button>
@@ -298,24 +324,62 @@
     <div class="dlgbtns"><button type="button" class="dangerbtn ghostdanger" id="pvDel">Delete photo</button><span></span><button type="button" class="ghost" id="pvClose">Close</button></div>
   </div>
 </dialog>
+<dialog id="longDlg">
+  <form method="dialog" class="dlg" id="longForm" autocomplete="off">
+    <h3 id="lgTitle">Timer still running</h3>
+    <p class="small" id="lgText"></p>
+    <label class="fld">Stop at<input type="datetime-local" id="lgAt"></label>
+    <p class="err small" id="lgErr" role="alert"></p>
+    <div class="dlgbtns"><button type="button" class="ghost" id="lgKeep">Keep running</button><span></span><button type="button" class="stopbtn" id="lgNow">Stop now</button><button type="button" class="primary" id="lgAtBtn">Stop at time</button></div>
+  </form>
+</dialog>
+<dialog id="revDlg">
+  <div class="dlg">
+    <h3 id="rvTitle">Review</h3>
+    <p class="small muted" id="rvSub"></p>
+    <div id="rvList" class="rvlist"></div>
+    <p class="small" id="rvState"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="rvClose">Close</button><button type="button" class="primary" id="rvMark">Mark reviewed</button></div>
+  </div>
+</dialog>
+<dialog id="tlDlg" class="tldlg">
+  <div class="dlg">
+    <div class="tlhead"><button type="button" class="ghost sm" id="tlPrev" aria-label="Previous day">‹</button><h3 id="tlTitle">Timeline</h3><button type="button" class="ghost sm" id="tlNext" aria-label="Next day">›</button><span></span><button type="button" class="ghost" id="tlClose">Close</button></div>
+    <p class="small muted tlhelp">Blocks between arrival and departure. Tap a block to open it; tap an empty spot to add a past entry there.</p>
+    <div id="tlBody" class="tlbody"></div>
+  </div>
+</dialog>
+<dialog id="procDlg" class="procdlg" aria-label="Full-screen procedure timer">
+  <div class="proc">
+    <div class="ptime" id="pcTime">0:00:00</div>
+    <p class="pcs" id="pcState"></p>
+    <div class="pcbtns"><button type="button" class="pausebtn" id="pcPause">Pause</button><button type="button" class="stopbtn" id="pcStop">Stop</button></div>
+    <button type="button" class="ghost" id="pcExit">Exit full screen</button>
+    <p class="pcnote" id="pcNote">Time only. The screen stays on; auto-lock still applies.</p>
+  </div>
+</dialog>
+<div id="snack" class="snack" role="status" aria-live="polite" hidden><span id="snackTxt"></span><button type="button" id="snackUndo">Undo</button></div>
 <!-- manual:start -->
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 4 (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 5 (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started</a>
-      <a href="#m-site" data-go="m-site">2. Arrival, departure and call-backs</a>
-      <a href="#m-enc" data-go="m-enc">3. Encounters: start, pause, stop</a>
-      <a href="#m-late" data-go="m-late">4. Past entries and "Entered later"</a>
-      <a href="#m-codes" data-go="m-codes">5. Billing and diagnostic codes</a>
-      <a href="#m-photo" data-go="m-photo">6. Photos and the lock</a>
-      <a href="#m-hist" data-go="m-hist">7. History and totals</a>
-      <a href="#m-exp" data-go="m-exp">8. Reports and sharing safely</a>
-      <a href="#m-audit" data-go="m-audit">9. Audit log</a>
-      <a href="#m-ret" data-go="m-ret">10. Retention and backups</a>
-      <a href="#m-priv" data-go="m-priv">11. Privacy tips</a>
-      <a href="#m-faq" data-go="m-faq">12. FAQ and troubleshooting</a>
+      <a href="#m-per" data-go="m-per">2. The time-period bar</a>
+      <a href="#m-site" data-go="m-site">3. Arrival, departure and call-backs</a>
+      <a href="#m-enc" data-go="m-enc">4. Encounters: start, pause, stop</a>
+      <a href="#m-quick" data-go="m-quick">5. Track again and code sets</a>
+      <a href="#m-late" data-go="m-late">6. Past entries and "Entered later"</a>
+      <a href="#m-codes" data-go="m-codes">7. Billing and diagnostic codes</a>
+      <a href="#m-photo" data-go="m-photo">8. Photos and the lock</a>
+      <a href="#m-hist" data-go="m-hist">9. History, week strip and timeline</a>
+      <a href="#m-rev" data-go="m-rev">10. Review a day or week</a>
+      <a href="#m-exp" data-go="m-exp">11. Reports and sharing safely</a>
+      <a href="#m-audit" data-go="m-audit">12. Audit log</a>
+      <a href="#m-ret" data-go="m-ret">13. Retention and backups</a>
+      <a href="#m-priv" data-go="m-priv">14. Privacy tips</a>
+      <a href="#m-faq" data-go="m-faq">15. FAQ and troubleshooting</a>
     </nav>
 
     <section id="m-start">
@@ -339,15 +403,33 @@
       <p>After 5 wrong passcodes in a row, the app makes you wait (30 seconds at first, longer with each further miss, up to 15 minutes).</p>
       <h4>The screens</h4>
       <ul>
-        <li><b>Today:</b> facility arrival/departure, today's totals, running and finished encounters, call-backs.</li>
-        <li><b>History:</b> every past entry on one page, with daily and weekly totals and reports.</li>
+        <li><b>Today:</b> facility arrival/departure, the week strip with today's totals, Track again chips, running and finished encounters, call-backs.</li>
+        <li><b>History:</b> every past entry on one page, with the week strip, daily and weekly totals, time periods, timeline, review and reports.</li>
         <li><b>Resources:</b> official billing, privacy and regulatory websites, including MedBilling Fee Desk.</li>
-        <li><b>Settings:</b> defaults, lock, backups, retention, audit log, this manual and Delete all data.</li>
+        <li><b>Settings:</b> defaults, timer warnings, time periods and holidays, lock, backups, retention, audit log, this manual and Delete all data.</li>
+      </ul>
+    </section>
+
+    <section id="m-per">
+      <h3>2. The time-period bar</h3>
+      <p class="mantip"><b>Per user, verify against the current SOMB.</b> These periods were set up from your own list. MedBilling Logs doesn't attach fee codes to them. Check the current Alberta Schedule of Medical Benefits before you bill.</p>
+      <p>The bar under the header shows the billing time period you're in now (America/Edmonton time):</p>
+      <ul>
+        <li>The period name and hours, and a progress bar through the period.</li>
+        <li>The time left until the next period starts, and the next period's name.</li>
+        <li>The period's total units, the units elapsed so far, and the units you've logged in encounters during this period. Units are 15-minute blocks.</li>
+      </ul>
+      <table class="mantable"><tr><th colspan="3">Weekdays (Mon–Fri)</th></tr><tr><td>Weekday daytime</td><td>07:00–16:59</td><td>no premium units</td></tr><tr><td>Weekday evening</td><td>17:00–21:59</td><td>20 units</td></tr><tr><td>Weekday late evening</td><td>22:00–23:59</td><td>8 units</td></tr><tr><td>Weekday overnight</td><td>00:00–06:59</td><td>28 units</td></tr>
+      <tr><th colspan="3">Weekends (Sat–Sun) and statutory holidays</th></tr><tr><td>Weekend/holiday daytime</td><td>07:00–21:59</td><td>60 units</td></tr><tr><td>Weekend/holiday late evening</td><td>22:00–23:59</td><td>8 units</td></tr><tr><td>Weekend/holiday overnight</td><td>00:00–06:59</td><td>28 units</td></tr></table>
+      <ul>
+        <li><b>Every encounter is tagged</b> with its period(s). If it crosses a boundary (for example 21:50–22:20), its minutes and 15-minute units are split between the periods. You'll see the split in the entry, under the start time in lists, in the daily totals, and in CSV, PDF and Word reports.</li>
+        <li><b>Statutory holidays bill like weekends.</b> Alberta's general holidays are worked out automatically each year: New Year's Day, Alberta Family Day, Good Friday, Victoria Day, Canada Day, Heritage Day (optional in Alberta), Labour Day, National Day for Truth and Reconciliation, Thanksgiving, Remembrance Day and Christmas. Switch any of them off under <b>Settings → Time periods and holidays</b>.</li>
+        <li>For any other holiday, or an observed day (for example when a holiday falls on a weekend), tick <b>Today is a statutory holiday</b> in Settings on that day.</li>
       </ul>
     </section>
 
     <section id="m-site">
-      <h3>2. Arrival, departure and call-backs</h3>
+      <h3>3. Arrival, departure and call-backs</h3>
       <h4>Time on site</h4>
       <ol>
         <li>On <b>Today</b>, tap <b>Facility</b> and pick your hospital (Alberta hospitals, grouped by AHS zone; type to filter). For a clinic or a site not listed, type a custom name under <b>Other / clinic</b>.</li>
@@ -365,13 +447,20 @@
     </section>
 
     <section id="m-enc">
-      <h3>3. Encounters: start, pause, stop</h3>
+      <h3>4. Encounters: start, pause, stop</h3>
       <ol>
         <li>In the bar at the bottom, type a short room or bed label (for example <i>Rm 412</i>). Avoid names.</li>
         <li>Choose <b>Hospital</b> or <b>Clinic</b>, then tap <b>Start</b>. A card with a live timer appears.</li>
         <li><b>Pause</b> if you are interrupted, <b>Resume</b> to carry on. Each stretch of time is kept as a segment.</li>
         <li>Tap <b>Stop</b> when you are done. Finished encounters show as compact rows; tap <b>▶</b> to continue one later.</li>
+        <li>Going straight to the next patient? Tap <b>Next pt</b>. It stops this encounter and starts a new one in one tap, with the same setting and facility. If you typed a room in the bottom bar first, the new one gets that label.</li>
       </ol>
+      <ul>
+        <li><b>Next unit:</b> the running card shows the minutes and units so far, and when the next unit starts (for example <i>53 min · 4 units · +1 unit at 68 min</i>). It turns orange in the last 2 minutes. This is a display only: recorded minutes are always the real minutes, never rounded.</li>
+        <li><b>Undo:</b> after <b>Stop</b>, <b>Next pt</b> or <b>Delete</b>, an <b>Undo</b> button shows for 5 seconds. Both the action and the undo are kept in the audit log.</li>
+        <li><b>Forgotten timer:</b> a running encounter or call-back turns <b>amber</b> after 60 minutes and <b>red</b> after 3 hours (change this under Settings → Timers). Tap <b>Stop at…</b> on the card to set the real end time. If a timer is red when you unlock, the app asks: <b>Stop now</b>, <b>Stop at time</b> or <b>Keep running</b>. A corrected time is saved as "entered later" with a note in the audit log. All of this happens inside the app, with no notifications.</li>
+        <li><b>Full-screen timer (⛶):</b> big digits for procedures, readable from a distance. It shows the time only (no room, initials or codes), plus Pause and Stop. The screen stays on where the browser allows it. Auto-lock still applies, so for long procedures set a longer auto-lock first.</li>
+      </ul>
       <p>Tap an encounter to add details: initials, chart/MRN, setting, type (consult, visit…), billing and diagnostic codes, photos, a short note, and the <b>Minor</b> or <b>Obstetric</b> flags that set how long the record is kept.</p>
       <ul>
         <li>The quick buttons (<b>now, 5, 15, 30 min ago, 1 h ago, End now</b>) fix start or end times in one tap. <b>+ Add time segment</b> adds another stretch.</li>
@@ -382,9 +471,24 @@
       </ul>
     </section>
 
+    <section id="m-quick">
+      <h3>5. Track again and code sets</h3>
+      <ul>
+        <li>The <b>Track again</b> chips on Today show your recent and favourite combinations, for example <i>03.03A · 780</i>. Tap one to start a timer with that setting, facility, fee code(s) and ICD-9 code(s) already filled in.</li>
+        <li>Tap <b>☆</b> on a chip to save it as a favourite code set (★). Favourites come first. Tap ★ to remove it.</li>
+        <li>In any saved encounter, <b>Track again</b> starts a new timer with the same codes, and <b>☆ Save code set</b> saves them as a favourite.</li>
+        <li>Only billing fields are copied. Room labels, initials, chart numbers, notes and photos are never copied.</li>
+      </ul>
+    </section>
+
     <section id="m-late">
-      <h3>4. Past entries and "Entered later"</h3>
-      <p>Use <b>+ Add past entry</b> on Today for something you didn't time live. Set the start and end, add details, and save.</p>
+      <h3>6. Past entries and "Entered later"</h3>
+      <p>Use <b>+ Add past entry</b> on Today for something you didn't time live, or tap an empty spot in the day timeline. Set the start and end, add details, and save.</p>
+      <ul>
+        <li><b>Last stop</b> sets the start to when your previous entry today ended, so back-to-back patients have no gaps.</li>
+        <li><b>Start −5 / +5</b> and <b>End −5 / +5</b> nudge the times by 5 minutes. <b>Length +15 / +30</b> extends the end. Times can't go into the future.</li>
+        <li>The entry shows its time-period split as you change the times.</li>
+      </ul>
       <p>To keep the record honest, the app marks an entry <b>Entered later</b> when:</p>
       <ul>
         <li>a new entry starts more than 2 minutes before it was saved (back-dated), or</li>
@@ -394,7 +498,7 @@
     </section>
 
     <section id="m-codes">
-      <h3>5. Billing and diagnostic codes</h3>
+      <h3>7. Billing and diagnostic codes</h3>
       <ol>
         <li>Open an encounter. Under <b>Fee codes and diagnostic codes</b>, check the fee schedule (province) on the right.</li>
         <li>In <b>Billing code</b>, type a code or a few words and tap a suggestion to add it.</li>
@@ -409,7 +513,7 @@
     </section>
 
     <section id="m-photo">
-      <h3>6. Photos and the lock</h3>
+      <h3>8. Photos and the lock</h3>
       <ul>
         <li>In an encounter, tap <b>Take photo</b> or <b>Attach photo</b>. Photos are resized, location data is removed, and they are stored only inside the app, encrypted. They aren't saved to your camera roll.</li>
         <li>Tap a thumbnail to view it or <b>Delete photo</b>.</li>
@@ -419,37 +523,50 @@
     </section>
 
     <section id="m-hist">
-      <h3>7. History and totals</h3>
+      <h3>9. History, week strip and timeline</h3>
       <ul>
         <li><b>History</b> shows every entry on one page as compact rows: start time, duration, label and initials, billing code and diagnostic code.</li>
         <li>Rows are grouped by day (newest first) and by week. Each day shows its totals: number of encounters, Hospital minutes/units (H), Clinic minutes/units (C), call-backs (CB) and time on site.</li>
         <li>Tap a row to open the details. In an entry, <b>History of this entry</b> shows every change made to it.</li>
-        <li>Today's totals are at the top of the Today screen.</li>
+        <li>Each day also shows its <b>time periods</b> (for example <i>Eve 45m/3u · Late 20m/1u</i>).</li>
+        <li><b>Week strip</b> (top of Today and History): Monday to Sunday with minutes and units under each day. Today is outlined, holidays are tinted, and ✓ marks reviewed days. Tap ‹ › or swipe to change weeks, and tap a day to jump to it. <b>Today</b> and <b>This week</b> totals sit beside it. On Today, the line under the strip splits today by Hospital, Clinic, call-backs and time period.</li>
+        <li><b>Timeline</b> (Today, or a day in History) draws the day as blocks: on-site time as a shaded band, Hospital in teal, Clinic in orange, call-backs dashed. Gaps and overlaps are easy to see. Tap a block to open it, or tap an empty spot to add a past entry at that time.</li>
       </ul>
     </section>
 
+    <section id="m-rev">
+      <h3>10. Review a day or week</h3>
+      <p>Before you submit claims, tap <b>Review day</b> on Today, or <b>Review</b> / <b>Review week</b> in History. The checklist shows:</p>
+      <ul>
+        <li><b>Fix:</b> timers still running or paused, and arrivals with no departure. These must be cleared before you can mark the period reviewed.</li>
+        <li><b>Check:</b> entries with no fee code or no diagnostic code, and overlapping entries.</li>
+        <li><b>Info:</b> entries marked "entered later".</li>
+      </ul>
+      <p>Tap an item to open and fix it. Then tap <b>Mark reviewed</b>. The day shows <b>✎ Reviewed</b> and the audit log records it. If any entry on that day changes later, the mark is removed, the day shows <b>Edited after review</b>, and the audit log records that too.</p>
+    </section>
+
     <section id="m-exp">
-      <h3>8. Reports (CSV, PDF, Word) and sharing safely</h3>
+      <h3>11. Reports (CSV, PDF, Word) and sharing safely</h3>
       <ol>
         <li>On Today tap <b>Report / share today</b>, or on History pick <b>From</b> and <b>To</b> dates and tap <b>Create report</b>.</li>
         <li>Choose <b>PDF</b>, <b>Word</b> or <b>CSV</b> (for spreadsheets). For PDF and Word, tick <b>Include photos</b> only if you need them.</li>
         <li>Tap <b>Create file</b>, read the confidentiality notice, tick <b>I understand</b>, then <b>Share…</b> or <b>Download</b>.</li>
       </ol>
-      <p>Reports list each entry with times, minutes, units, facility, billing codes and a Diagnostic code column. PDF and Word add daily and overall totals.</p>
+      <p>Reports list each entry with times, minutes, units, facility, billing codes, a Diagnostic code column and a Time periods column (CSV also has minutes and units for each period). PDF and Word add daily and overall totals, including the period split.</p>
       <p class="mantip"><b>Sharing safely:</b> a report can contain initials, chart numbers and photos. Send it only to authorized people through secure, approved channels (for example your clinic's secure system). Never use regular email or text. Delete downloaded copies from shared computers and from Downloads when you're done.</p>
     </section>
 
     <section id="m-audit">
-      <h3>9. Audit log</h3>
+      <h3>12. Audit log</h3>
       <ul>
-        <li>Every create, edit, delete, start/pause/stop, arrival/departure and import is recorded with its time and the before/after values. The log is encrypted and append-only.</li>
+        <li>Every create, edit, delete, start/pause/stop, undo, arrival/departure and import is recorded with its time and the before/after values. So are review marks (and their removal), favourite code sets and holiday settings. The log is encrypted and append-only.</li>
         <li>Each record is chained to the one before it, so any change, removal or reordering is detected.</li>
         <li><b>Settings → Audit log:</b> <b>Check log</b> verifies the chain, <b>Deleted entries</b> lists what was deleted, <b>Export log</b> saves it as PDF or CSV.</li>
       </ul>
     </section>
 
     <section id="m-ret">
-      <h3>10. Retention and backups</h3>
+      <h3>13. Retention and backups</h3>
       <h4>How long records are kept</h4>
       <ul>
         <li>At least <b>10 years from the last entry</b> (CPSA; CMPA recommends at least 10 years).</li>
@@ -467,11 +584,11 @@
     </section>
 
     <section id="m-priv">
-      <h3>11. Privacy tips</h3>
+      <h3>14. Privacy tips</h3>
       <ul>
         <li>Use room/bed labels and initials, not full names. Add a chart number only if you need it.</li>
         <li>Keep your phone's own screen lock on, and use a passcode you don't use anywhere else.</li>
-        <li>Keep the auto-lock short, and tap <b>Lock</b> before handing your phone to anyone.</li>
+        <li>Keep the auto-lock short, and tap <b>Lock</b> before handing your phone to anyone. The full-screen timer shows only the time, so it is safe for others to see.</li>
         <li>Share reports only through secure, approved channels. Don't leave copies in Downloads or email.</li>
         <li>This is a personal billing log, not the medical record. Chart every encounter in the patient's chart.</li>
         <li>If your phone is lost or data may be exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away.</li>
@@ -480,7 +597,7 @@
     </section>
 
     <section id="m-faq">
-      <h3>12. FAQ and troubleshooting</h3>
+      <h3>15. FAQ and troubleshooting</h3>
       <dl class="manfaq">
         <dt>I forgot my passcode.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
         <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
@@ -493,6 +610,10 @@
         <dt>The app says "Updating to the new version…"</dt><dd>Wait a few seconds. If it says "Update ready", close the app completely and reopen it. Your data isn't affected.</dd>
         <dt>A diagnostic code isn't in the suggestions.</dt><dd>Type it anyway; any code is accepted. Use <b>Look up in Fee Desk</b> to check it.</dd>
         <dt>Are the units and codes official?</dt><dd>No. They're a guide. Confirm in the Alberta Schedule of Medical Benefits, or contact AMA billing support.</dd>
+        <dt>The time period or holiday looks wrong.</dt><dd>Periods follow America/Edmonton time and your list of periods. Check <b>Settings → Time periods and holidays</b>: switch a holiday on or off, or tick "Today is a statutory holiday". Always verify against the current SOMB.</dd>
+        <dt>Why did a red timer prompt appear when I unlocked?</dt><dd>A timer ran past the red limit (3 hours by default). Stop it now or at the real end time, or keep it running. Change the limits under Settings → Timers.</dd>
+        <dt>The full-screen timer went away.</dt><dd>Auto-lock still applies. Unlock and reopen it with ⛶, or set a longer auto-lock before a long procedure.</dd>
+        <dt>I tapped Stop or Delete by mistake.</dt><dd>Tap <b>Undo</b> within 5 seconds. After that, edit the entry (a corrected time is marked "entered later"), or find deleted entries under Settings → Audit log → Deleted entries.</dd>
         <dt>Where can I get advice?</dt><dd>CMPA (1-800-267-6522), AMA billing support, or the CPSA. Links are in the Resources tab.</dd>
       </dl>
       <p class="small muted">MedBilling Logs is general information, not legal, billing or medico-legal advice. Part of JFdeLara's Studio.</p>
