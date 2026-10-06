@@ -12,6 +12,9 @@ arrival/departure (time on site), call-backs, fee codes, photos and reports. Liv
 - Photos are resized and re-encoded (which strips EXIF/GPS) and kept only inside the encrypted store, never in the camera roll.
 - Encrypted backup export/import (`.mblbackup`) and Delete all data (passcode + "DELETE ALL").
 
+## User manual
+Built into the app (v4): a full-screen page reachable from the lock screen, Settings → Help and the footer. It is part of `index.html`, so it works offline and holds no patient data.
+
 ## Audit log
 Every create, start/pause/stop, edit, delete, arrival/departure and import is appended to an encrypted, SHA-256 hash-chained log. Each record holds the time, the action, and before/after values. Deleted entries stay in the log. "Check log" verifies the chain and the head record. The log exports as PDF or CSV.
 
