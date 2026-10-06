@@ -498,7 +498,7 @@
       <p>After 5 wrong passcodes in a row, the app makes you wait (30 seconds at first, longer with each further miss, up to 15 minutes).</p>
       <h4>The screens</h4>
       <ul>
-        <li><b>Today:</b> facility arrival/departure, the week strip, Track again chips, and the encounter <b>spreadsheet</b> (plus running timer cards).</li>
+        <li><b>Today:</b> facility arrival/departure, the week strip, Track again chips, and the encounter <b>spreadsheet</b> (running rows update In/Out/Time in place; Pause/Stop in the last column).</li>
         <li><b>History:</b> the same spreadsheet grouped by day, with week totals, timeline, review and reports.</li>
         <li><b>Resources:</b> official billing, privacy and regulatory websites, including MedBilling Fee Desk.</li>
         <li><b>Settings:</b> defaults, timer warnings, time periods and holidays, lock, backups, retention, audit log, this manual and Delete all data.</li>
@@ -543,9 +543,9 @@
 
     <section id="m-enc">
       <h3>4. Encounters: spreadsheet, start, pause, stop</h3>
-      <p>Today and History are a <b>spreadsheet</b>: patient name, MRN/PHN, time in, time out, duration/units, billing notes, fee code(s) and diagnostic code(s). Tap a cell to edit; changes save encrypted right away. Use <b>↗</b> beside a fee or dx cell to pick the code in MedBilling Fee Desk (codes travel back via a same-origin handoff — never in the URL). Older entries without a name still show their room/label or initials.</p>
+      <p>Today and History look like a spreadsheet (Excel / Google Sheets): one continuous grid with cell borders, a sticky header row, and dense rows. Columns: patient name, MRN/PHN, time in, time out, duration/units, billing notes, fee code(s) and diagnostic code(s). Tap a cell to edit; changes save encrypted right away. Live encounters stay in the same grid (no separate timer cards). Use <b>↗</b> beside a fee or dx cell to pick the code in MedBilling Fee Desk (codes travel back via a same-origin handoff — never in the URL). Older entries without a name still show their room/label or initials.</p>
       <ol>
-        <li>In the bar at the bottom, type a <b>patient name</b> and/or <b>MRN / PHN</b>, choose <b>Hospital</b> or <b>Clinic</b>, then tap <b>Start</b>. A running card and a spreadsheet row appear.</li>
+        <li>In the bar at the bottom, type a <b>patient name</b> and/or <b>MRN / PHN</b>, choose <b>Hospital</b> or <b>Clinic</b>, then tap <b>Start</b>. A new row appears at the top of the spreadsheet with a live timer; use compact Pause/Stop in the last column.</li>
         <li><b>Pause</b> / <b>Stop</b> on the running card (or ■ on the row). Each stretch of time is kept as a segment.</li>
         <li>Edit name, MRN, times, billing notes and codes <b>inline in the grid</b>. Paste a fee or ICD-9 code into the cell, or tap <b>↗</b> to pick in Fee Desk.</li>
         <li>Tap <b>⧉</b> (or the row outside a cell) for full details: segments, photos, multi-code search, Add time, Same patient.</li>
