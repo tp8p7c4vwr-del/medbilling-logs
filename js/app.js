@@ -179,15 +179,18 @@
     const ms = R.msOf(e), m = Math.floor(ms / 60000), k = kindOf(e), st = e.status, cs = e.codes || [], dx = R.dxList(e);
     const who = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : [e.label || (k === 'cb' ? 'Call-back' : 'Encounter'), e.initials].filter(Boolean).join(' · ');
     const badge = (st === 'run' ? '<i class="b run">Running</i>' : st === 'pause' ? '<i class="b pause">Paused</i>' : '') + (k === 'cb' ? '<i class="b cb">CB</i>' : k === 'shift' ? '<i class="b">On site</i>' : '') + (e.late ? '<i class="b late" title="Entered later">*</i>' : '') + ((e.photos || []).length ? `<i class="b">📷${e.photos.length}</i>` : '');
-    const wl = warnLvl(e);
+    const wl = warnLvl(e), en = R.endOf(e), fac = k === 'shift' ? '' : [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') : R.SET[e.setting], e.facility && e.facility.n].filter(Boolean).join(' · ');
+    const pp = k === 'shift' ? [] : R.periodSplit(e).parts;
+    // v6: extra cells (.xw) are shown only on tablet/desktop widths (>= 768px); the phone row is unchanged
     return `<div class="erow ${st} rk-${k}${wl ? ' w' + wl : ''}" role="button" tabindex="0" data-id="${esc(e.id)}" aria-label="${esc(who)}, ${R.hm(R.startOf(e))}, open details">
-      <span class="t">${R.hm(R.startOf(e))}${perTags(e)}</span><span class="du" data-rm="${esc(e.id)}" data-k="${k}">${durTxt(e, m)}</span>
-      <span class="who">${esc(who)}${badge}</span>
+      <span class="t">${R.hm(R.startOf(e))}${perTags(e)}</span><span class="xw xe">${en ? R.hm(en) : st === 'done' ? '' : '…'}</span><span class="du" data-rm="${esc(e.id)}" data-k="${k}">${durTxt(e, m)}</span><span class="xw xu">${k === 'shift' ? '' : R.units(m) + ' u'}</span>
+      <span class="who">${esc(who)}${badge}</span><span class="xw xf" title="${esc(fac)}">${esc(fac)}</span>
       <span class="fc" title="${esc(cs.map(c => c.c).join(', '))}">${cs.length ? esc(cs[0].c) + (cs.length > 1 ? `<small>+${cs.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
       <span class="dx" title="${esc(dx.join(', '))}">${dx.length ? esc(dx[0]) + (dx.length > 1 ? `<small>+${dx.length - 1}</small>` : '') : '<span class="nil">–</span>'}</span>
+      <span class="xw xp" title="${esc(R.perTxt(pp))}">${pp.length ? esc(R.perTxt(pp, true).replace(/ min\//g, 'm/').replace(/ u/g, 'u')) : ''}</span>
       ${cont ? `<button type="button" class="cont" data-a="resume" aria-label="Continue ${esc(who)}" title="Continue">▶</button>` : ''}</div>`;
   }
-  const rowsHead = '<div class="erowh" aria-hidden="true"><span>Start</span><span>Time</span><span>Label · initials</span><span>Billing</span><span>Dx</span></div>';
+  const rowsHead = '<div class="erowh" aria-hidden="true"><span>Start</span><span class="xw">End</span><span>Time</span><span class="xw">Units</span><span>Label · initials</span><span class="xw">Setting · facility</span><span>Billing</span><span>Dx</span><span class="xw">Time periods</span></div>';
   function bindCards(root) {
     root.querySelectorAll('.erow').forEach(el => {
       const go = ev => { const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return; const a = ev.target.closest('[data-a]'); if (a && a.dataset.a === 'resume') { ev.stopPropagation(); return act(e, 'resume'); } openEdit(e); };
@@ -922,6 +925,7 @@
   }
   // ---- 4. week strip with daily totals + Today / This week
   const wsOff = { today: 0, hist: 0 };
+  const wkRange = (f, t) => { const o = { month: 'short', day: 'numeric' }, a = new Date(f + 'T12:00'), b = new Date(t + 'T12:00'); return a.getMonth() === b.getMonth() ? `${a.toLocaleDateString(undefined, o)}–${b.getDate()}` : `${a.toLocaleDateString(undefined, o)}–${b.toLocaleDateString(undefined, o)}`; };
   function renderStrip(which) {
     const box = which === 'today' ? $('#todayTotals') : $('#wsHist'); if (!S || !box) return;
     const td = today(), base = new Date(td + 'T12:00'); base.setDate(base.getDate() - ((base.getDay() + 6) % 7) + 7 * wsOff[which]);
@@ -932,15 +936,30 @@
     const cells = days.map((k, i) => { const l = byd.get(k) || [], t = sum(R.totals(l)), hol = R.holidayName(k), d = +k.slice(8);
       return `<button type="button" class="wd${k === td ? ' today' : ''}${l.length ? '' : ' empty'}${hol ? ' hol' : ''}${i > 4 ? ' we' : ''}" data-day="${k}" title="${esc(R.fmtDay(k) + (hol ? ' · ' + hol : ''))}" aria-label="${esc(R.fmtDay(k))}: ${t.m} minutes, ${t.u} units"><span class="wn">${'MTWTFSS'[i]}${d}</span><b>${t.m ? t.m + 'm' : '–'}</b><small>${t.m ? t.u + 'u' : ''}${rv[k] ? ' ✓' : ''}</small></button>`; }).join('');
     const lbl = wsOff[which] === 0 ? 'This week' : 'Week';
-    box.innerHTML = `<div class="wsh"><button type="button" class="wsnav" data-nav="-1" aria-label="Previous week">‹</button><span class="wsl">${esc(new Date(days[0] + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}–${esc(new Date(days[6] + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</span><button type="button" class="wsnav" data-nav="1" aria-label="Next week">›</button><span class="wst"><b>Today</b> ${tt.m}m·${tt.u}u <b>${lbl}</b> ${tw.m}m·${tw.u}u</span></div><div class="wdays">${cells}</div>` +
+    box.innerHTML = `<div class="wsh"><button type="button" class="wsnav" data-nav="-1" aria-label="Previous week">‹</button><span class="wsl">${esc(wkRange(days[0], days[6]))}</span><button type="button" class="wsnav" data-nav="1" aria-label="Next week">›</button><span class="wst"><button type="button" class="wstoday${wsOff[which] ? ' off' : ''}" data-today="1" title="Back to today and the current week" aria-label="Today: go back to today and the current week">Today</button> ${tt.m}m·${tt.u}u <b>${lbl}</b> ${tw.m}m·${tw.u}u</span></div><div class="wdays">${cells}</div>` +
       (which === 'today' ? `<div class="wsx">H ${ttl.H.m} min · ${ttl.H.n} enc · ${ttl.H.u} u <span>|</span> C ${ttl.C.m} min · ${ttl.C.n} enc · ${ttl.C.u} u${ttl.cb.n ? ` <span>|</span> CB ${ttl.cb.n} · ${ttl.cb.m} min` : ''}${ttl.perList.length ? `<br>${ttl.perList.map(p => `${esc(R.PBY[p.id].short)} ${p.m}m/${p.u}u`).join(' · ')}` : ''}</div>` : '');
     box.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => { wsOff[which] += +b.dataset.nav; renderStrip(which); });
     box.querySelectorAll('[data-day]').forEach(b => b.onclick = () => goDay(b.dataset.day));
+    box.querySelector('[data-today]').onclick = () => goToday(which);
     if (!box.dataset.sw) { box.dataset.sw = '1'; let x0 = null; box.addEventListener('touchstart', ev => { x0 = ev.touches[0].clientX; }, { passive: true }); box.addEventListener('touchend', ev => { if (x0 == null) return; const dx = ev.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 50) { wsOff[which] += dx < 0 ? 1 : -1; renderStrip(which); } }, { passive: true }); }
+  }
+  // scroll a History day into view just below the sticky bars (header, period bar, tabs and, on wide screens, the column header)
+  function scrollToDay(el) {
+    let below = $('#tabs').getBoundingClientRect().bottom; const hd = $('#histList > .erowh');
+    if (hd && getComputedStyle(hd).position === 'sticky') below += hd.offsetHeight;
+    window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - below - 4), behavior: 'auto' });
+    el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1200);
   }
   function goDay(k) {
     if (!S.encs.some(e => R.encDay(e) === k)) return toast(`No entries on ${R.fmtDay(k)}`);
-    tab = 'history'; showTab(); const el = document.getElementById('d-' + k); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -112); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1200); }
+    tab = 'history'; showTab(); const el = document.getElementById('d-' + k); if (el) scrollToDay(el);
+  }
+  // "Today" in the week strip: back to the current week and today's date, from wherever you navigated
+  function goToday(which) {
+    wsOff[which] = 0; renderStrip(which);
+    if (which === 'today') { window.scrollTo({ top: 0, behavior: 'auto' }); return; }
+    const td = today(), el = document.getElementById('d-' + td);
+    if (el) scrollToDay(el); else { window.scrollTo({ top: 0, behavior: 'auto' }); toast(`No entries yet today (${R.fmtDay(td)})`); }
   }
   // ---- 2. track again + favourite code sets: copies setting, facility, fee codes and ICD-9 only (never label, initials, chart, notes or photos)
   const comboOf = e => ({ set: e.setting || e.set || 'H', fac: e.facility || e.fac ? (f => ({ n: f.n, z: f.z || '', set: f.set, custom: !!f.custom }))(e.facility || e.fac) : null, codes: (e.codes || []).map(c => ({ j: c.j, c: c.c, d: c.d, f: c.f, k: c.k, dx: c.dx, dxd: c.dxd })) });
