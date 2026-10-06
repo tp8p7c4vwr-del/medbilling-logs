@@ -20,6 +20,8 @@ Records are kept for at least 10 years from the last entry. Minors: the longer o
 
 ## Data
 - `public/data/codes-*.json` are built by `scripts/build-codes.py` from MedBilling Fee Desk's bundled data, using live provinces only. The build fails if any held jurisdiction (BC, ON, QC, PE, NB) would be bundled.
+- `public/data/icd9-AB.json` (v2) is built by `scripts/build-icd9.py` from Fee Desk's bundled ICD-9 list (Alberta Health diagnostic codes, ICD-9 supplement, 2018-01-18; Open Government Licence – Alberta). It feeds the Diagnostic code (ICD-9) suggestions; any code can also be typed.
+- Fee Desk links: "Look up in Fee Desk" deep-links (`#/code/<code>`, `#/medres/<ICD-9>`) only when the typed code is in the bundled lists; anything else opens Fee Desk's home page, so no free text or patient identifier goes into a URL. If the app locks while Fee Desk is open, an unsaved entry is kept as an encrypted draft and reopened after unlock.
 - `public/data/facilities.json` lists Alberta hospitals by AHS zone. Sources and dates are inside the file. The Edmonton Zone list is complete per the AHS site list; the other zones are partial (see the note in the file).
 
 ## Deploy
