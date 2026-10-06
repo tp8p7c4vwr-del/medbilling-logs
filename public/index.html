@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; form-action 'none'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>MedBilling Logs</title>
+<meta name="description" content="MedBilling Logs: private, offline encounter time log for physicians. Passcode-locked and encrypted on your device.">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MB Logs">
+<meta name="application-name" content="MedBilling Logs">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="locked">
+<section id="lock" class="lock" aria-label="Locked">
+  <div class="lockbox">
+    <img src="icons/icon-192.png" alt="" width="64" height="64">
+    <h1>MedBilling Logs</h1>
+    <form id="setupForm" hidden autocomplete="off">
+      <p class="small">Create a passcode to protect your logs. Everything you enter, including photos, is encrypted on this device with a key made from this passcode.</p>
+      <label class="fld">New passcode (at least 6 characters)<input id="sPass" type="password" minlength="6" maxlength="64" required autocomplete="new-password"></label>
+      <label class="fld">Repeat passcode<input id="sPass2" type="password" minlength="6" maxlength="64" required autocomplete="new-password"></label>
+      <p class="warnbox small"><b>Important:</b> the passcode is never stored. If you forget it, your data <b>cannot be recovered</b> by anyone. Keep encrypted backups.</p>
+      <label class="chk small"><input type="checkbox" id="sAck" required> I understand a forgotten passcode means the data can't be recovered.</label>
+      <p class="warnbox small" id="sStmt">Your records live only on this device. Keeping, backing up and retaining them (at least 10 years from the last entry, longer for minors and obstetric records, and any longer legal or College requirement) is your responsibility. The developer has no copy and cannot recover your data or your passcode.</p>
+      <p class="warnbox small" id="sDisc"><b>Disclaimer (draft, pending CMPA/legal review):</b> MedBilling Logs is a personal time and billing log, not the patient's medical record. Record every encounter, including call-backs and time-based visits, in the patient's chart. You remain responsible for safeguarding patient information under Alberta's Health Information Act. This app is general information, not legal, billing or medico-legal advice.</p>
+      <label class="chk small"><input type="checkbox" id="sResp" required> I accept the disclaimer and my responsibility for keeping, backing up and retaining my records.</label>
+      <p class="err small" id="sErr" role="alert"></p>
+      <button type="submit" class="primary wide" id="sBtn">Create passcode</button>
+    </form>
+    <form id="unlockForm" hidden autocomplete="off">
+      <label class="fld">Passcode<input id="uPass" type="password" maxlength="64" required autocomplete="current-password"></label>
+      <p class="err small" id="uErr" role="alert"></p>
+      <button type="submit" class="primary wide" id="uBtn">Unlock</button>
+      <button type="button" class="linkbtn" id="forgot">Forgot passcode?</button>
+    </form>
+    <p class="small muted" id="lockMsg"></p>
+    <p class="small muted">Encrypted on this device (AES-GCM, PBKDF2). No accounts, no analytics, nothing sent anywhere.</p>
+    <button type="button" class="linkbtn manlink">Help / User manual</button>
+  </div>
+</section>
+<header class="top">
+  <a class="brand" id="homeLink" href="./" aria-label="MedBilling Logs home">
+    <img src="icons/icon-192.png" alt="" width="32" height="32">
+    <span class="title">MedBilling Logs</span>
+  </a>
+  <span class="topr"><span class="clock" id="clock" aria-hidden="true"></span><button type="button" class="lockbtn" id="lockNow" aria-label="Lock now" title="Lock now">Lock</button></span>
+</header>
+<div class="pbar" id="pbar" role="status" aria-label="Billing time period">
+  <div class="pb1"><b id="pbName">Time period</b><span class="pbh" id="pbHrs"></span><span class="pbu" id="pbUnits"></span></div>
+  <div class="pb2"><div class="pbtrack" aria-hidden="true"><div class="pbfill" id="pbFill"></div></div><span class="pbr" id="pbLeft"></span></div>
+</div>
+<nav class="tabs" id="tabs" role="tablist">
+  <button type="button" role="tab" data-tab="today" class="on" aria-selected="true">Today</button>
+  <button type="button" role="tab" data-tab="history" aria-selected="false">History</button>
+  <button type="button" role="tab" data-tab="res" aria-selected="false">Resources</button>
+  <button type="button" role="tab" data-tab="data" aria-selected="false">Settings</button>
+</nav>
+
+<main id="main">
+  <section id="tab-today" class="panel">
+    <div class="card warnbox" id="bkRemind" hidden><p class="small" id="bkText"></p><div class="rowbtns"><button type="button" class="primary" id="bkNow">Back up now</button><button type="button" class="ghost" id="bkLater">Remind me later</button></div><p class="bkx small" data-k="auto"></p></div>
+    <div class="card abwarn" id="abWarn" hidden role="status"><p class="small" id="abWarnTxt"></p><div class="rowbtns"><button type="button" class="ghost" id="abWarnAllow" hidden>Allow access</button><button type="button" class="ghost" id="abWarnRetry">Try again</button><button type="button" class="linkbtn sm" id="abWarnSet">Backup settings</button></div></div>
+    <div class="card warnbox" id="abRemind" hidden><p class="small" id="abRemindTxt"></p><div class="rowbtns"><button type="button" class="primary" id="abRemindNow">Back up now</button><button type="button" class="ghost" id="abRemindLater">Later</button></div><p class="bkx small" data-k="auto"></p></div>
+    <div class="card onsite" id="onsite">
+      <div class="osrow"><button type="button" class="facbtn" id="osFac" aria-label="Choose facility"><span class="fl">Facility</span><b id="osFacName">Choose…</b></button><button type="button" class="arrbtn" id="osBtn">Arrive</button></div>
+      <p class="small muted" id="osInfo"></p>
+      <button type="button" class="linkbtn" id="osEdit" hidden>Edit arrival time / back-date</button>
+    </div>
+    <div class="wstrip" id="todayTotals" aria-live="polite"></div>
+    <div class="tagain" id="trackAgain" hidden></div>
+    <div id="todayList" class="list"></div>
+    <div class="rowbtns"><button type="button" class="ghost" id="cbBtn">+ Call-back</button><button type="button" class="ghost" id="manualBtn">+ Add past entry</button><button type="button" class="ghost" id="tlToday">Timeline</button><button type="button" class="ghost" id="rvToday">Review day</button><button type="button" class="ghost" id="repToday">Report / share today</button></div>
+    <p class="small muted units-note" id="unitsNote"></p>
+  </section>
+
+  <section id="tab-history" class="panel" hidden>
+    <div class="wstrip" id="wsHist"></div>
+    <div id="histList"></div>
+    <div class="card">
+      <h3>Report a day or date range</h3>
+      <div class="range"><label>From<input type="date" id="rFrom"></label><label>To<input type="date" id="rTo"></label></div>
+      <button type="button" class="primary" id="repRange">Create report (PDF, Word, CSV)</button>
+    </div>
+  </section>
+
+  <section id="tab-res" class="panel" hidden>
+    <p class="small muted">Official sites, opened in your browser. Opening a link sends no app data (no referrer, nothing attached). The app locks when you leave it.</p>
+    <div class="card res"><h3>AHS &amp; zones</h3><ul><li><a href="https://www.albertahealthservices.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health Services (AHS)</a></li><li><a href="https://www.albertahealthservices.ca/zones/zones.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS zones overview</a></li><li><a href="https://www.albertahealthservices.ca/zones/south-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS South Zone</a></li><li><a href="https://www.albertahealthservices.ca/zones/calgary-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS Calgary Zone</a></li><li><a href="https://www.albertahealthservices.ca/zones/central-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS Central Zone</a></li><li><a href="https://www.albertahealthservices.ca/zones/edmonton-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS Edmonton Zone</a></li><li><a href="https://www.albertahealthservices.ca/zones/north-zone.aspx" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS North Zone</a></li><li><a href="https://www.albertahealthservices.ca/assets/zone/ahs-map-ahs-zones.pdf" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AHS zone map (PDF)</a></li><li><a href="https://covenanthealth.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Covenant Health</a></li><li><a href="https://albertapcns.ca/pcn" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Primary Care Networks (Alberta)</a></li><li><a href="https://www.alberta.ca/about-primary-health-care" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">About primary health care (Alberta.ca)</a></li></ul></div>
+    <div class="card res"><h3>Billing</h3><ul><li><a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a><span class="resd">Companion app: look up billing (fee) codes and ICD-9 diagnostic codes, with fees, rules and notes. Works offline; nothing you type is sent.</span></li><li><a href="https://www.alberta.ca/fees-health-professionals" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Fees information for health professionals (SOMB)</a></li><li><a href="https://open.alberta.ca/publications/somb-2026-04-01" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Schedule of Medical Benefits, April 1, 2026 (Open Government)</a></li><li><a href="https://www.alberta.ca/bulletins-for-health-professionals" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Bulletins for health professionals</a></li><li><a href="https://www.alberta.ca/h-link-electronic-claims-system" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: H-Link electronic claims system</a></li><li><a href="https://open.alberta.ca/publications/physician-s-resource-guide" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Physician's resource guide (claims)</a></li><li><a href="https://www.alberta.ca/health-professional-business-forms" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Health professional business forms</a></li><li><a href="https://www.albertadoctors.org/practice/billing-support/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Billing Support</a></li><li><a href="https://www.albertadoctors.org/practice/physician-compensation/fee-for-service/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Fee-for-service resources</a></li><li><a href="https://apps.albertadoctors.org/fee-navigator/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Fee Navigator</a></li><li><a href="https://www.albertadoctors.org/news/publications/billing-tips/documentation-is-important/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA billing tip: Documentation is important</a></li><li><a href="https://apps.albertadoctors.org/fee-navigator/billing-tips/documentation-pca-billing-tip" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Fee Navigator tip: Documentation (PCPCM)</a></li><li><a href="https://apps.albertadoctors.org/fee-navigator/billing-tips/phone-call-documentation" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Fee Navigator tip: Phone call documentation</a></li><li><a href="https://www.albertadoctors.org/news/publications/billing-corner/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Billing Corner</a></li><li><a href="https://www.albertadoctors.org/media/zolbejry/pcpcm-operations-manual-v42-jan-9.pdf" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA PCPCM operations manual (PDF)</a></li><li><a href="https://www.alberta.ca/health-professionals-audit-and-compliance-assurance" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Health: Audit and compliance assurance</a></li><li><a href="https://www.cmpa-acpm.ca/en/membership/protection-for-members/principles-of-assistance/billing-investigations" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Billing investigations</a></li></ul></div>
+    <div class="card res"><h3>Regulatory &amp; privacy</h3><ul><li><a href="https://cpsa.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">College of Physicians &amp; Surgeons of Alberta (CPSA)</a></li><li><a href="https://oipc.ab.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Office of the Information and Privacy Commissioner of Alberta (OIPC)</a></li><li><a href="https://www.alberta.ca/health-information-act" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Health Information Act (Alberta.ca)</a></li><li><a href="https://kings-printer.alberta.ca/1266.cfm?page=H05.cfm" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Health Information Act (Alberta King's Printer)</a></li><li><a href="https://cpsa.ca/physicians/standards-of-practice/patient-record-retention/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CPSA: Patient Record Retention standard</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2003/a-matter-of-records-retention-and-transfer-of-clinical-records" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Records retention, access, security and transfer</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/handbooks/electronic-records-handbook/destroying-and-disposing-of-records" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Destroying and disposing of electronic records</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2011/using-clinical-photography-and-video-for-educational-purposes" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Clinical photography and video</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2023/recording-clinical-encounters-with-patients-what-physicians-need-to-know" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Recording clinical encounters</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2013/protecting-patient-privacy-when-delivering-care-virtually" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Protecting patient privacy in virtual care (email/text)</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2019/texting-safely-about-patient-care" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Texting safely about patient care</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/browse-articles/2018/the-new-reality-of-reporting-a-privacy-breach" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Reporting a privacy breach</a></li><li><a href="https://www.cmpa-acpm.ca/en/education-events/good-practices/professionalism-ethics-and-wellness/privacy-and-confidentiality" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Privacy and confidentiality</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA Privacy resources</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/health-information-act/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Health Information Act overview</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/acceptable-use-of-email-policy/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Acceptable Use of Email Policy</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/breach-management-policy/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Breach Management Policy</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/five-steps-to-minimize-privacy-breaches/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Five Steps to Minimize Privacy Breaches</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/notification-to-patients-affected-by-privacy-breach/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Notification to patients affected by a breach</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/assessing-risk-and-implementing-safeguards/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Assessing Risk and Implementing Safeguards</a></li><li><a href="https://www.albertadoctors.org/resource-centre/privacy-resources/faq-privacy-agreements/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: FAQ Privacy agreements</a></li><li><a href="https://www.albertadoctors.org/media/x5cf23al/collection-use-and-disclosure-policy.pdf" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Collection, Use, Disclosure and Disposal policy template (PDF)</a></li></ul></div>
+    <div class="card res"><h3>Professional</h3><ul><li><a href="https://www.albertadoctors.org/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Alberta Medical Association (albertadoctors.org)</a></li><li><a href="https://www.cmpa-acpm.ca/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Canadian Medical Protective Association (CMPA)</a></li><li><a href="https://www.cmpa-acpm.ca/en/education-events/good-practices/physician-patient/documentation-and-record-keeping" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Documentation and record keeping</a></li><li><a href="https://www.cmpa-acpm.ca/en/advice-publications/handbooks/electronic-records-handbook" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Electronic records handbook</a></li><li><a href="https://www.cmpa-acpm.ca/en/membership/protection-for-members/principles-of-assistance/practice-management-and-business-matters-overview-of-cmpa-assistance" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">CMPA: Practice management and business matters (assistance)</a></li><li><a href="https://www.albertadoctors.org/practice/learning-development/online-training/privacy-training/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">AMA: Free privacy training</a></li></ul></div>
+    <p class="small muted">Each link was checked and loaded on 2026-10-04 (MT). Websites change; if a link moves, search the organization's main site.</p>
+  </section>
+
+  <section id="tab-data" class="panel" hidden>
+    <div class="card helpcard"><h3>Help</h3><button type="button" class="linkbtn manlink">Help / User manual</button><span class="small muted"> How to use the app, step by step. Works offline.</span></div>
+    <div class="card">
+      <h3>Defaults</h3>
+      <div class="two">
+        <label class="fld">Default setting
+          <select id="defSetting"><option value="H">Hospital</option><option value="C">Clinic</option></select></label>
+        <label class="fld">Fee schedule
+          <select id="defProv"></select></label>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Timers</h3>
+      <div class="two">
+        <label class="fld">Amber after
+          <select id="warnA"><option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option><option value="90">90 min</option><option value="120">2 h</option></select></label>
+        <label class="fld">Red after
+          <select id="warnR"><option value="120">2 h</option><option value="180">3 h</option><option value="240">4 h</option><option value="360">6 h</option></select></label>
+      </div>
+      <p class="small muted">A running encounter or call-back turns amber, then red. If a timer is red when you unlock, the app asks whether to stop it now or at an earlier time (saved as entered later). In-app only: no notifications.</p>
+    </div>
+    <div class="card" id="perCard">
+      <h3>Time periods and holidays <span class="draft">Per user · verify against the current SOMB</span></h3>
+      <div id="perTable" class="pertable"></div>
+      <label class="chk small"><input type="checkbox" id="holToday"> <span id="holTodayL">Today is a statutory holiday (bill like a weekend)</span></label>
+      <p class="small muted" id="holInfo"></p>
+      <details class="holdet"><summary class="small">Alberta general holidays, calculated each year (<span id="holYear"></span>)</summary><div id="holList" class="hollist"></div></details>
+    </div>
+    <div class="card">
+      <h3>Lock</h3>
+      <label class="fld">Auto-lock after inactivity
+        <select id="autolock"><option value="1">1 minute</option><option value="2">2 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option></select></label>
+      <p class="small muted">The app also locks whenever it goes to the background. Timers keep counting while locked.</p>
+      <div class="rowbtns"><button type="button" class="ghost" id="lockNow2">Lock now</button><button type="button" class="ghost" id="chPass">Change passcode</button></div>
+      <p class="warnbox small">A forgotten passcode means the data can't be recovered. Keep an encrypted backup.</p>
+    </div>
+    <div class="card" id="bkCard">
+      <h3>Backups</h3>
+      <label class="chk abon"><input type="checkbox" id="abOn"> <span><b>Automatic backups</b> <span class="small muted" id="abOnHint"></span></span></label>
+      <p class="small abmode" id="abMode"></p>
+      <div class="two">
+        <label class="fld">Frequency<select id="abEvery"><option value="60">Every hour</option><option value="120">Every 2 hours</option><option value="240">Every 4 hours</option><option value="1440">Daily</option></select></label>
+        <label class="fld">Keep last<select id="abKeep"><option value="6">6 backups</option><option value="12">12 backups</option><option value="24">24 backups</option><option value="48">48 backups</option><option value="72">72 backups</option><option value="168">168 backups</option></select></label>
+      </div>
+      <div class="abloc" id="abLocRow"><div class="ablocn"><span class="fl">Backup location</span><b id="abLocName">Not chosen</b></div><button type="button" class="ghost" id="abPick">Choose backup location</button></div>
+      <p class="small ablast"><b>Last backup:</b> <span id="abLast">never</span></p>
+      <p class="small abstat" id="abStat" role="status" aria-live="polite"></p>
+      <fieldset class="abfmt">
+        <legend class="fldl">Files in each backup</legend>
+        <label class="chk small"><input type="checkbox" checked disabled> <span><b>Encrypted backup (.mblbackup)</b>, always included. It's the only file the app can restore.</span></label>
+        <span class="small muted">Readable copies (off by default):</span>
+        <div class="fmtgrid"><label class="chk small"><input type="checkbox" class="abf" value="pdf"> PDF</label><label class="chk small"><input type="checkbox" class="abf" value="md"> Markdown (.md)</label><label class="chk small"><input type="checkbox" class="abf" value="docx"> Word (.docx)</label><label class="chk small"><input type="checkbox" class="abf" value="xlsx"> Excel (.xlsx)</label></div>
+        <div id="abReadBox">
+          <p class="warnbox small" id="abFmtWarn"></p>
+          <label class="chk small"><input type="checkbox" id="abZip" checked> <span><b>Password-protect readable copies</b> (AES-256 encrypted .zip). Recommended.</span></label>
+          <div id="abPwBox" class="abpw">
+            <label class="chk small"><input type="radio" name="abPwMode" value="passcode" checked> Use my app passcode</label>
+            <label class="chk small"><input type="radio" name="abPwMode" value="custom"> Use a separate backup password</label>
+            <button type="button" class="ghost sm" id="abPwSet">Set backup password…</button>
+            <p class="small" id="abPwInfo"></p>
+          </div>
+          <label class="chk small"><input type="checkbox" id="abNotes"> Include notes in readable copies</label>
+        </div>
+      </fieldset>
+      <div class="rowbtns"><button type="button" class="primary" id="abNow">Back up now</button></div>
+      <p class="bkx small" data-k="auto"></p>
+      <details class="abhow"><summary class="small">How backups work on this device</summary><div class="small" id="abHow"></div></details>
+    </div>
+    <div class="card">
+      <h3>Encrypted backup (manual export and import)</h3>
+      <div class="saverow"><button type="button" class="ghost" id="expAll" title="Save an encrypted backup file" aria-label="Save an encrypted backup file">Export</button><p class="small">Export saves all encounters and photos to one file, encrypted with your passcode, to keep a copy or move to another device.</p></div>
+      <p class="bkx small" data-k="export"></p>
+      <div class="saverow"><button type="button" class="ghost" id="impAll" title="Load an encrypted backup file" aria-label="Load an encrypted backup file">Import</button><p class="small">Import loads a backup (you need the passcode it was made with). It is added to what is already here.</p></div>
+      <input type="file" id="impFile" accept=".mblbackup,.json,application/json" hidden aria-label="Import backup file">
+      <p class="small muted" id="storeInfo"></p>
+    </div>
+    <div class="card">
+      <h3>Disclaimer <span class="draft">Draft, pending CMPA/legal review</span></h3>
+      <p class="small">MedBilling Logs is a personal time and billing log. It is not the patient&#39;s medical record and does not replace charting. Record every encounter, including call-backs and time-based visits, in the patient&#39;s chart (AMA). Keep records at least as long as your College and the law require: CPSA requires 10 years from the last entry (longer for minors), and CMPA recommends at least 10 years. Patient information in this app is encrypted on this device, but you remain responsible for safeguarding it under Alberta&#39;s Health Information Act. Send reports with identifiers only through secure, approved channels, never by unencrypted email or text. Move clinical photos into the official record, then delete them here. If a device is lost or data is exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away. Fee codes and rules: confirm in the official Alberta Schedule of Medical Benefits. This app is general information, not legal, billing or medico-legal advice. Contact the CMPA (1-800-267-6522), AMA billing support or the CPSA for advice about your situation.</p>
+      <p class="small muted">Sources: CMPA and AMA guidance checked 2026-10-04; links are in Resources.</p>
+    </div>
+    <div class="card">
+      <h3>Records, retention and backups</h3>
+      <p class="small">Your records live only on this device. Keeping, backing up and retaining them (at least 10 years from the last entry, longer for minors and obstetric records, and any longer legal or College requirement) is your responsibility. The developer has no copy and cannot recover your data or your passcode.</p>
+      <p class="small">Retention in this app: entries and their audit records are kept for at least <b>10 years from the last entry</b> (CPSA standard; CMPA recommends at least 10 years). For an entry flagged <b>minor</b>, the longer of 10 years or 2 years after the patient turns 18 (CPSA). For an entry flagged <b>obstetric</b>, 10 years after the infant reaches the age of majority (CMPA), counted conservatively as 29 years from the last entry. After that, records become eligible for removal, but nothing is ever deleted automatically: you review and confirm. A longer legal or College requirement always takes precedence.</p>
+      <p class="small"><b>Last backup:</b> <span id="lastBk">never</span> <span class="muted" id="respAt"></span></p>
+      <label class="fld">Backup reminder
+        <select id="bkEvery"><option value="7">Weekly</option><option value="30">Monthly</option><option value="90">Every 3 months</option><option value="0">Off</option></select></label>
+      <div class="rowbtns"><button type="button" class="ghost" id="retReview">Records past retention</button></div>
+      <p class="small muted" id="retInfo"></p>
+    </div>
+    <div class="card">
+      <h3>Audit log</h3>
+      <p class="small">Every create, edit and delete of an encounter, arrival/departure or call-back is recorded, append-only and encrypted. Each record carries the hash of the previous one, so any change, removal or reordering is detected.</p>
+      <p class="small" id="auditStatus" aria-live="polite"></p>
+      <div class="rowbtns"><button type="button" class="ghost" id="auditCheck">Check log</button><button type="button" class="ghost" id="auditDeleted">Deleted entries</button><button type="button" class="ghost" id="auditExport">Export log</button></div>
+      <div id="deletedList"></div>
+    </div>
+    <div class="card danger">
+      <h3>Delete all data</h3>
+      <p class="small">Removes every encounter, arrival/departure, call-back, photo, the audit log, settings and the passcode from this device. This cannot be undone; export a backup first if you want a copy.</p>
+      <button type="button" class="dangerbtn" id="wipe">Delete all data</button>
+    </div>
+    <div class="card">
+      <h3>Privacy</h3>
+      <p class="small">Everything is stored only on this device, encrypted with AES-GCM using a key derived from your passcode (PBKDF2-SHA-256, 600,000 iterations). Photos are kept inside the app's encrypted store, never in your camera roll. There are no accounts, no analytics and no third-party scripts, and the app sends nothing anywhere. Files leave the device only when you share or download them.</p>
+    </div>
+    <div class="card">
+      <h3>Fee code sources</h3>
+      <div id="credits" class="small muted"></div>
+      <p class="small muted">Code data from <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" rel="noopener noreferrer">MedBilling Fee Desk</a>, bundled in the app. Always confirm codes and fees in the official schedule.</p>
+      <p class="small muted" id="dxCredit">Diagnostic code suggestions: Alberta Health, Alberta Health diagnostic codes: claims assessment (ICD-9 supplement, as of 2018-01-18). Contains information licensed under the Open Government Licence – Alberta. Data via MedBilling Fee Desk. Any code can also be typed as free text.</p>
+    </div>
+  </section>
+</main>
+
+<div class="startbar" id="startbar">
+  <form id="quick" autocomplete="off">
+    <input id="qName" maxlength="80" placeholder="Patient name" aria-label="Patient name" autocomplete="off">
+    <input id="qMrn" maxlength="24" placeholder="MRN / PHN" aria-label="MRN or healthcare number" autocomplete="off" inputmode="text">
+    <div class="seg" role="radiogroup" aria-label="Setting">
+      <button type="button" data-set="H" role="radio">Hospital</button><button type="button" data-set="C" role="radio">Clinic</button>
+    </div>
+    <button type="submit" class="startbtn" id="qStart">Start</button>
+  </form>
+  <p class="hint">Spreadsheet: edit name, MRN, times, notes and codes inline. Tap ⧉ for segments, photos and multi-code. All encrypted on this device.</p>
+</div>
+
+<footer class="foot">
+  <p class="small muted">Time log only. Confirm time-based billing rules in your own schedule (e.g. Alberta SOMB) before submitting claims.</p>
+  <p class="small muted">Passcode-locked and encrypted on this device. No accounts, analytics or trackers. Nothing is sent anywhere.</p>
+  <p class="small muted fdhelp">For help with medical billing codes and diagnostic codes (ICD-9 / ICD-10), use <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></p>
+  <p class="small muted"><button type="button" class="linkbtn manlink">Help / User manual</button></p>
+  <p class="small muted">Part of JFdeLara's Studio · <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" rel="noopener noreferrer">MedBilling Fee Desk</a></p>
+  <div class="copyright">© 2026 MedBilling Logs. All rights reserved. This app is protected by copyright. Reproduction or duplication without permission is an infringement.</div>
+</footer>
+
+<dialog id="editDlg">
+  <form method="dialog" class="dlg" id="editForm" autocomplete="off">
+    <h3 id="editTitle">Encounter</h3>
+    <div id="eView" class="eview">
+      <div class="eacts" role="group" aria-label="Entry actions">
+        <button type="button" class="eact" id="eaTime" aria-expanded="false" aria-controls="eAddTime"><span class="ei" aria-hidden="true">+</span>Add time</button>
+        <button type="button" class="eact notshift" id="eaSame" title="Start a new timer for this patient: room/label, initials and chart carried over, codes left blank"><span class="ei" aria-hidden="true">↔</span>Same patient, new encounter</button>
+        <button type="button" class="eact" id="eaEdit"><span class="ei" aria-hidden="true">✎</span>Edit</button>
+      </div>
+      <div class="addtime" id="eAddTime" hidden>
+        <span class="fldl" id="eAddLbl">Add time to this entry</span>
+        <div class="addbtns"><button type="button" data-add="5">+5 min</button><button type="button" data-add="15">+15 min</button><button type="button" data-add="30">+30 min</button><button type="button" id="eaSeg">New segment (start / end)…</button></div>
+        <p class="small muted" id="eAddInfo"></p>
+      </div>
+      <dl class="esum" id="eSummary"></dl>
+      <div class="rowbtns notshift" id="eRepRow"><button type="button" class="ghost" id="eRepeat" title="Start a new timer with the same setting, facility, fee codes and diagnostic codes (no patient details)">Track again <span class="small muted">(codes only)</span></button><button type="button" class="ghost" id="eFavSet">☆ Save code set</button></div>
+    </div>
+    <div class="notesbox" id="eNotesBox">
+      <div class="noteshead"><span class="fldl">Notes <span class="muted" id="eNoteCount"></span></span><button type="button" class="linkbtn sm" id="eNoteAdd">+ Add note</button></div>
+      <div class="notenew" id="eNoteNew" hidden>
+        <textarea id="eNoteText" maxlength="1000" rows="3" placeholder="Note (encrypted, kept on this device)" aria-label="New note"></textarea>
+        <div class="notebtns"><span class="small muted" id="eNoteLen">0 / 1000</span><button type="button" class="ghost sm" id="eNoteCancel">Cancel</button><button type="button" class="primary sm" id="eNoteSave">Save note</button></div>
+      </div>
+      <div class="notes" id="eNotes"></div>
+    </div>
+    <div id="eEditBox" class="eeditbox">
+    <div class="seg kindseg" id="eKind" role="radiogroup" aria-label="Entry type"><button type="button" data-k="enc" role="radio">Encounter</button><button type="button" data-k="cb" role="radio">Call-back</button><button type="button" data-k="shift" role="radio">On site</button></div>
+    <p class="latebadge small" id="eLate" hidden></p>
+    <button type="button" class="facbtn wide2" id="eFac"><span class="fl">Facility</span><b id="eFacName">None</b></button>
+    <div class="cbonly">
+      <div class="two">
+        <label class="fld">Call-back type<select id="eCbType"><option value="return">Return to hospital</option><option value="phone">Phone call-back</option></select></label>
+        <label class="fld">Time called<input type="datetime-local" id="eCalled"></label>
+      </div>
+    </div>
+    <div class="enconly">
+    <label class="fld">Patient name<input id="eName" maxlength="80" placeholder="Full name (encrypted)" autocomplete="off"></label>
+    <div class="two">
+      <label class="fld">Room / bed (optional)<input id="eLabel" maxlength="24" placeholder="e.g. Rm 412 B"></label>
+      <label class="fld">Initials (optional)<input id="eInit" maxlength="5" autocapitalize="characters" placeholder="e.g. JD"></label>
+    </div>
+    <div class="two">
+      <label class="fld">MRN / PHN (optional)<input id="eChart" maxlength="24" inputmode="text" placeholder="e.g. 1234567" autocomplete="off"></label>
+      <label class="fld">Billing note (optional)<input id="eBillNote" maxlength="200" placeholder="Short note for billing" autocomplete="off"></label>
+    </div>
+    <div class="two">
+      <label class="fld">Setting<select id="eSetting"><option value="H">Hospital</option><option value="C">Clinic</option></select></label>
+      <label class="fld">Type (optional)<input id="eType" list="typeList" maxlength="24" placeholder="consult, visit…"></label>
+    </div>
+    </div>
+    <label class="fld shiftset">Setting<select id="eSetting2"><option value="H">Hospital</option><option value="C">Clinic</option></select></label>
+    <datalist id="typeList"><option value="Consult"><option value="Visit"><option value="Procedure"><option value="Counselling"><option value="Call"><option value="Assist"><option value="Delivery"></datalist>
+    <div class="codebox notshift">
+      <div class="codehead"><span class="fldl">Fee codes and diagnostic codes (optional)</span><select id="eProv" aria-label="Fee schedule"></select></div>
+      <div id="eCodes" class="chips"></div>
+      <div class="cdrow">
+        <div class="cdcol"><label class="fldl" for="eCodeQ">Billing code</label><input id="eCodeQ" type="search" maxlength="60" placeholder="Code or words" autocomplete="off" enterkeyhint="search"><a class="fdl" id="eCodeFD" href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Look up in Fee Desk</a></div>
+        <div class="cdcol"><label class="fldl" for="eDxQ">Diagnostic code (ICD-9)</label><input id="eDxQ" class="dxin" type="search" maxlength="40" placeholder="Code or words" autocomplete="off" autocapitalize="characters" enterkeyhint="search"><a class="fdl" id="eDxFD" href="https://tp8p7c4vwr-del.github.io/delara-medbilling/#/icd9" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">Look up in Fee Desk</a></div>
+      </div>
+      <div id="eCodeRes" class="codres"></div>
+      <div id="eDxRes" class="codres dxres"></div>
+      <p class="small muted fdhelp">For help with medical billing codes and diagnostic codes (ICD-9 / ICD-10), use <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></p>
+      <p class="small muted credit" id="eCredit"></p>
+    </div>
+    <div id="eNotesSlot"></div>
+    <div class="notshift retflags"><span class="fldl">Record retention (optional)</span>
+      <label class="chk small"><input type="checkbox" id="eMinor"> Minor (patient under 18)</label>
+      <label class="fld minorage" hidden>Age at encounter (years, optional)<input id="eAge" type="number" min="0" max="17" inputmode="numeric" placeholder="unknown = keep longest"></label>
+      <label class="chk small"><input type="checkbox" id="eObs"> Obstetric record</label>
+      <p class="small muted" id="eRet"></p>
+    </div>
+    <div class="cbonly linkbox"><span class="fldl">Linked encounters (same day)</span><div id="eLinks" class="links"></div></div>
+    <div class="photobox notshift">
+      <span class="fldl">Photos (kept only in this app, encrypted)</span>
+      <div id="ePhotos" class="thumbs"></div>
+      <div class="rowbtns"><button type="button" class="ghost" id="eCam">Take photo</button><button type="button" class="ghost" id="eAttach">Attach photo</button></div>
+      <input type="file" id="eCamIn" accept="image/*" capture="environment" hidden aria-label="Take photo">
+      <input type="file" id="eFileIn" accept="image/*" multiple hidden aria-label="Attach photo">
+    </div>
+    <div class="quick"><span class="fldl" id="eQLbl">Started</span><button type="button" data-ago="0">now</button><button type="button" data-ago="5">5 min ago</button><button type="button" data-ago="15">15 min ago</button><button type="button" data-ago="30">30 min ago</button><button type="button" data-ago="60">1 h ago</button><button type="button" data-last="1" title="Start when your previous entry ended">Last stop</button><button type="button" data-end="1" class="endnow">End now</button></div>
+    <div class="quick nudge"><span class="fldl">Start</span><button type="button" data-nudge="s" data-d="-5" aria-label="Start 5 minutes earlier">−5</button><button type="button" data-nudge="s" data-d="5" aria-label="Start 5 minutes later">+5</button><span class="fldl">End</span><button type="button" data-nudge="e" data-d="-5" aria-label="End 5 minutes earlier">−5</button><button type="button" data-nudge="e" data-d="5" aria-label="End 5 minutes later">+5</button><span class="fldl">Length</span><button type="button" data-dur="15">+15</button><button type="button" data-dur="30">+30</button></div>
+    <div class="segs" id="eSegs"></div>
+    <button type="button" class="linkbtn" id="eAddSeg">+ Add time segment</button>
+    <p class="small muted" id="eSum"></p>
+    <p class="small perline" id="ePer"></p>
+    <p class="err small" id="eErr" role="alert"></p>
+    <p class="warnbox small" id="eWarn" hidden></p>
+    </div>
+    <button type="button" class="linkbtn" id="eHist">History of this entry</button>
+    <div class="dlgbtns">
+      <button type="button" class="dangerbtn ghostdanger" id="eDelete">Delete</button>
+      <span></span>
+      <button type="button" class="ghost" id="eCancel">Cancel</button>
+      <button type="submit" class="primary" id="eSave">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="rowMenu" class="sheet" aria-labelledby="rmTitle">
+  <div class="dlg">
+    <h3 id="rmTitle">Entry</h3>
+    <p class="small muted" id="rmSub"></p>
+    <div class="rmlist">
+      <button type="button" data-rmi="time"><span class="ei" aria-hidden="true">+</span>Add time</button>
+      <button type="button" data-rmi="note"><span class="ei" aria-hidden="true">✎</span>Add note</button>
+      <button type="button" data-rmi="same" id="rmSame"><span class="ei" aria-hidden="true">↔</span>Same patient, new encounter</button>
+      <button type="button" data-rmi="edit"><span class="ei" aria-hidden="true">⚙</span>Edit</button>
+      <button type="button" data-rmi="open"><span class="ei" aria-hidden="true">›</span>Open details</button>
+    </div>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="rmClose">Cancel</button></div>
+  </div>
+</dialog>
+
+<dialog id="bpDlg" aria-labelledby="bpTitle">
+  <form method="dialog" class="dlg" id="bpForm" autocomplete="off">
+    <h3 id="bpTitle">Backup password</h3>
+    <p class="small">Protects the readable backup copies (PDF, Markdown, Word, Excel) inside an AES-256 encrypted .zip. Use at least 12 characters; a few unrelated words work well.</p>
+    <label class="fld">New backup password<input type="password" id="bp1" autocomplete="new-password" maxlength="128"></label>
+    <div class="pwmeter" aria-hidden="true"><i id="bpBar"></i></div>
+    <p class="small" id="bpStr" aria-live="polite"></p>
+    <label class="fld">Repeat it<input type="password" id="bp2" autocomplete="new-password" maxlength="128"></label>
+    <p class="warnbox small"><b>Write it down somewhere safe.</b> If this password is lost, the protected copies can't be opened or recovered by anyone, including the developer. It is kept only inside the app's encrypted storage, never in plain text.</p>
+    <p class="err small" id="bpErr" role="alert"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="bpCancel">Cancel</button><button type="submit" class="primary" id="bpOk">Save password</button></div>
+  </form>
+</dialog>
+<dialog id="repDlg">
+  <form method="dialog" class="dlg" id="repForm" autocomplete="off">
+    <h3 id="pTitle">Report</h3>
+    <div class="range"><label>From<input type="date" id="pFrom" required></label><label>To<input type="date" id="pTo" required></label></div>
+    <div class="seg fmt" role="radiogroup" aria-label="Format">
+      <button type="button" data-fmt="pdf" role="radio" class="on">PDF</button><button type="button" data-fmt="docx" role="radio">Word</button><button type="button" data-fmt="csv" role="radio">CSV</button>
+    </div>
+    <label class="chk small" id="pPhotosL"><input type="checkbox" id="pPhotos"> Include photos</label>
+    <label class="chk small" id="pNotesL"><input type="checkbox" id="pNotes"> Include notes <span class="muted">(off by default for privacy)</span></label>
+    <p class="small muted" id="pInfo"></p>
+    <button type="button" class="primary wide" id="pMake">Create file</button>
+    <div id="pReady" hidden>
+      <p class="small"><b id="pName"></b> <span class="muted" id="pSize"></span></p>
+      <div class="warnbox small" id="pWarn"><b>Confidential.</b> This file can contain patient identifiers (initials, chart/MRN), photos and notes. Share it only with authorized recipients through secure, approved channels, following your health authority's privacy rules (e.g. Alberta HIA). Don't keep copies on shared devices.</div>
+      <label class="chk small"><input type="checkbox" id="pAck"> I understand and will share it securely.</label>
+      <div class="rowbtns"><button type="button" class="primary" id="pShare" disabled>Share…</button><button type="button" class="ghost" id="pDown" disabled>Download</button></div>
+    </div>
+    <p class="err small" id="pErr" role="alert"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="pClose">Close</button></div>
+  </form>
+</dialog>
+<dialog id="askDlg">
+  <form method="dialog" class="dlg" id="askForm" autocomplete="off">
+    <h3 id="askTitle"></h3>
+    <p class="small" id="askText"></p>
+    <div id="askFields"></div>
+    <p class="err small" id="askErr" role="alert"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="askCancel">Cancel</button><button type="submit" class="primary" id="askOk">OK</button></div>
+  </form>
+</dialog>
+<dialog id="facDlg">
+  <div class="dlg">
+    <h3>Facility</h3>
+    <input id="facQ" type="search" placeholder="Filter hospitals (name or town)" aria-label="Filter facilities" autocomplete="off">
+    <div id="facList" class="faclist"></div>
+    <div class="otherfac"><label class="fld">Other / clinic (custom name)<input id="facOther" maxlength="60" placeholder="e.g. Downtown OB/GYN Clinic"></label>
+      <div class="two"><label class="fld">Setting<select id="facOtherSet"><option value="C">Clinic</option><option value="H">Hospital</option></select></label><button type="button" class="primary" id="facOtherOk">Use this name</button></div></div>
+    <p class="small muted credit" id="facSrc"></p>
+    <div class="dlgbtns"><button type="button" class="ghost" id="facNone">No facility</button><span></span><button type="button" class="ghost" id="facClose">Close</button></div>
+  </div>
+</dialog>
+<dialog id="histDlg">
+  <div class="dlg">
+    <h3 id="histTitle">History</h3>
+    <div id="histBody" class="histbody"></div>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="histClose">Close</button></div>
+  </div>
+</dialog>
+<dialog id="photoDlg">
+  <div class="dlg">
+    <img id="pvImg" alt="Encounter photo" class="pvimg">
+    <div class="dlgbtns"><button type="button" class="dangerbtn ghostdanger" id="pvDel">Delete photo</button><span></span><button type="button" class="ghost" id="pvClose">Close</button></div>
+  </div>
+</dialog>
+<dialog id="longDlg">
+  <form method="dialog" class="dlg" id="longForm" autocomplete="off">
+    <h3 id="lgTitle">Timer still running</h3>
+    <p class="small" id="lgText"></p>
+    <label class="fld">Stop at<input type="datetime-local" id="lgAt"></label>
+    <p class="err small" id="lgErr" role="alert"></p>
+    <div class="dlgbtns"><button type="button" class="ghost" id="lgKeep">Keep running</button><span></span><button type="button" class="stopbtn" id="lgNow">Stop now</button><button type="button" class="primary" id="lgAtBtn">Stop at time</button></div>
+  </form>
+</dialog>
+<dialog id="revDlg">
+  <div class="dlg">
+    <h3 id="rvTitle">Review</h3>
+    <p class="small muted" id="rvSub"></p>
+    <div id="rvList" class="rvlist"></div>
+    <p class="small" id="rvState"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="rvClose">Close</button><button type="button" class="primary" id="rvMark">Mark reviewed</button></div>
+  </div>
+</dialog>
+<dialog id="tlDlg" class="tldlg">
+  <div class="dlg">
+    <div class="tlhead"><button type="button" class="ghost sm" id="tlPrev" aria-label="Previous day">‹</button><h3 id="tlTitle">Timeline</h3><button type="button" class="ghost sm" id="tlNext" aria-label="Next day">›</button><span></span><button type="button" class="ghost" id="tlClose">Close</button></div>
+    <p class="small muted tlhelp">Blocks between arrival and departure. Tap a block to open it; tap an empty spot to add a past entry there.</p>
+    <div id="tlBody" class="tlbody"></div>
+  </div>
+</dialog>
+<dialog id="procDlg" class="procdlg" aria-label="Full-screen procedure timer">
+  <div class="proc">
+    <div class="ptime" id="pcTime">0:00:00</div>
+    <p class="pcs" id="pcState"></p>
+    <div class="pcbtns"><button type="button" class="pausebtn" id="pcPause">Pause</button><button type="button" class="stopbtn" id="pcStop">Stop</button></div>
+    <button type="button" class="ghost" id="pcExit">Exit full screen</button>
+    <p class="pcnote" id="pcNote">Time only. The screen stays on; auto-lock still applies.</p>
+  </div>
+</dialog>
+<div id="snack" class="snack" role="status" aria-live="polite" hidden><span id="snackTxt"></span><button type="button" id="snackUndo">Undo</button></div>
+<!-- manual:start -->
+<dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
+  <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
+  <div class="man" id="manBody">
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 8 (October 2026).</p>
+    <nav class="mantoc" aria-label="Contents">
+      <a href="#m-start" data-go="m-start">1. Getting started</a>
+      <a href="#m-per" data-go="m-per">2. The time-period bar</a>
+      <a href="#m-site" data-go="m-site">3. Arrival, departure and call-backs</a>
+      <a href="#m-enc" data-go="m-enc">4. Encounters: start, pause, stop</a>
+      <a href="#m-det" data-go="m-det">5. Entry details: add time, same patient, notes</a>
+      <a href="#m-quick" data-go="m-quick">6. Track again and code sets</a>
+      <a href="#m-late" data-go="m-late">7. Past entries and "Entered later"</a>
+      <a href="#m-codes" data-go="m-codes">8. Billing and diagnostic codes</a>
+      <a href="#m-photo" data-go="m-photo">9. Photos and the lock</a>
+      <a href="#m-hist" data-go="m-hist">10. History, week strip and timeline</a>
+      <a href="#m-rev" data-go="m-rev">11. Review a day or week</a>
+      <a href="#m-exp" data-go="m-exp">12. Reports and sharing safely</a>
+      <a href="#m-audit" data-go="m-audit">13. Audit log</a>
+      <a href="#m-ret" data-go="m-ret">14. Retention and backups</a>
+      <a href="#m-bk" data-go="m-bk">15. Automatic backups</a>
+      <a href="#m-priv" data-go="m-priv">16. Privacy tips</a>
+      <a href="#m-faq" data-go="m-faq">17. FAQ and troubleshooting</a>
+    </nav>
+
+    <section id="m-start">
+      <h3>1. Getting started</h3>
+      <h4>Add it to your Home Screen first</h4>
+      <p>Install the app before you create a passcode, then always open it from the Home Screen icon. It then opens full screen and works offline.</p>
+      <ul>
+        <li><b>iPhone / iPad (Safari):</b> open the app's web address, tap <b>Share</b> (square with an arrow), then <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+        <li><b>Android (Chrome):</b> open the web address, tap the <b>⋮</b> menu, then <b>Install app</b> or <b>Add to Home screen</b>.</li>
+      </ul>
+      <p class="mantip">On iPhone, the Home Screen app keeps its own storage, separate from Safari. Entries made in a Safari tab do not appear in the Home Screen app, so pick one and stick with it (the Home Screen app is best).</p>
+      <h4>First launch and your passcode</h4>
+      <ul>
+        <li>Create a passcode of at least 6 characters and type it twice.</li>
+        <li>Tick the two boxes: you understand a forgotten passcode can't be recovered, and you accept responsibility for keeping and backing up your records.</li>
+        <li>Your passcode is never stored anywhere. It makes the key that encrypts your data.</li>
+        <li>To change it later: <b>Settings → Lock → Change passcode</b>. Everything is re-encrypted with the new one.</li>
+      </ul>
+      <h4>If you forget the passcode</h4>
+      <p>No one can recover it or open your data, including the developer. The only way back in is <b>Forgot passcode?</b> on the lock screen: type DELETE to erase everything on this device and start again. If you have an encrypted backup and remember <i>that backup's</i> passcode, you can import it afterwards. This is why backups matter.</p>
+      <p>After 5 wrong passcodes in a row, the app makes you wait (30 seconds at first, longer with each further miss, up to 15 minutes).</p>
+      <h4>The screens</h4>
+      <ul>
+        <li><b>Today:</b> facility arrival/departure, the week strip, Track again chips, and the encounter <b>spreadsheet</b> (plus running timer cards).</li>
+        <li><b>History:</b> the same spreadsheet grouped by day, with week totals, timeline, review and reports.</li>
+        <li><b>Resources:</b> official billing, privacy and regulatory websites, including MedBilling Fee Desk.</li>
+        <li><b>Settings:</b> defaults, timer warnings, time periods and holidays, lock, backups, retention, audit log, this manual and Delete all data.</li>
+      </ul>
+    </section>
+
+    <section id="m-per">
+      <h3>2. The time-period bar</h3>
+      <p class="mantip"><b>Per user, verify against the current SOMB.</b> These periods were set up from your own list. MedBilling Logs doesn't attach fee codes to them. Check the current Alberta Schedule of Medical Benefits before you bill.</p>
+      <p>The bar under the header shows the billing time period you're in now (America/Edmonton time):</p>
+      <ul>
+        <li>The period name and hours, and a progress bar through the period.</li>
+        <li>The time left until the next period starts, and the next period's name.</li>
+        <li>The period's total units, the units elapsed so far, and the units you've logged in encounters during this period. Units are 15-minute blocks.</li>
+      </ul>
+      <table class="mantable"><tr><th colspan="3">Weekdays (Mon–Fri)</th></tr><tr><td>Weekday daytime</td><td>07:00–16:59</td><td>no premium units</td></tr><tr><td>Weekday evening</td><td>17:00–21:59</td><td>20 units</td></tr><tr><td>Weekday late evening</td><td>22:00–23:59</td><td>8 units</td></tr><tr><td>Weekday overnight</td><td>00:00–06:59</td><td>28 units</td></tr>
+      <tr><th colspan="3">Weekends (Sat–Sun) and statutory holidays</th></tr><tr><td>Weekend/holiday daytime</td><td>07:00–21:59</td><td>60 units</td></tr><tr><td>Weekend/holiday late evening</td><td>22:00–23:59</td><td>8 units</td></tr><tr><td>Weekend/holiday overnight</td><td>00:00–06:59</td><td>28 units</td></tr></table>
+      <ul>
+        <li><b>Every encounter is tagged</b> with its period(s). If it crosses a boundary (for example 21:50–22:20), its minutes and 15-minute units are split between the periods. You'll see the split in the entry, under the start time in lists, in the daily totals, and in CSV, PDF and Word reports.</li>
+        <li><b>Statutory holidays bill like weekends.</b> Alberta's general holidays are worked out automatically each year: New Year's Day, Alberta Family Day, Good Friday, Victoria Day, Canada Day, Heritage Day (optional in Alberta), Labour Day, National Day for Truth and Reconciliation, Thanksgiving, Remembrance Day and Christmas. Switch any of them off under <b>Settings → Time periods and holidays</b>.</li>
+        <li>For any other holiday, or an observed day (for example when a holiday falls on a weekend), tick <b>Today is a statutory holiday</b> in Settings on that day.</li>
+      </ul>
+    </section>
+
+    <section id="m-site">
+      <h3>3. Arrival, departure and call-backs</h3>
+      <h4>Time on site</h4>
+      <ol>
+        <li>On <b>Today</b>, tap <b>Facility</b> and pick your hospital (Alberta hospitals, grouped by AHS zone; type to filter). For a clinic or a site not listed, type a custom name under <b>Other / clinic</b>.</li>
+        <li>Tap <b>Arrive</b> when you get there. The button changes to <b>Depart</b>; tap it when you leave.</li>
+        <li>Forgot to tap Arrive? Tap <b>Edit arrival time / back-date</b> to set the real time.</li>
+      </ol>
+      <p>"Time on site today" adds up all your on-site periods for the day.</p>
+      <h4>Call-backs</h4>
+      <ol>
+        <li>Tap <b>+ Call-back</b>. Choose <b>Return to hospital</b> or <b>Phone call-back</b>, and set <b>Time called</b> (the time you were contacted).</li>
+        <li>Save. The call-back timer starts running from now (or set an earlier arrival time with the quick buttons).</li>
+        <li>Tap <b>Stop</b> when you finish. Under <b>Linked encounters</b>, tick the encounters seen during that call-back.</li>
+      </ol>
+      <p>Call-backs show a <b>CB</b> badge and have their own totals.</p>
+    </section>
+
+    <section id="m-enc">
+      <h3>4. Encounters: spreadsheet, start, pause, stop</h3>
+      <p>Today and History are a <b>spreadsheet</b>: patient name, MRN/PHN, time in, time out, duration/units, billing notes, fee code(s) and diagnostic code(s). Tap a cell to edit; changes save encrypted right away. Use <b>↗</b> beside a fee or dx cell to pick the code in MedBilling Fee Desk (codes travel back via a same-origin handoff — never in the URL). Older entries without a name still show their room/label or initials.</p>
+      <ol>
+        <li>In the bar at the bottom, type a <b>patient name</b> and/or <b>MRN / PHN</b>, choose <b>Hospital</b> or <b>Clinic</b>, then tap <b>Start</b>. A running card and a spreadsheet row appear.</li>
+        <li><b>Pause</b> / <b>Stop</b> on the running card (or ■ on the row). Each stretch of time is kept as a segment.</li>
+        <li>Edit name, MRN, times, billing notes and codes <b>inline in the grid</b>. Paste a fee or ICD-9 code into the cell, or tap <b>↗</b> to pick in Fee Desk.</li>
+        <li>Tap <b>⧉</b> (or the row outside a cell) for full details: segments, photos, multi-code search, Add time, Same patient.</li>
+        <li>Going straight to the next patient? Tap <b>Next pt</b>. It stops this encounter and starts a new one. If you typed a name/MRN in the bottom bar first, the new row gets those.</li>
+      </ol>
+      <ul>
+        <li><b>Next unit:</b> the running card shows the minutes and units so far, and when the next unit starts (for example <i>53 min · 4 units · +1 unit at 68 min</i>). It turns orange in the last 2 minutes. This is a display only: recorded minutes are always the real minutes, never rounded.</li>
+        <li><b>Undo:</b> after <b>Stop</b>, <b>Next pt</b> or <b>Delete</b>, an <b>Undo</b> button shows for 5 seconds. Both the action and the undo are kept in the audit log.</li>
+        <li><b>Forgotten timer:</b> a running encounter or call-back turns <b>amber</b> after 60 minutes and <b>red</b> after 3 hours (change this under Settings → Timers). Tap <b>Stop at…</b> on the card to set the real end time. If a timer is red when you unlock, the app asks: <b>Stop now</b>, <b>Stop at time</b> or <b>Keep running</b>. A corrected time is saved as "entered later" with a note in the audit log. All of this happens inside the app, with no notifications.</li>
+        <li><b>Full-screen timer (⛶):</b> big digits for procedures, readable from a distance. It shows the time only (no room, initials or codes), plus Pause and Stop. The screen stays on where the browser allows it. Auto-lock still applies, so for long procedures set a longer auto-lock first.</li>
+      </ul>
+      <p>Open <b>details</b> (⧉) for segments, photos and multi-code search (section 5). Tap <b>Edit</b> there for setting, type, photos, Minor/Obstetric flags, and anything the spreadsheet cell does not cover. Patient name and MRN/PHN never go into URLs or console logs.</p>
+      <ul>
+        <li>The quick buttons (<b>now, 5, 15, 30 min ago, 1 h ago, End now</b>) fix start or end times in one tap. <b>+ Add time segment</b> adds another stretch.</li>
+        <li>If times overlap another entry, you'll see a warning. Check the times, or tap <b>Save anyway</b> if it's correct (for example, two patients seen together).</li>
+        <li>Timers use clock times, so they keep counting when the app is locked, in the background, or the phone is off.</li>
+        <li>Units are shown as a guide: full 15-minute blocks, plus 1 if the remainder is 8 minutes or more (38 min = 3 units). Always confirm time-based billing rules in the Alberta SOMB.</li>
+        <li>To delete an entry, open it and tap <b>Delete</b>. It stays in the audit log.</li>
+      </ul>
+    </section>
+
+    <section id="m-det">
+      <h3>5. Entry details: add time, same patient, notes</h3>
+      <p>Tap any encounter, call-back or on-site entry to open its <b>details</b>. A row of three buttons sits at the top:</p>
+      <ul>
+        <li><b>+ Add time:</b> tap <b>+5</b>, <b>+15</b> or <b>+30 min</b>. On a finished or paused entry the end moves later (never past now; any remainder moves the start earlier). On a running timer the start moves earlier. The change is saved right away, marked "entered later" and kept in the audit log, and <b>Undo</b> appears beside it. <b>New segment (start / end)…</b> opens the editor with a new time segment to fill in.</li>
+        <li><b>↔ Same patient, new encounter:</b> starts a new timer for the same patient. The room/label, initials, chart/MRN, setting, facility and the Minor/Obstetric flags are carried over. Fee codes, diagnostic codes, notes and photos are left blank. If the first encounter is still running, it stops first. The two entries are linked: each shows a <b>Same patient</b> line in its details (tap it to jump to the other), History rows show <b>↔</b>, and the CSV report has a <i>same_patient</i> column. This is different from <b>Track again</b>, which copies only the codes and never patient details.</li>
+        <li><b>✎ Edit:</b> opens the full editor. Every field can be changed: start and end times and segments, room/label, initials, chart/MRN, setting, type, facility, fee codes, diagnostic codes, Minor/Obstetric flags, call-back type and time called, linked encounters and photos. <b>Save</b> records the before and after in the audit log. <b>Cancel</b> returns to the details without changes.</li>
+      </ul>
+      <p>Below the buttons is a summary of the entry: date and times, minutes, units and time periods, patient details, setting and facility, codes with diagnostic codes, retention, same-patient links and photos.</p>
+      <p><b>Notes.</b> An entry can have several notes, each with its own date and time.</p>
+      <ul>
+        <li>Tap <b>+ Add note</b>, type up to 1000 characters, and tap <b>Save note</b>. Notes save straight away, encrypted with the entry.</li>
+        <li>Each note has <b>Edit</b> and <b>Delete</b>. Edited notes show "(edited HH:MM)". A delete asks first. Every add, edit and delete is kept in the audit log, so a deleted note can still be found in the entry's history.</li>
+        <li>The newest note shows on a running card, with "+N more" if there are others. A ✎ on a History row means the entry has notes.</li>
+        <li>Notes from earlier versions (the single short note) were moved into the first note automatically.</li>
+        <li>Notes are left out of reports unless you tick <b>Include notes</b> when you create the report (section 12).</li>
+      </ul>
+      <p><b>Quick actions from a row.</b> In History, tap <b>⋯</b> at the end of a row, or press and hold any row (right-click on a computer), to get <b>Add time</b>, <b>Add note</b>, <b>Same patient, new encounter</b>, <b>Edit</b> and <b>Open details</b>.</p>
+    </section>
+
+    <section id="m-quick">
+      <h3>6. Track again and code sets</h3>
+      <ul>
+        <li>The <b>Track again</b> chips on Today show your recent and favourite combinations, for example <i>03.03A · 780</i>. Tap one to start a timer with that setting, facility, fee code(s) and ICD-9 code(s) already filled in.</li>
+        <li>Tap <b>☆</b> on a chip to save it as a favourite code set (★). Favourites come first. Tap ★ to remove it.</li>
+        <li>In any saved encounter's details, <b>Track again (codes only)</b> starts a new timer with the same codes, and <b>☆ Save code set</b> saves them as a favourite.</li>
+        <li>Only billing fields are copied. Room labels, initials, chart numbers, notes and photos are never copied. To carry the patient over instead (with blank codes), use <b>Same patient, new encounter</b> (section 5).</li>
+      </ul>
+    </section>
+
+    <section id="m-late">
+      <h3>7. Past entries and "Entered later"</h3>
+      <p>Use <b>+ Add past entry</b> on Today for something you didn't time live, or tap an empty spot in the day timeline. Set the start and end, add details, and save.</p>
+      <ul>
+        <li><b>Last stop</b> sets the start to when your previous entry today ended, so back-to-back patients have no gaps.</li>
+        <li><b>Start −5 / +5</b> and <b>End −5 / +5</b> nudge the times by 5 minutes. <b>Length +15 / +30</b> extends the end. Times can't go into the future.</li>
+        <li>The entry shows its time-period split as you change the times.</li>
+      </ul>
+      <p>To keep the record honest, the app marks an entry <b>Entered later</b> when:</p>
+      <ul>
+        <li>a new entry starts more than 2 minutes before it was saved (back-dated), or</li>
+        <li>you change the times of an existing entry, including with <b>+ Add time</b>.</li>
+      </ul>
+      <p>The badge shows when it was created and last edited. It also appears in reports (the <i>entered_later</i> and <i>last_edited</i> columns) and in the audit log. It isn't an error. It shows the times were entered afterwards rather than timed live.</p>
+    </section>
+
+    <section id="m-codes">
+      <h3>8. Billing and diagnostic codes</h3>
+      <p>In the spreadsheet, type or paste a fee or ICD-9 code into the cell, or tap <b>↗ Pick in Fee Desk</b>. Fee Desk writes the chosen code back when you return (shared local handoff on this device; no patient data leaves the vault).</p>
+      <ol>
+        <li>Open an encounter. Under <b>Fee codes and diagnostic codes</b>, check the fee schedule (province) on the right.</li>
+        <li>In <b>Billing code</b>, type a code or a few words and tap a suggestion to add it.</li>
+        <li>In <b>Diagnostic code (ICD-9)</b> beside it, type a code or words and tap a suggestion. Each billing code you add gets its own diagnostic code field on the same row. You can also type any code that isn't in the list.</li>
+      </ol>
+      <ul>
+        <li>Suggestions come from lists built into the app (fee codes from MedBilling Fee Desk; ICD-9 from Alberta Health's diagnostic code supplement). They work offline and nothing you type is sent anywhere.</li>
+        <li><b>Look up in Fee Desk</b> opens MedBilling Fee Desk in a new tab with fees, rules and notes. It goes straight to the code only if what you typed is a known code. Otherwise it opens Fee Desk's home page. No patient information is ever put in the link.</li>
+        <li>Opening Fee Desk locks this app (it went to the background). Your unsaved entry is kept as an encrypted draft and reopens after you unlock.</li>
+        <li>Codes and fees are a convenience. Always confirm in the official Schedule of Medical Benefits before you submit claims.</li>
+      </ul>
+    </section>
+
+    <section id="m-photo">
+      <h3>9. Photos and the lock</h3>
+      <ul>
+        <li>In an encounter, tap <b>Take photo</b> or <b>Attach photo</b>. Photos are resized, location data is removed, and they are stored only inside the app, encrypted. They aren't saved to your camera roll.</li>
+        <li>Tap a thumbnail to view it or <b>Delete photo</b>.</li>
+        <li>Move clinical photos into the official patient record, then delete them here.</li>
+        <li><b>The lock:</b> the app locks whenever it goes to the background and after a period without use (Settings → Lock; 1 to 15 minutes, default 2). Tap <b>Lock</b> at the top right to lock right away. The camera doesn't trigger a lock while you take a photo.</li>
+      </ul>
+    </section>
+
+    <section id="m-hist">
+      <h3>10. History, week strip and timeline</h3>
+      <ul>
+        <li><b>History</b> shows every entry on one page as compact rows: start time, duration, label and initials, billing code and diagnostic code.</li>
+        <li>Rows are grouped by day (newest first) and by week. Each day shows its totals: number of encounters, Hospital minutes/units (H), Clinic minutes/units (C), call-backs (CB) and time on site.</li>
+        <li>Tap a row to open the details. Tap <b>⋯</b> (or press and hold a row) for quick actions: Add time, Add note, Same patient, Edit. In an entry, <b>History of this entry</b> shows every change made to it.</li>
+        <li>Each day also shows its <b>time periods</b> (for example <i>Eve 45m/3u · Late 20m/1u</i>).</li>
+        <li><b>Week strip</b> (top of Today and History): Monday to Sunday with minutes and units under each day. Today is outlined, holidays are tinted, and ✓ marks reviewed days. Tap ‹ › or swipe to change weeks, and tap a day to jump to it. Tap <b>Today</b> (it turns teal when you're looking at another week) to go straight back to the current week; in History it also scrolls to today's entries. <b>Today</b> and <b>This week</b> totals sit beside it. On Today, the line under the strip splits today by Hospital, Clinic, call-backs and time period.</li>
+        <li><b>Timeline</b> (Today, or a day in History) draws the day as blocks: on-site time as a shaded band, Hospital in teal, Clinic in orange, call-backs dashed. Gaps and overlaps are easy to see. Tap a block to open it, or tap an empty spot to add a past entry at that time.</li>
+      </ul>
+    </section>
+
+    <section id="m-rev">
+      <h3>11. Review a day or week</h3>
+      <p>Before you submit claims, tap <b>Review day</b> on Today, or <b>Review</b> / <b>Review week</b> in History. The checklist shows:</p>
+      <ul>
+        <li><b>Fix:</b> timers still running or paused, and arrivals with no departure. These must be cleared before you can mark the period reviewed.</li>
+        <li><b>Check:</b> entries with no fee code or no diagnostic code, and overlapping entries.</li>
+        <li><b>Info:</b> entries marked "entered later".</li>
+      </ul>
+      <p>Tap an item to open and fix it. Then tap <b>Mark reviewed</b>. The day shows <b>✎ Reviewed</b> and the audit log records it. If any entry on that day changes later, the mark is removed, the day shows <b>Edited after review</b>, and the audit log records that too.</p>
+    </section>
+
+    <section id="m-exp">
+      <h3>12. Reports (CSV, PDF, Word) and sharing safely</h3>
+      <ol>
+        <li>On Today tap <b>Report / share today</b>, or on History pick <b>From</b> and <b>To</b> dates and tap <b>Create report</b>.</li>
+        <li>Choose <b>PDF</b>, <b>Word</b> or <b>CSV</b> (for spreadsheets). For PDF and Word, tick <b>Include photos</b> only if you need them. <b>Include notes</b> is off by default; tick it only if the recipient needs your notes.</li>
+        <li>Tap <b>Create file</b>, read the confidentiality notice, tick <b>I understand</b>, then <b>Share…</b> or <b>Download</b>.</li>
+      </ol>
+      <p>Reports list each entry with times, minutes, units, facility, billing codes, a Diagnostic code column and a Time periods column (CSV also has minutes and units for each period). PDF and Word add daily and overall totals, including the period split, and a line linking same-patient encounters. With <b>Include notes</b> ticked, PDF and Word list each day's notes under its tables and CSV adds a <i>notes</i> column; otherwise the file says notes were left out. The audit log export follows the same option: without it, note text is replaced by "(note not exported)".</p>
+      <p class="mantip"><b>Sharing safely:</b> a report can contain initials, chart numbers, photos and (if you include them) notes. Send it only to authorized people through secure, approved channels (for example your clinic's secure system). Never use regular email or text. Delete downloaded copies from shared computers and from Downloads when you're done.</p>
+    </section>
+
+    <section id="m-audit">
+      <h3>13. Audit log</h3>
+      <ul>
+        <li>Every create, edit, delete, start/pause/stop, undo, arrival/departure and import is recorded with its time and the before/after values. So are added time, same-patient links, each note added, edited or deleted, review marks (and their removal), favourite code sets, holiday settings, backup settings, backups made with Back up now, and automatic backup failures and recoveries (never the backup password). The log is encrypted and append-only.</li>
+        <li>Each record is chained to the one before it, so any change, removal or reordering is detected.</li>
+        <li><b>Settings → Audit log:</b> <b>Check log</b> verifies the chain, <b>Deleted entries</b> lists what was deleted, <b>Export log</b> saves it as PDF or CSV (note text is left out unless you tick <b>Include notes</b>).</li>
+      </ul>
+    </section>
+
+    <section id="m-ret">
+      <h3>14. Retention and backups</h3>
+      <h4>How long records are kept</h4>
+      <ul>
+        <li>At least <b>10 years from the last entry</b> (CPSA; CMPA recommends at least 10 years).</li>
+        <li><b>Minor</b> flag: the longer of 10 years or 2 years after the patient turns 18.</li>
+        <li><b>Obstetric</b> flag: 10 years after the infant reaches majority (counted as 29 years).</li>
+        <li>Nothing is ever deleted automatically. <b>Settings → Records past retention</b> shows what is eligible, and you confirm before anything is removed. Any longer legal or College requirement comes first.</li>
+      </ul>
+      <h4>Backups</h4>
+      <ul>
+        <li>Your records exist only on this device. If the phone is lost, broken or reset, or the app or its website data is deleted, they're gone unless you have a backup.</li>
+        <li><b>Automatic backups</b> (off until you turn them on) save a backup every hour or at the interval you choose: see section 15.</li>
+        <li><b>Settings → Encrypted backup (manual export and import) → Export</b>, confirm your passcode, then save the file (<i>medbilling-logs-backup-DATE.mblbackup</i>) somewhere safe that only you control. It's encrypted with your current passcode.</li>
+        <li><b>Import</b> loads a backup (you need the passcode it was made with). It's added to what's already there. Use it to move to a new phone.</li>
+        <li><b>Under every backup button</b> (Back up now in Settings → Backups, the reminder banner on Today, and Export) a short line says how the file is encrypted, which password protects it, and that a lost password means no one, including the developer, can open or recover it (section 15).</li>
+        <li><b>Reminders:</b> by default the app reminds you <b>monthly</b> with a banner on Today (<b>Back up now</b> or <b>Remind me later</b>). Change it to weekly, every 3 months or off under <b>Backup reminder</b>. "Last backup" shows when you last made one.</li>
+      </ul>
+    </section>
+
+    <section id="m-bk">
+      <h3>15. Automatic backups</h3>
+      <p>Open <b>Settings → Backups</b>. Automatic backups are <b>off</b> until you turn them on. Every change to these settings is kept in the audit log (the password itself never is).</p>
+      <h4>Settings</h4>
+      <ul>
+        <li><b>Automatic backups</b> on or off.</li>
+        <li><b>Frequency:</b> every hour (default), every 2 hours, every 4 hours, or daily. If nothing changed since the last backup, that interval is skipped (a backup is still saved at least once a day).</li>
+        <li><b>Keep last:</b> 24 backups by default (6 to 168). Older automatic backups in the folder are removed (rotated) together with their readable copies. Other files in the folder are never touched.</li>
+        <li><b>Choose backup location</b> (or <b>Change location</b>): pick the folder once. The first backup is saved straight away.</li>
+        <li><b>Last backup</b> shows the time, the folder, how many files and their size, and the status (OK, next backup time, or what went wrong).</li>
+        <li><b>Back up now</b> saves a backup immediately.</li>
+      </ul>
+      <h4>What protects each backup (shown under every backup button)</h4>
+      <p>Under <b>Back up now</b>, the reminder banner and <b>Export</b>, two or three short lines always say:</p>
+      <ul>
+        <li><b>The encryption:</b> for example <i>Encrypted with AES-256 (.mblbackup); readable copies in an AES-256 password-protected .zip.</i></li>
+        <li><b>The password:</b> your app passcode, or your app passcode for the .mblbackup and your separate backup password for the .zip.</li>
+        <li><b>If the password is lost, no one can open or recover the backup, including the developer.</b> There is no reset and no copy anywhere.</li>
+      </ul>
+      <h4>What's in each backup</h4>
+      <ul>
+        <li><b>Encrypted backup (.mblbackup)</b>, always included: every entry, note, photo and setting, encrypted with AES-256 (AES-GCM, key from your passcode with PBKDF2, 600,000 rounds). It opens only with the app passcode you had when it was made, through <b>Import</b>. It's the only file the app can restore.</li>
+        <li><b>Readable copies</b> (off by default): tick <b>PDF</b>, <b>Markdown (.md)</b>, <b>Word (.docx)</b> and/or <b>Excel (.xlsx)</b>. They list your entries like a report (all dates). Notes are left out unless you tick <b>Include notes in readable copies</b>.</li>
+      </ul>
+      <p class="mantip"><b>Readable copies contain patient details</b> (room, initials, chart/MRN, codes and, if ticked, notes). By default they are put inside an <b>AES-256 password-protected .zip</b>. Once someone unzips them they are not encrypted, so save backups only to a secure location you control.</p>
+      <h4>The .zip password</h4>
+      <ul>
+        <li><b>Use my app passcode</b> (default), or <b>Use a separate backup password</b>. A separate password needs at least 12 characters and passes a strength check. It is kept only inside the app's encrypted storage, never in plain text, and never in the audit log or the backup files.</li>
+        <li>A .zip password can be guessed much faster than your passcode can be attacked in a .mblbackup (zip files use a weaker key-stretching step). Use a long password, such as several words with numbers, especially if your passcode is short. The app warns you when it is.</li>
+        <li><b>Turning protection off</b> is possible but not recommended: readable copies are then saved as plain PDF, Markdown, Word and Excel files that anyone with access to the folder can read. The app asks you to confirm, and the line under Back up now says the readable copies are NOT encrypted.</li>
+        <li><b>Why not a password-protected PDF?</b> The PDF library in the app can only make the older RC4 PDF encryption, not AES-256, so PDF copies go inside the AES-256 .zip instead.</li>
+      </ul>
+      <h4>Opening the password-protected .zip</h4>
+      <ul>
+        <li><b>Windows:</b> 7-Zip (free) or WinRAR. File Explorer's built-in zip support can't open AES-256 zips.</li>
+        <li><b>Mac:</b> Keka, The Unarchiver or BetterZip, or Terminal: <i>tar -xf FILE.zip --passphrase PASSWORD</i> (or <i>7zz x FILE.zip</i> if 7-Zip is installed). Double-clicking in Finder (Archive Utility) and the <i>unzip</i> command can't open AES-256 zips.</li>
+        <li><b>iPhone / iPad:</b> the Files app can't open them; use an app such as iZip or Documents by Readdle. <b>Android:</b> use an app such as ZArchiver or RAR.</li>
+        <li>The .mblbackup is opened only by this app (<b>Settings → Encrypted backup → Import</b>).</li>
+      </ul>
+      <h4>How it works on each device</h4>
+      <ul>
+        <li><b>Chrome or Edge on a computer:</b> choose a folder once (for example in Documents, or a synced OneDrive, Google Drive or iCloud Drive folder). While the app is open and unlocked, a backup is saved at your interval, and again when the app locks or the tab is closed (if the browser allows the time). After the browser restarts, it may ask you once to <b>Allow access</b> to the folder again; a banner on Today asks for it.</li>
+        <li><b>iPhone and iPad app:</b> choose a folder in Files (On My iPhone, iCloud Drive or another provider). <b>Android app:</b> choose a folder on the phone or in a cloud drive such as Google Drive. Backups are saved while the app is open, and the app tries to finish one when it goes to the background. <b>Phones don't allow guaranteed background runs:</b> if the app stays closed, no backups happen until you open and unlock it again.</li>
+        <li><b>Safari, Firefox and other browsers without folder access</b> (including the Home Screen web app on iPhone): the app can't save to a folder by itself. With automatic backups on, a <b>Backup reminder</b> banner appears on Today at your interval. <b>Back up now</b> opens the share sheet (Save to Files, AirDrop…) or downloads the files; <b>Later</b> hides it until the next interval. Old copies aren't removed for you here.</li>
+        <li><b>Never while locked:</b> the key that decrypts your data only exists while the app is unlocked, so nothing runs while it's locked or closed. The backup started when it locks uses data already in memory and finishes in the background where possible.</li>
+      </ul>
+      <h4>If a backup fails</h4>
+      <p>A red banner on Today says what went wrong (for example the folder was moved or deleted, permission is needed, or the drive is full), with <b>Try again</b> and <b>Backup settings</b>. It never interrupts what you're doing, and your entries stay safe on this device. The app tries again automatically (within 15 minutes, or at your interval). Failures and recoveries are kept in the audit log.</p>
+    </section>
+
+    <section id="m-priv">
+      <h3>16. Privacy tips</h3>
+      <ul>
+        <li>Use room/bed labels and initials, not full names. Add a chart number only if you need it.</li>
+        <li>Keep your phone's own screen lock on, and use a passcode you don't use anywhere else.</li>
+        <li>Keep the auto-lock short, and tap <b>Lock</b> before handing your phone to anyone. The full-screen timer shows only the time, so it is safe for others to see.</li>
+        <li>Share reports only through secure, approved channels. Don't leave copies in Downloads or email.</li>
+        <li>This is a personal billing log, not the medical record. Chart every encounter in the patient's chart.</li>
+        <li>If your phone is lost or data may be exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away.</li>
+        <li>The app has no accounts, analytics or trackers, and it sends nothing anywhere. Files leave the device only when you share or download them.</li>
+      </ul>
+    </section>
+
+    <section id="m-faq">
+      <h3>17. FAQ and troubleshooting</h3>
+      <dl class="manfaq">
+        <dt>I forgot my passcode.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
+        <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
+        <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock.</dd>
+        <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
+        <dt>How do I move to a new phone?</dt><dd>On the old phone, Export a backup. On the new phone, install the app, create a passcode, then Import the backup with the passcode it was made with.</dd>
+        <dt>Why does an entry say "Entered later"?</dt><dd>It was back-dated, time was added, or its times were edited. See section 7.</dd>
+        <dt>It says the times overlap.</dt><dd>Another entry covers the same time. Fix the times, or tap <b>Save anyway</b> if it's correct.</dd>
+        <dt>Does it work without internet?</dt><dd>Yes, after the first open. Only the Resources and Fee Desk links need a connection.</dd>
+        <dt>The app says "Updating to the new version…"</dt><dd>Wait a few seconds. If it says "Update ready", close the app completely and reopen it. Your data isn't affected.</dd>
+        <dt>A diagnostic code isn't in the suggestions.</dt><dd>Type it anyway; any code is accepted. Use <b>Look up in Fee Desk</b> to check it.</dd>
+        <dt>Are the units and codes official?</dt><dd>No. They're a guide. Confirm in the Alberta Schedule of Medical Benefits, or contact AMA billing support.</dd>
+        <dt>The time period or holiday looks wrong.</dt><dd>Periods follow America/Edmonton time and your list of periods. Check <b>Settings → Time periods and holidays</b>: switch a holiday on or off, or tick "Today is a statutory holiday". Always verify against the current SOMB.</dd>
+        <dt>Why did a red timer prompt appear when I unlocked?</dt><dd>A timer ran past the red limit (3 hours by default). Stop it now or at the real end time, or keep it running. Change the limits under Settings → Timers.</dd>
+        <dt>The full-screen timer went away.</dt><dd>Auto-lock still applies. Unlock and reopen it with ⛶, or set a longer auto-lock before a long procedure.</dd>
+        <dt>I tapped Stop or Delete by mistake.</dt><dd>Tap <b>Undo</b> within 5 seconds. After that, edit the entry (a corrected time is marked "entered later"), or find deleted entries under Settings → Audit log → Deleted entries.</dd>
+        <dt>Can I use it on a computer or tablet?</dt><dd>Yes. Open the same web address in Chrome, Edge, Safari or Firefox. On a tablet or computer, Today shows your controls on the left and the day's entries on the right. History becomes a table with end time, units, setting and facility, and time periods. Settings and Resources show in columns. Data stays in that browser on that device, encrypted. To move data between devices, use an encrypted backup (Settings → Encrypted backup).</dd>
+        <dt>Can I add time to an entry, or start another encounter for the same patient?</dt><dd>Yes. Open the entry (or tap ⋯ on its History row) and use <b>+ Add time</b> or <b>Same patient, new encounter</b>. See section 5.</dd>
+        <dt>Where did my old note go?</dt><dd>It is now the first note in the entry's <b>Notes</b> list, with the time the entry was created.</dd>
+        <dt>Why aren't my notes in the report?</dt><dd>For privacy, notes are only included when you tick <b>Include notes</b> before tapping Create file.</dd>
+        <dt>How do I set up automatic backups?</dt><dd><b>Settings → Backups</b>: turn on <b>Automatic backups</b>, pick how often and how many to keep, then <b>Choose backup location</b>. In Safari you get an hourly reminder instead. See section 15.</dd>
+        <dt>I can't open the backup .zip on my Mac or PC.</dt><dd>It's AES-256 encrypted, which Finder and Windows File Explorer can't open. Use 7-Zip on Windows, or Keka / The Unarchiver on a Mac (or <i>tar -xf FILE.zip --passphrase PASSWORD</i> in Terminal), with the backup password shown under Back up now.</dd>
+        <dt>I lost my backup password.</dt><dd>No one can open those backups, including the developer. Set a new separate password (or switch back to the app passcode) and tap <b>Back up now</b> so new backups use it.</dd>
+        <dt>A red "Automatic backup didn't work" banner appeared.</dt><dd>Tap <b>Backup settings</b> and <b>Change location</b> to choose the folder again, or <b>Allow access</b> if the browser asks. Your entries are safe on the device in the meantime.</dd>
+        <dt>Where can I get advice?</dt><dd>CMPA (1-800-267-6522), AMA billing support, or the CPSA. Links are in the Resources tab.</dd>
+      </dl>
+      <p class="small muted">MedBilling Logs is general information, not legal, billing or medico-legal advice. Part of JFdeLara's Studio.</p>
+    </section>
+  </div>
+</dialog>
+<!-- manual:end -->
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="js/vault.js"></script>
+<script src="js/search.js"></script>
+<script src="js/docx.js"></script>
+<script src="js/xlsx.js"></script>
+<script src="js/vendor/zip.min.js"></script>
+<script src="js/vendor/jspdf.umd.min.js"></script>
+<script src="js/report.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
