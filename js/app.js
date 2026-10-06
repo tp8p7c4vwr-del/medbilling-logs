@@ -1,4 +1,4 @@
-/* Med Billing Logs - app. Encounter timers use wall-clock timestamps (not intervals), so they stay
+/* MedBilling Logs - app. Encounter timers use wall-clock timestamps (not intervals), so they stay
    correct across reloads, locking and backgrounding. All data lives in the encrypted Vault. */
 (function () {
   'use strict';
@@ -749,7 +749,7 @@
       check: async v => (await V.verify(v.p)) ? '' : 'Wrong passcode.' });
     if (!v) return;
     const b = await V.backup(v.p); if (!b) return toast('Wrong passcode');
-    const file = new File([JSON.stringify(b)], `med-billing-logs-backup-${today()}.mblbackup`, { type: 'application/octet-stream' });
+    const file = new File([JSON.stringify(b)], `medbilling-logs-backup-${today()}.mblbackup`, { type: 'application/octet-stream' });
     const go = await ask({ title: 'Backup ready', text: `${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB) is encrypted with your passcode. Save it to Files or send it to yourself; without the passcode it cannot be opened.`, ok: 'Share / save' });
     if (!go) return;
     const r = await shareFile(file, file.name);
@@ -759,8 +759,8 @@
   $('#impFile').addEventListener('cancel', pickEnd);
   $('#impFile').addEventListener('change', async () => {
     pickEnd(); const f = $('#impFile').files[0]; $('#impFile').value = ''; if (!f || !S) return;
-    let file; try { file = JSON.parse(await f.text()); } catch (e) { return toast('That file is not a Med Billing Logs backup'); }
-    if (!file || file.kind !== 'encrypted-backup') return toast('That file is not a Med Billing Logs encrypted backup');
+    let file; try { file = JSON.parse(await f.text()); } catch (e) { return toast('That file is not a MedBilling Logs backup'); }
+    if (!file || file.kind !== 'encrypted-backup') return toast('That file is not a MedBilling Logs encrypted backup');
     let data = null;
     const v = await ask({ title: 'Import backup', text: 'Enter the passcode the backup was made with. Its encounters and photos will be added here and re-encrypted with your current passcode.', ok: 'Import', fields: [{ id: 'p', label: 'Backup passcode' }],
       check: async v => { data = await V.openBackup(file, v.p).catch(() => null); return data ? '' : 'Wrong passcode for this backup.'; } });

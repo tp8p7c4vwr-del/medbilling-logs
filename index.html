@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; form-action 'none'; manifest-src 'self'; worker-src 'self'; base-uri 'self'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
-<title>Med Billing Logs</title>
-<meta name="description" content="Med Billing Logs: private, offline encounter time log for physicians. Passcode-locked and encrypted on your device.">
+<title>MedBilling Logs</title>
+<meta name="description" content="MedBilling Logs: private, offline encounter time log for physicians. Passcode-locked and encrypted on your device.">
 <meta name="theme-color" content="#0f766e">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Billing Logs">
-<meta name="application-name" content="Med Billing Logs">
+<meta name="apple-mobile-web-app-title" content="MB Logs">
+<meta name="application-name" content="MedBilling Logs">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -22,7 +22,7 @@
 <section id="lock" class="lock" aria-label="Locked">
   <div class="lockbox">
     <img src="icons/icon-192.png" alt="" width="64" height="64">
-    <h1>Med Billing Logs</h1>
+    <h1>MedBilling Logs</h1>
     <form id="setupForm" hidden autocomplete="off">
       <p class="small">Create a passcode to protect your logs. Everything you enter, including photos, is encrypted on this device with a key made from this passcode.</p>
       <label class="fld">New passcode (at least 6 characters)<input id="sPass" type="password" minlength="6" maxlength="64" required autocomplete="new-password"></label>
@@ -30,7 +30,7 @@
       <p class="warnbox small"><b>Important:</b> the passcode is never stored. If you forget it, your data <b>cannot be recovered</b> by anyone. Keep encrypted backups.</p>
       <label class="chk small"><input type="checkbox" id="sAck" required> I understand a forgotten passcode means the data can't be recovered.</label>
       <p class="warnbox small" id="sStmt">Your records live only on this device. Keeping, backing up and retaining them (at least 10 years from the last entry, longer for minors and obstetric records, and any longer legal or College requirement) is your responsibility. The developer has no copy and cannot recover your data or your passcode.</p>
-      <p class="warnbox small" id="sDisc"><b>Disclaimer (draft, pending CMPA/legal review):</b> Med Billing Logs is a personal time and billing log, not the patient's medical record. Record every encounter, including call-backs and time-based visits, in the patient's chart. You remain responsible for safeguarding patient information under Alberta's Health Information Act. This app is general information, not legal, billing or medico-legal advice.</p>
+      <p class="warnbox small" id="sDisc"><b>Disclaimer (draft, pending CMPA/legal review):</b> MedBilling Logs is a personal time and billing log, not the patient's medical record. Record every encounter, including call-backs and time-based visits, in the patient's chart. You remain responsible for safeguarding patient information under Alberta's Health Information Act. This app is general information, not legal, billing or medico-legal advice.</p>
       <label class="chk small"><input type="checkbox" id="sResp" required> I accept the disclaimer and my responsibility for keeping, backing up and retaining my records.</label>
       <p class="err small" id="sErr" role="alert"></p>
       <button type="submit" class="primary wide" id="sBtn">Create passcode</button>
@@ -46,9 +46,9 @@
   </div>
 </section>
 <header class="top">
-  <a class="brand" id="homeLink" href="./" aria-label="Med Billing Logs home">
+  <a class="brand" id="homeLink" href="./" aria-label="MedBilling Logs home">
     <img src="icons/icon-192.png" alt="" width="32" height="32">
-    <span class="title">Med Billing Logs</span>
+    <span class="title">MedBilling Logs</span>
   </a>
   <span class="topr"><span class="clock" id="clock" aria-hidden="true"></span><button type="button" class="lockbtn" id="lockNow" aria-label="Lock now" title="Lock now">Lock</button></span>
 </header>
@@ -118,7 +118,7 @@
     </div>
     <div class="card">
       <h3>Disclaimer <span class="draft">Draft, pending CMPA/legal review</span></h3>
-      <p class="small">Med Billing Logs is a personal time and billing log. It is not the patient&#39;s medical record and does not replace charting. Record every encounter, including call-backs and time-based visits, in the patient&#39;s chart (AMA). Keep records at least as long as your College and the law require: CPSA requires 10 years from the last entry (longer for minors), and CMPA recommends at least 10 years. Patient information in this app is encrypted on this device, but you remain responsible for safeguarding it under Alberta&#39;s Health Information Act. Send reports with identifiers only through secure, approved channels, never by unencrypted email or text. Move clinical photos into the official record, then delete them here. If a device is lost or data is exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away. Fee codes and rules: confirm in the official Alberta Schedule of Medical Benefits. This app is general information, not legal, billing or medico-legal advice. Contact the CMPA (1-800-267-6522), AMA billing support or the CPSA for advice about your situation.</p>
+      <p class="small">MedBilling Logs is a personal time and billing log. It is not the patient&#39;s medical record and does not replace charting. Record every encounter, including call-backs and time-based visits, in the patient&#39;s chart (AMA). Keep records at least as long as your College and the law require: CPSA requires 10 years from the last entry (longer for minors), and CMPA recommends at least 10 years. Patient information in this app is encrypted on this device, but you remain responsible for safeguarding it under Alberta&#39;s Health Information Act. Send reports with identifiers only through secure, approved channels, never by unencrypted email or text. Move clinical photos into the official record, then delete them here. If a device is lost or data is exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away. Fee codes and rules: confirm in the official Alberta Schedule of Medical Benefits. This app is general information, not legal, billing or medico-legal advice. Contact the CMPA (1-800-267-6522), AMA billing support or the CPSA for advice about your situation.</p>
       <p class="small muted">Sources: CMPA and AMA guidance checked 2026-10-04; links are in Resources.</p>
     </div>
     <div class="card">
@@ -172,7 +172,7 @@
   <p class="small muted">Passcode-locked and encrypted on this device. No accounts, analytics or trackers. Nothing is sent anywhere.</p>
   <p class="small muted fdhelp">For help with medical billing codes and diagnostic codes (ICD-9 / ICD-10), use <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></p>
   <p class="small muted">Part of JFdeLara's Studio · <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" rel="noopener noreferrer">MedBilling Fee Desk</a></p>
-  <div class="copyright">© 2026 Med Billing Logs. All rights reserved. This app is protected by copyright. Reproduction or duplication without permission is an infringement.</div>
+  <div class="copyright">© 2026 MedBilling Logs. All rights reserved. This app is protected by copyright. Reproduction or duplication without permission is an infringement.</div>
 </footer>
 
 <dialog id="editDlg">

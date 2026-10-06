@@ -1,4 +1,4 @@
-/* v2: compact layout; v3: colours about halfway between v1 and v2 tints of the Fee Desk palette (teal / orange). Text contrast >= 4.5:1 throughout. */
+/* v2: compact layout; v3: colours about halfway between v1 and v2 tints; v4: deeper header with a divider of the Fee Desk palette (teal / orange). Text contrast >= 4.5:1 throughout. */
 :root{--teal:#1e8078;--teal-d:#17605a;--teal-l:#d8f7f0;--teal-m:#6eb0a8;--teal-b:#5ca69e;--bg:#f2f4f6;--card:#fff;--ink:#1f2933;--muted:#5b6b7d;--line:#e1e6eb;--fee:#e2681e;--fee-t:#8a3510;--fee-l:#f29e6e;--fee-b:#ee8c52;--fee-on:#5a2106;--warn:#a1500d;--danger:#ac1c1c;--danger-l:#da8080;--danger-b:#d46c6c;--danger-on:#450a0a;--on:#0b3d38;--ghost-b:#6aaca5;--r:10px;--bar:74px}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -7,11 +7,11 @@ button,input,select,textarea{font:inherit}
 input,select,textarea{font-size:16px}
 a{color:var(--teal-d)}
 [hidden]{display:none!important}
-.top{position:sticky;top:0;z-index:20;background:#79b4ae;color:var(--on);display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:calc(38px + env(safe-area-inset-top));padding:calc(3px + env(safe-area-inset-top)) 10px 3px;border-bottom:1px solid #71b0a9}
-.brand{display:flex;align-items:center;gap:7px;min-width:0;color:var(--on);text-decoration:none}
+.top{position:sticky;top:0;z-index:20;background:#5a9e97;color:#062b27;box-shadow:0 2px 4px rgba(11,61,56,.28);display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:calc(38px + env(safe-area-inset-top));padding:calc(3px + env(safe-area-inset-top)) 10px 3px;border-bottom:2px solid #2f6f68}
+.brand{display:flex;align-items:center;gap:7px;min-width:0;color:#062b27;text-decoration:none}
 .brand img{border-radius:6px;background:#fff;width:24px;height:24px}
 .title{font-weight:700;font-size:.95rem;white-space:nowrap}
-.clock{font-variant-numeric:tabular-nums;font-size:.82rem;color:var(--on)}
+.clock{font-variant-numeric:tabular-nums;font-size:.82rem;color:#062b27}
 .tabs{position:sticky;top:calc(38px + env(safe-area-inset-top));z-index:19;display:flex;gap:2px;background:#80aaa7;padding:3px 6px;border-bottom:1px solid #79a2a2}
 .tabs button{flex:1 1 0;border:0;background:transparent;color:var(--on);padding:3px 6px;border-radius:999px;font-size:.85rem;min-height:30px;cursor:pointer}
 .tabs button.on{background:#fff;color:var(--teal-d);font-weight:600;box-shadow:0 0 0 1px var(--teal-m)}

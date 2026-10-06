@@ -1,6 +1,6 @@
 {
-  "name": "Med Billing Logs",
-  "short_name": "Billing Logs",
+  "name": "MedBilling Logs",
+  "short_name": "MB Logs",
   "description": "Private encounter time log for physician billing",
   "start_url": "./index.html",
   "scope": "./",

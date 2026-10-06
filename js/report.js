@@ -1,4 +1,4 @@
-/* Med Billing Logs - shared time helpers and report builders (CSV, PDF via bundled jsPDF, Word via DocxLite). */
+/* MedBilling Logs - shared time helpers and report builders (CSV, PDF via bundled jsPDF, Word via DocxLite). */
 (function (global) {
   'use strict';
   const pad = n => String(n).padStart(2, '0');
@@ -78,7 +78,7 @@
   async function docx(encs, from, to, o) {
     const list = select(encs, from, to), now = o.now || Date.now(), blocks = [];
     blocks.push({ t: 'h1', text: title(from, to) });
-    blocks.push({ t: 'small', text: `Generated ${new Date(now).toLocaleString()} by Med Billing Logs. ${CONF}` });
+    blocks.push({ t: 'small', text: `Generated ${new Date(now).toLocaleString()} by MedBilling Logs. ${CONF}` });
     blocks.push({ t: 'p', bold: true, text: 'Totals: ' + totTxt(totals(list, now)) });
     const W = [640, 640, 500, 520, 860, 900, 600, 1000, 860, 1300, 1000, 1420];
     const byId = new Map(encs.map(e => [e.id, e]));
@@ -111,7 +111,7 @@
     const need = h => { if (y + h > PH - M) { doc.addPage(); y = M; return true; } return false; };
     const text = (s, size, opt) => { opt = opt || {}; doc.setFont('helvetica', opt.bold ? 'bold' : (opt.italic ? 'italic' : 'normal')); doc.setFontSize(size); doc.setTextColor(...(opt.color || [31, 41, 51])); const ls = doc.splitTextToSize(latin(s), PW - 2 * M); const lh = size * 1.25; for (const l of ls) { need(lh); doc.text(l, M, y + size); y += lh; } y += opt.after || 2; };
     text(title(from, to), 18, { bold: true, color: [17, 94, 89], after: 2 });
-    text(`Generated ${new Date(now).toLocaleString()} by Med Billing Logs. ${CONF}`, 8, { color: [100, 116, 139], after: 6 });
+    text(`Generated ${new Date(now).toLocaleString()} by MedBilling Logs. ${CONF}`, 8, { color: [100, 116, 139], after: 6 });
     text('Totals: ' + totTxt(totals(list, now)), 10, { bold: true, after: 6 });
     const fit = cs => { const used = cs.reduce((a, c) => a + c[1], 0); cs[cs.length - 1][1] = PW - 2 * M - used; return cs; };
     const C_ENC = fit([['Start', 40], ['End', 44], ['Min', 30], ['Units', 32], ['Setting', 80], ['Room/bed', 58], ['Initials', 42], ['Chart/MRN', 64], ['Type', 56], ['Codes', 110], ['Diagnostic code', 72], ['Note', 0]]);
@@ -184,7 +184,7 @@
     const need = h => { if (y + h > PH - M) { doc.addPage(); y = M; } };
     const text = (s, size, opt) => { opt = opt || {}; doc.setFont('helvetica', opt.bold ? 'bold' : 'normal'); doc.setFontSize(size); doc.setTextColor(...(opt.color || [31, 41, 51])); for (const l of doc.splitTextToSize(latin(s), PW - 2 * M - (opt.indent || 0))) { need(size * 1.25); doc.text(l, M + (opt.indent || 0), y + size); y += size * 1.25; } y += opt.after || 2; };
     text(from === to ? `Audit log ${from}` : `Audit log ${from} to ${to}`, 16, { bold: true, color: [17, 94, 89] });
-    text(`Generated ${new Date().toLocaleString()} by Med Billing Logs. ${CONF}`, 8, { color: [100, 116, 139] });
+    text(`Generated ${new Date().toLocaleString()} by MedBilling Logs. ${CONF}`, 8, { color: [100, 116, 139] });
     text(check.ok ? `Log integrity: INTACT. ${check.count} records, hash chain verified (SHA-256). Last hash ${check.last || '-'}.` : `Log integrity: PROBLEMS FOUND: ${check.problems.join('; ')}`, 9, { bold: true, color: check.ok ? [17, 94, 89] : [185, 28, 28], after: 8 });
     const list = auditSel(recs, from, to);
     if (!list.length) text('No audit records in this period.', 10);
