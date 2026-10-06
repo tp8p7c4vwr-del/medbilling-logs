@@ -218,13 +218,14 @@
 
 <div class="startbar" id="startbar">
   <form id="quick" autocomplete="off">
-    <input id="qLabel" maxlength="24" placeholder="Room / bed (e.g. Rm 412)" aria-label="Room or bed label">
+    <input id="qName" maxlength="80" placeholder="Patient name" aria-label="Patient name" autocomplete="off">
+    <input id="qMrn" maxlength="24" placeholder="MRN / PHN" aria-label="MRN or healthcare number" autocomplete="off" inputmode="text">
     <div class="seg" role="radiogroup" aria-label="Setting">
       <button type="button" data-set="H" role="radio">Hospital</button><button type="button" data-set="C" role="radio">Clinic</button>
     </div>
     <button type="submit" class="startbtn" id="qStart">Start</button>
   </form>
-  <p class="hint">Initials, chart/MRN, codes and photos: tap an encounter. All encrypted on this device.</p>
+  <p class="hint">Spreadsheet: edit name, MRN, times, notes and codes inline. Tap ⧉ for segments, photos and multi-code. All encrypted on this device.</p>
 </div>
 
 <footer class="foot">
@@ -272,10 +273,14 @@
       </div>
     </div>
     <div class="enconly">
-    <label class="fld">Room / bed<input id="eLabel" maxlength="24" placeholder="e.g. Rm 412 B"></label>
+    <label class="fld">Patient name<input id="eName" maxlength="80" placeholder="Full name (encrypted)" autocomplete="off"></label>
     <div class="two">
+      <label class="fld">Room / bed (optional)<input id="eLabel" maxlength="24" placeholder="e.g. Rm 412 B"></label>
       <label class="fld">Initials (optional)<input id="eInit" maxlength="5" autocapitalize="characters" placeholder="e.g. JD"></label>
-      <label class="fld">Chart / MRN (optional)<input id="eChart" maxlength="20" inputmode="text" placeholder="e.g. 1234567"></label>
+    </div>
+    <div class="two">
+      <label class="fld">MRN / PHN (optional)<input id="eChart" maxlength="24" inputmode="text" placeholder="e.g. 1234567" autocomplete="off"></label>
+      <label class="fld">Billing note (optional)<input id="eBillNote" maxlength="200" placeholder="Short note for billing" autocomplete="off"></label>
     </div>
     <div class="two">
       <label class="fld">Setting<select id="eSetting"><option value="H">Hospital</option><option value="C">Clinic</option></select></label>
@@ -493,8 +498,8 @@
       <p>After 5 wrong passcodes in a row, the app makes you wait (30 seconds at first, longer with each further miss, up to 15 minutes).</p>
       <h4>The screens</h4>
       <ul>
-        <li><b>Today:</b> facility arrival/departure, the week strip with today's totals, Track again chips, running and finished encounters, call-backs.</li>
-        <li><b>History:</b> every past entry on one page, with the week strip, daily and weekly totals, time periods, timeline, review and reports.</li>
+        <li><b>Today:</b> facility arrival/departure, the week strip, Track again chips, and the encounter <b>spreadsheet</b> (plus running timer cards).</li>
+        <li><b>History:</b> the same spreadsheet grouped by day, with week totals, timeline, review and reports.</li>
         <li><b>Resources:</b> official billing, privacy and regulatory websites, including MedBilling Fee Desk.</li>
         <li><b>Settings:</b> defaults, timer warnings, time periods and holidays, lock, backups, retention, audit log, this manual and Delete all data.</li>
       </ul>
@@ -537,13 +542,14 @@
     </section>
 
     <section id="m-enc">
-      <h3>4. Encounters: start, pause, stop</h3>
+      <h3>4. Encounters: spreadsheet, start, pause, stop</h3>
+      <p>Today and History are a <b>spreadsheet</b>: patient name, MRN/PHN, time in, time out, duration/units, billing notes, fee code(s) and diagnostic code(s). Tap a cell to edit; changes save encrypted right away. Use <b>↗</b> beside a fee or dx cell to pick the code in MedBilling Fee Desk (codes travel back via a same-origin handoff — never in the URL). Older entries without a name still show their room/label or initials.</p>
       <ol>
-        <li>In the bar at the bottom, type a short room or bed label (for example <i>Rm 412</i>). Avoid names.</li>
-        <li>Choose <b>Hospital</b> or <b>Clinic</b>, then tap <b>Start</b>. A card with a live timer appears.</li>
-        <li><b>Pause</b> if you are interrupted, <b>Resume</b> to carry on. Each stretch of time is kept as a segment.</li>
-        <li>Tap <b>Stop</b> when you are done. Finished encounters show as compact rows; tap <b>▶</b> to continue one later.</li>
-        <li>Going straight to the next patient? Tap <b>Next pt</b>. It stops this encounter and starts a new one in one tap, with the same setting and facility. If you typed a room in the bottom bar first, the new one gets that label.</li>
+        <li>In the bar at the bottom, type a <b>patient name</b> and/or <b>MRN / PHN</b>, choose <b>Hospital</b> or <b>Clinic</b>, then tap <b>Start</b>. A running card and a spreadsheet row appear.</li>
+        <li><b>Pause</b> / <b>Stop</b> on the running card (or ■ on the row). Each stretch of time is kept as a segment.</li>
+        <li>Edit name, MRN, times, billing notes and codes <b>inline in the grid</b>. Paste a fee or ICD-9 code into the cell, or tap <b>↗</b> to pick in Fee Desk.</li>
+        <li>Tap <b>⧉</b> (or the row outside a cell) for full details: segments, photos, multi-code search, Add time, Same patient.</li>
+        <li>Going straight to the next patient? Tap <b>Next pt</b>. It stops this encounter and starts a new one. If you typed a name/MRN in the bottom bar first, the new row gets those.</li>
       </ol>
       <ul>
         <li><b>Next unit:</b> the running card shows the minutes and units so far, and when the next unit starts (for example <i>53 min · 4 units · +1 unit at 68 min</i>). It turns orange in the last 2 minutes. This is a display only: recorded minutes are always the real minutes, never rounded.</li>
@@ -551,7 +557,7 @@
         <li><b>Forgotten timer:</b> a running encounter or call-back turns <b>amber</b> after 60 minutes and <b>red</b> after 3 hours (change this under Settings → Timers). Tap <b>Stop at…</b> on the card to set the real end time. If a timer is red when you unlock, the app asks: <b>Stop now</b>, <b>Stop at time</b> or <b>Keep running</b>. A corrected time is saved as "entered later" with a note in the audit log. All of this happens inside the app, with no notifications.</li>
         <li><b>Full-screen timer (⛶):</b> big digits for procedures, readable from a distance. It shows the time only (no room, initials or codes), plus Pause and Stop. The screen stays on where the browser allows it. Auto-lock still applies, so for long procedures set a longer auto-lock first.</li>
       </ul>
-      <p>Tap an encounter to open its <b>details</b> (section 5). Tap <b>Edit</b> there to change any detail: initials, chart/MRN, setting, type (consult, visit…), billing and diagnostic codes, photos, notes, and the <b>Minor</b> or <b>Obstetric</b> flags that set how long the record is kept.</p>
+      <p>Open <b>details</b> (⧉) for segments, photos and multi-code search (section 5). Tap <b>Edit</b> there for setting, type, photos, Minor/Obstetric flags, and anything the spreadsheet cell does not cover. Patient name and MRN/PHN never go into URLs or console logs.</p>
       <ul>
         <li>The quick buttons (<b>now, 5, 15, 30 min ago, 1 h ago, End now</b>) fix start or end times in one tap. <b>+ Add time segment</b> adds another stretch.</li>
         <li>If times overlap another entry, you'll see a warning. Check the times, or tap <b>Save anyway</b> if it's correct (for example, two patients seen together).</li>
@@ -609,6 +615,7 @@
 
     <section id="m-codes">
       <h3>8. Billing and diagnostic codes</h3>
+      <p>In the spreadsheet, type or paste a fee or ICD-9 code into the cell, or tap <b>↗ Pick in Fee Desk</b>. Fee Desk writes the chosen code back when you return (shared local handoff on this device; no patient data leaves the vault).</p>
       <ol>
         <li>Open an encounter. Under <b>Fee codes and diagnostic codes</b>, check the fee schedule (province) on the right.</li>
         <li>In <b>Billing code</b>, type a code or a few words and tap a suggestion to add it.</li>

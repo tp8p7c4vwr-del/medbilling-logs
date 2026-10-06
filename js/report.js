@@ -129,26 +129,31 @@
   const notesOf = e => { if (!e) return []; if (Array.isArray(e.notes)) return e.notes; return e.note ? [{ id: 'n0', t: e.created || startOf(e), x: String(e.note) }] : []; };
   const noteStamp = n => `${dayKey(n.t)} ${hm(n.t)}` + (n.u ? ` (edited ${dayKey(n.u) === dayKey(n.t) ? '' : dayKey(n.u) + ' '}${hm(n.u)})` : '');
   const notesTxt = e => notesOf(e).map(n => `[${noteStamp(n)}] ${n.x}`).join(' | ');
+  // v9: patient name + MRN/PHN (mrn maps to older chart); billingNote is the spreadsheet note (falls back to first timestamped note)
+  const ptName = e => (e && (e.name || '').trim()) || '';
+  const ptMrn = e => (e && ((e.mrn || '').trim() || (e.chart || '').trim())) || '';
+  const billingNoteOf = e => { if (!e) return ''; if ((e.billingNote || '').trim()) return e.billingNote.trim(); const ns = notesOf(e); return ns.length ? ns[0].x : ''; };
+  const ptWho = e => { const n = ptName(e); if (n) return n; return [e && e.label, e && e.initials].filter(Boolean).join(' · '); };
   const samePt = (e, all) => !e || !e.pt ? [] : (all || []).filter(x => x.pt === e.pt && x.id !== e.id).sort((a, b) => startOf(a) - startOf(b));
   const samePtTxt = (e, all) => samePt(e, all).map(x => `${x.label || KIND[kindOf(x)]} ${encDay(x)} ${hm(startOf(x))}`).join('; ');
   function row(e, now) {
     const m = minsOf(e, now), en = endOf(e);
-    return { start: hm(startOf(e)) + lateMark(e), end: en == null ? (kindOf(e) === 'shift' ? 'on site' : 'running') : hm(en), min: String(m), units: String(units(m)), set: [SET[e.setting] || '', facTxt(e)].filter(Boolean).join(', '), room: e.label || '', init: e.initials || '', chart: e.chart || '', type: e.type || '',
-      codes: (e.codes || []).map(c => c.c + (c.f ? ` (${c.f})` : '')).join('; '), dx: dxTxt(e), per: perTxt(periodSplit(e, now).parts, true), fac: facTxt(e), cbt: CBT[e.cbType] || '', called: e.called ? hm(e.called) : '', site: hmin(m) };
+    return { start: hm(startOf(e)) + lateMark(e), end: en == null ? (kindOf(e) === 'shift' ? 'on site' : 'running') : hm(en), min: String(m), units: String(units(m)), set: [SET[e.setting] || '', facTxt(e)].filter(Boolean).join(', '), name: ptName(e) || ptWho(e), mrn: ptMrn(e), room: e.label || '', init: e.initials || '', chart: ptMrn(e), type: e.type || '',
+      codes: (e.codes || []).map(c => c.c + (c.f ? ` (${c.f})` : '')).join('; '), dx: dxTxt(e), note: billingNoteOf(e), per: perTxt(periodSplit(e, now).parts, true), fac: facTxt(e), cbt: CBT[e.cbType] || '', called: e.called ? hm(e.called) : '', site: hmin(m) };
   }
   // ---------- CSV
   const csvCell = v => { let s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   // one row per entry (CSV and the Excel "Entries" sheet share it)
   function table(encs, from, to, now, all, o) {
     o = o || {};
-    const head = ['date', 'kind', 'facility', 'zone', 'label', 'initials', 'chart', 'setting', 'type', 'callback_type', 'called', 'codes', 'diagnostic_code', 'start', 'end', 'minutes', 'units', 'time_periods'].concat(PERIODS.flatMap(p => [p.id + '_min', p.id + '_units']), ['linked', 'same_patient', 'entered_later', 'last_edited']).concat(o.notes ? ['notes'] : []);
+    const head = ['date', 'kind', 'facility', 'zone', 'patient_name', 'mrn_phn', 'label', 'initials', 'chart', 'setting', 'type', 'callback_type', 'called', 'codes', 'diagnostic_code', 'billing_note', 'start', 'end', 'minutes', 'units', 'time_periods'].concat(PERIODS.flatMap(p => [p.id + '_min', p.id + '_units']), ['linked', 'same_patient', 'entered_later', 'last_edited']).concat(o.notes ? ['notes'] : []);
     const rows = [], iso = ts => { if (ts == null) return ''; const d = new Date(ts); return `${dayKey(ts)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
     const byId = new Map((all || encs).map(e => [e.id, e]));
     for (const e of select(encs, from, to)) {
       const m = minsOf(e, now), en = endOf(e), k = kindOf(e);
       const linked = (e.links || []).map(id => byId.get(id)).filter(Boolean).map(x => `${x.label} ${hm(startOf(x))}`).join('; ');
       const ps = periodSplit(e, now).parts, pv = PERIODS.flatMap(p => { const q = ps.find(x => x.id === p.id); return k === 'shift' ? ['', ''] : [q ? q.m : 0, q ? q.u : 0]; });
-      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', e.label, e.initials, e.chart, SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), codesTxt(e), dxTxt(e), iso(startOf(e)), iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
+      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', ptName(e) || ptWho(e), ptMrn(e), e.label, e.initials, e.chart || e.mrn || '', SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), codesTxt(e), dxTxt(e), billingNoteOf(e), iso(startOf(e)), iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
     }
     return { head, rows };
   }
@@ -166,7 +171,7 @@
     }
     return out;
   }
-  const encCap = e => [e.label, e.initials, e.chart, hm(startOf(e))].filter(Boolean).join(' · ');
+  const encCap = e => [ptName(e) || e.label, e.initials, ptMrn(e), hm(startOf(e))].filter(Boolean).join(' · ');
   const CONF = 'CONFIDENTIAL: may contain patient information. Share only through secure, authorized channels.';
   const NOTES_OFF = 'Notes are not included in this file (export option "Include notes" was off).';
   const LATE_NOTE = '* Entered later (back-dated or times edited after the fact); see the audit log for the full history.';
@@ -184,7 +189,7 @@
       blocks.push({ t: 'small', text: totTxt(totals(l, now)) });
       const en = l.filter(e => kindOf(e) === 'enc'), cb = l.filter(e => kindOf(e) === 'cb'), sh = l.filter(e => kindOf(e) === 'shift');
       if (sh.length) { blocks.push({ t: 'p', bold: true, text: 'On site (arrival / departure)' }); blocks.push({ t: 'table', head: ['Facility', 'Setting', 'Arrival', 'Departure', 'Time on site'], widths: [5000, 1200, 1100, 1100, 1840], rows: sh.map(e => { const r = row(e, now); return [r.fac, SET[e.setting] || '', r.start, r.end, r.site]; }) }); }
-      if (en.length) { blocks.push({ t: 'p', bold: true, text: 'Encounters' }); blocks.push({ t: 'table', head: ['Start', 'End', 'Min', 'Units', 'Setting', 'Room/bed', 'Initials', 'Chart/MRN', 'Type', 'Codes', 'Diagnostic code', 'Time periods'], widths: W, rows: en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.room, r.init, r.chart, r.type, r.codes, r.dx, r.per]; }) }); }
+      if (en.length) { blocks.push({ t: 'p', bold: true, text: 'Encounters' }); blocks.push({ t: 'table', head: ['Start', 'End', 'Min', 'Units', 'Setting', 'Patient', 'MRN/PHN', 'Type', 'Codes', 'Diagnostic code', 'Billing note', 'Time periods'], widths: W, rows: en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.codes, r.dx, r.note, r.per]; }) }); }
       if (cb.length) { blocks.push({ t: 'p', bold: true, text: 'Call-backs' }); blocks.push({ t: 'table', head: ['Type', 'Called', 'Arrival', 'Departure', 'Min', 'Units', 'Facility', 'Codes', 'Diagnostic code', 'Time periods', 'Linked encounters'], widths: [1000, 600, 650, 700, 480, 520, 1400, 1400, 1000, 1100, 1390], rows: cb.map(e => { const r = row(e, now); return [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.codes, r.dx, r.per, linkTxt(e, byId)]; }) }); }
       const sp = l.filter(e => samePt(e, encs).length);
       if (sp.length) blocks.push({ t: 'small', text: 'Same patient: ' + sp.map(e => `${encCap(e)} ↔ ${samePtTxt(e, encs)}`).join(' · ') });
@@ -216,7 +221,7 @@
     text(`Generated ${new Date(now).toLocaleString()} by MedBilling Logs. ${CONF}`, 8, { color: [100, 116, 139], after: 6 });
     text('Totals: ' + totTxt(totals(list, now)), 10, { bold: true, after: 6 });
     const fit = cs => { const used = cs.reduce((a, c) => a + c[1], 0); cs[cs.length - 1][1] = PW - 2 * M - used; return cs; };
-    const C_ENC = fit([['Start', 40], ['End', 44], ['Min', 30], ['Units', 32], ['Setting', 66], ['Room/bed', 56], ['Initials', 40], ['Chart/MRN', 60], ['Type', 48], ['Codes', 94], ['Diagnostic code', 70], ['Time periods', 0]]);
+    const C_ENC = fit([['Start', 40], ['End', 44], ['Min', 28], ['Units', 30], ['Setting', 58], ['Patient', 70], ['MRN/PHN', 58], ['Type', 42], ['Codes', 72], ['Dx', 52], ['Note', 60], ['Time periods', 0]]);
     const C_CB = fit([['Type', 76], ['Called', 38], ['Arrival', 42], ['Departure', 50], ['Min', 30], ['Units', 32], ['Facility', 80], ['Codes', 84], ['Diagnostic code', 70], ['Time periods', 84], ['Linked', 0]]);
     const C_SH = fit([['Facility', 220], ['Setting', 60], ['Arrival', 60], ['Departure', 60], ['Time on site', 0]]);
     let cols = C_ENC;
@@ -235,7 +240,7 @@
     for (const [k, l] of byDay(list)) {
       need(60); y += 6; text(fmtDay(k), 12, { bold: true, color: [17, 94, 89], after: 0 }); text(totTxt(totals(l, now)), 8, { color: [100, 116, 139], after: 3 });
       section('On site (arrival / departure)', C_SH, l.filter(e => kindOf(e) === 'shift'), (r, e) => [r.fac, SET[e.setting] || '', r.start, r.end, r.site]);
-      section('Encounters', C_ENC, l.filter(e => kindOf(e) === 'enc'), r => [r.start, r.end, r.min, r.units, r.set, r.room, r.init, r.chart, r.type, r.codes, r.dx, r.per]);
+      section('Encounters', C_ENC, l.filter(e => kindOf(e) === 'enc'), r => [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.codes, r.dx, r.note, r.per]);
       section('Call-backs', C_CB, l.filter(e => kindOf(e) === 'cb'), (r, e) => [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.codes, r.dx, r.per, linkTxt(e, byId)]);
       const sp = l.filter(e => samePt(e, encs).length);
       if (sp.length) text('Same patient: ' + sp.map(e => `${encCap(e)} <-> ${samePtTxt(e, encs)}`).join(' · '), 7.5, { color: [100, 116, 139], after: 3 });
@@ -270,7 +275,7 @@
       out.push('', `## ${fmtDay(k)}`, '', `_${totTxt(totals(l, now))}_`);
       const sh = l.filter(e => kindOf(e) === 'shift'), en = l.filter(e => kindOf(e) === 'enc'), cb = l.filter(e => kindOf(e) === 'cb');
       if (sh.length) out.push('', '### On site (arrival / departure)', '', mdTable(['Facility', 'Setting', 'Arrival', 'Departure', 'Time on site'], sh.map(e => { const r = row(e, now); return [r.fac, SET[e.setting] || '', r.start, r.end, r.site]; })));
-      if (en.length) out.push('', '### Encounters', '', mdTable(['Start', 'End', 'Min', 'Units', 'Setting', 'Room/bed', 'Initials', 'Chart/MRN', 'Type', 'Codes', 'Diagnostic code', 'Time periods'], en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.room, r.init, r.chart, r.type, r.codes, r.dx, r.per]; })));
+      if (en.length) out.push('', '### Encounters', '', mdTable(['Start', 'End', 'Min', 'Units', 'Setting', 'Patient', 'MRN/PHN', 'Type', 'Codes', 'Diagnostic code', 'Billing note', 'Time periods'], en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.codes, r.dx, r.note, r.per]; })));
       if (cb.length) out.push('', '### Call-backs', '', mdTable(['Type', 'Called', 'Arrival', 'Departure', 'Min', 'Units', 'Facility', 'Codes', 'Diagnostic code', 'Time periods', 'Linked encounters'], cb.map(e => { const r = row(e, now); return [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.codes, r.dx, r.per, linkTxt(e, byId)]; })));
       const sp = l.filter(e => samePt(e, encs).length);
       if (sp.length) out.push('', 'Same patient: ' + mdc(sp.map(e => `${encCap(e)} <-> ${samePtTxt(e, encs)}`).join(' · ')));
@@ -299,10 +304,10 @@
   }
   // ---------- audit log export
   const ACT = { create: 'Created', start: 'Started', pause: 'Paused', resume: 'Resumed', stop: 'Stopped', arrive: 'Arrived', depart: 'Departed', edit: 'Edited', delete: 'Deleted', import: 'Imported', purge: 'Removed (retention)', 'prune-log': 'Log trimmed (retention)', review: 'Reviewed', unreview: 'Review cleared', restore: 'Restored (undo)', undo: 'Undone', 'fav-add': 'Code set saved', 'fav-remove': 'Code set removed', holiday: 'Holiday settings changed', addtime: 'Time added', 'note-add': 'Note added', 'note-edit': 'Note edited', 'note-delete': 'Note deleted', link: 'Linked (same patient)', migrate: 'Upgraded (notes)', 'backup-settings': 'Backup settings changed', backup: 'Backup', 'backup-fail': 'Backup failed' };
-  const summ = o => o ? [KIND[kindOf(o)], o.label || facTxt(o), o.initials, o.chart, (o.segs || []).map(s => hm(s.s) + '-' + (s.e == null ? '…' : hm(s.e))).join(' '), codesTxt(o), dxTxt(o) && 'Dx ' + dxTxt(o), notesOf(o).length && `${notesOf(o).length} note(s)`, o.pt && 'same-patient group'].filter(Boolean).join(' | ') : '';
+  const summ = o => o ? [KIND[kindOf(o)], ptName(o) || o.label || facTxt(o), o.initials, ptMrn(o), (o.segs || []).map(s => hm(s.s) + '-' + (s.e == null ? '…' : hm(s.e))).join(' '), codesTxt(o), dxTxt(o) && 'Dx ' + dxTxt(o), (o.billingNote || notesOf(o).length) && 'note', o.pt && 'same-patient group'].filter(Boolean).join(' | ') : '';
   function diff(b, a, hideNotes) {
     if (!b || !a) return [];
-    const keys = ['label', 'initials', 'chart', 'setting', 'type', 'cbType', 'called', 'status', 'minor', 'minorAge', 'obstetric', 'late'], out = [];
+    const keys = ['name', 'mrn', 'label', 'initials', 'chart', 'billingNote', 'setting', 'type', 'cbType', 'called', 'status', 'minor', 'minorAge', 'obstetric', 'late'], out = [];
     const nv = v => (v == null || v === false) ? '' : v;
     for (const k of keys) if (JSON.stringify(nv(b[k])) !== JSON.stringify(nv(a[k]))) out.push(`${k}: ${k === 'called' ? (b[k] ? hm(b[k]) : '') : (b[k] ?? '')} -> ${k === 'called' ? (a[k] ? hm(a[k]) : '') : (a[k] ?? '')}`);
     const st = o => (o.segs || []).map(s => `${dayKey(s.s)} ${hm(s.s)}-${s.e == null ? 'open' : hm(s.e)}`).join(', ');
@@ -362,5 +367,5 @@
     return t;
   }
   const RET_RULE = 'Retention: 10 years from the last entry; minors: the longer of 10 years or 2 years after age 18 (CPSA); obstetric: 10 years after the infant reaches majority (CMPA). Nothing is removed without your confirmation.';
-  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxShort, dxTxt, codesTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
+  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxShort, dxTxt, codesTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
 })(window);
