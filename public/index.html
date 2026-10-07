@@ -38,6 +38,13 @@
       <button type="submit" class="primary wide" id="sBtn">Create passcode</button>
     </form>
     <form id="unlockForm" hidden autocomplete="off">
+      <div id="euLock" class="eulock" hidden>
+        <button type="button" class="primary wide" id="euBio" hidden>Unlock with Face ID</button>
+        <button type="button" class="primary wide" id="euKey" hidden>Unlock with passkey</button>
+        <div id="euPinBox" hidden><label class="fld">Quick PIN<input id="euPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-describedby="euErr"></label><button type="button" class="primary wide" id="euPinBtn">Unlock with PIN</button></div>
+        <p class="err small" id="euErr" role="alert"></p>
+        <p class="small muted euor">or use your passcode / passphrase:</p>
+      </div>
       <label class="fld"><span id="uLbl">Passcode or passphrase</span><input id="uPass" type="password" maxlength="128" required autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
       <p class="err small" id="uErr" role="alert"></p>
       <button type="submit" class="primary wide" id="uBtn">Unlock</button>
@@ -159,6 +166,12 @@
       <p class="small muted">The app also locks whenever it goes to the background. Timers keep counting while locked.</p>
       <div class="rowbtns"><button type="button" class="ghost" id="lockNow2">Lock now</button><button type="button" class="ghost" id="chPass">Change passcode / passphrase</button></div>
       <p class="warnbox small">A forgotten passcode means the data can't be recovered. Keep an encrypted backup.</p>
+      <div class="easybox" id="euCard" hidden>
+        <h4>Easy unlock</h4>
+        <label class="chk small" id="euBioL" hidden><input type="checkbox" id="euBioOn"> <span id="euBioLbl">Unlock with Face ID / Touch ID / passkey</span></label>
+        <label class="chk small" id="euPinL" hidden><input type="checkbox" id="euPinOn"> <span>Quick PIN (4–6 digits; erased after 5 wrong tries)</span></label>
+        <p class="small muted" id="euInfo"></p>
+      </div>
     </div>
     <div class="card" id="bkCard">
       <h3>Backups</h3>
@@ -503,9 +516,9 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9 (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9e (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
-      <a href="#m-start" data-go="m-start">1. Getting started</a>
+      <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
       <a href="#m-site" data-go="m-site">3. Arrival, departure and call-backs</a>
       <a href="#m-enc" data-go="m-enc">4. Encounters: the spreadsheet</a>
@@ -525,7 +538,7 @@
     </nav>
 
     <section id="m-start">
-      <h3>1. Getting started</h3>
+      <h3>1. Getting started, passcode and easy unlock</h3>
       <h4>Add it to your Home Screen first</h4>
       <p>Install the app before you create a passcode, then always open it from the Home Screen icon. It then opens full screen and works offline.</p>
       <ul>
@@ -539,6 +552,20 @@
         <li>Tick the two boxes: you understand a forgotten passcode can't be recovered, and you accept responsibility for keeping and backing up your records.</li>
         <li>Your passcode is never stored anywhere. It makes the key that encrypts your data.</li>
         <li>To change it later, or to switch between a passcode and a passphrase: <b>Settings → Lock → Change passcode / passphrase</b>. Everything is re-encrypted with the new one.</li>
+      </ul>
+      <h4 id="m-easy">Easy unlock: Face ID, Touch ID, fingerprint, passkey or quick PIN</h4>
+      <p>Typing the passcode every time is optional. Turn on easy unlock in <b>Settings → Lock → Easy unlock</b> (you type your passcode or passphrase once to turn it on). It is off until you choose it.</p>
+      <ul>
+        <li><b>iPhone / iPad app:</b> <b>Unlock with Face ID</b> (or Touch ID). A copy of the encryption key is wrapped with a key kept in the iOS Keychain that only opens after Face ID / Touch ID, and stops working if the enrolled faces or fingers change.</li>
+        <li><b>Android app:</b> <b>Unlock with fingerprint</b> (or face unlock where the phone offers strong biometrics), using the Android Keystore the same way.</li>
+        <li><b>Quick PIN (iPhone, iPad and Android app only):</b> a 4 to 6 digit PIN. It is stretched with the same strong key derivation as the passcode and combined with a secret held in the device Keychain / Keystore. After <b>5 wrong PINs</b> the quick PIN is erased and you need the full passcode. It is not offered in the browser, because a short PIN stored in a browser could be guessed offline.</li>
+        <li><b>Browser / Home Screen web app:</b> <b>Unlock with a passkey</b> (Face ID, Touch ID, Windows Hello or a phone/security key) where the browser and passkey support the PRF extension: Safari 18 or later on iPhone, iPad (18.4 or later is most reliable) and Mac (macOS 15 or later) with iCloud Keychain passkeys; Chrome on Android with Google Password Manager; Chrome or Edge on Mac; on Windows, Windows Hello works only on Windows 11 25H2 with the February 2026 update and Chrome/Edge 147 or later (or Firefox 148 or later). Where the browser lacks it the option is hidden; if a particular passkey can’t do it, the app says so and leaves easy unlock off.</li>
+      </ul>
+      <ul>
+        <li>Your passcode or passphrase always works and is never replaced. <b>Changing it turns easy unlock off</b> until you turn it on again.</li>
+        <li>Easy unlock never opens exports. Export passwords are always typed and must differ from your passcode.</li>
+        <li>Your data stays encrypted the same way (AES-GCM with a 600,000-round key). Easy unlock only stores an extra wrapped copy of the key that the device's biometrics, passkey or PIN can open.</li>
+        <li>Readable automatic backups that use "same as the app passcode" need one unlock with the passcode itself in that session.</li>
       </ul>
       <h4>If you forget the passcode</h4>
       <p>No one can recover it or open your data, including the developer. The only way back in is <b>Forgot passcode?</b> on the lock screen: type DELETE to erase everything on this device and start again. If you have an encrypted backup and remember <i>that backup's</i> passcode, you can import it afterwards. This is why backups matter.</p>
@@ -848,6 +875,9 @@
       <h3>17. FAQ and troubleshooting</h3>
       <dl class="manfaq">
         <dt>I forgot my passcode or passphrase.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
+        <dt>Face ID / fingerprint / passkey stopped working.</dt><dd>Use your passcode or passphrase; it always works. Easy unlock turns off after a passcode change, after the device's enrolled faces or fingers change, or if the passkey was deleted. Turn it on again in Settings → Lock → Easy unlock.</dd>
+        <dt>Can Face ID or a passkey open my exported files?</dt><dd>No. Export passwords are always typed, must be different from your passcode, and are never stored.</dd>
+        <dt>I don't see "Unlock with a passkey" in my browser.</dt><dd>Your browser doesn't support the passkey PRF extension (it needs Safari 18 or later, current Chrome or Edge, or Firefox 148 or later on a computer). The option is hidden rather than offered in a weaker form.</dd>
         <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
         <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock.</dd>
         <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
@@ -882,6 +912,7 @@
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="js/vault.js"></script>
 <script src="js/pwpolicy.js"></script>
+<script src="js/easyunlock.js"></script>
 <script src="js/search.js"></script>
 <script src="js/docx.js"></script>
 <script src="js/xlsx.js"></script>
