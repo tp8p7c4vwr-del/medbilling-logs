@@ -1244,19 +1244,19 @@
           await applyCell(e, 'fee', list.concat(code).join(', '), R.encDay(e)); msg = `${code} added`;
           await saveEnc(e, 'edit', `Fee code ${code} picked in Fee Desk`);
         } else {
-          const list = R.dxList(e), slots = (e.codes || []).length;
-          if (list.some(c => nc(c) === nc(code))) { msg = `${code} is already in this row`; return; }
-          let v, rep = '';
-          if (!list.length || list.length < slots) v = list.concat(code);
-          else { rep = list[list.length - 1]; v = list.slice(0, -1).concat(code); }   // one Dx per fee code (one without a fee code)
-          await applyCell(e, 'dx', v.join(', '), R.encDay(e));
-          await saveEnc(e, 'edit', `Diagnostic code ${code} picked in Fee Desk` + (rep ? ` (replaced ${rep})` : ''));
-          msg = rep ? `${code} replaced ${rep} (one Dx per fee code)` : `${code} added`;
-          if (rep) undo = () => undoTo(before, e, `${rep} is back`);
+          // v9n: same placement as the multi-code pick: beside the first fee code without a Dx, else added after the others (extra
+          // Dx); an existing Dx is never replaced; a code already in the row is not added twice
+          if (R.dxList(e).some(c => nc(c) === nc(code))) { msg = `${code} is already in this row`; return; }
+          const r = await pickMerge(e, { v: 2, fee: [], dx: [code], dxFor: [''], mod: [], modFor: [] });
+          if (!r.changed) { msg = `${code} is already in this row`; return; }
+          await saveEnc(e, 'edit', `Diagnostic code ${code} picked in Fee Desk`);
+          const by = (e.codes || []).find(c => c.dx && nc(c.dx) === nc(code));
+          msg = by && (e.codes || []).length > 1 ? `${code} added beside ${by.c}` : `${code} added`;
+          undo = () => undoTo(before, e, `${code} removed`);
         }
       });
       pickFocus(p, col);
-      if (undo) snack(msg, undo); else toast(msg, 2600);
+      if (undo) snack(msg, undo); else { hideSnack(); toast(msg, 2600); }   // v9n: an older Undo never lingers beside a new message
     } catch (er) { toast('Could not add the code: ' + ((er && er.message) || er), 4000); }
     finally { pickBusy = false; }
   }
