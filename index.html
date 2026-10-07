@@ -520,7 +520,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9g (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9h (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -621,7 +621,7 @@
 
     <section id="m-enc">
       <h3>4. Encounters: the spreadsheet</h3>
-      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Fee code(s)</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries. Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
+      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Fee code(s)</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
       <ol>
         <li><b>New patient:</b> type a name or MRN/PHN in the first blank row. That creates the encounter (not started yet).</li>
         <li><b>Start the clock:</b> type the time in <b>In</b> (24-hour: <i>0930</i>, <i>9:30</i>, <i>21h05</i>; type <i>n</i> for now), or tap <b>▶</b> in the In cell. The row's Min cell then counts up live.</li>
@@ -629,6 +629,13 @@
         <li><b>H/C:</b> tap (or press Space, or type H or C) to switch between Hospital and Clinic.</li>
         <li><b>Codes:</b> type or paste fee and ICD-9 codes (several separated by commas). Select the cell and tap <b>↗</b> (or <b>ⓘ</b> beside a code) to pick in MedBilling Fee Desk: tap a code there and it comes straight back into that cell (see <a href="#m-codes" data-go="m-codes">section 8</a>).</li>
       </ol>
+      <h4>Rows never run out</h4>
+      <p>The grid is endless. Whenever the cell you are in is within 5 rows of the last row, 10 more blank rows are added below; it doesn't matter how you got there (Tab, Enter, ↓, the <b>Next</b> bar, or a tap), and you don't have to type anything. Scrolling to within 5 rows of the bottom adds 10 more as well. Row numbers simply continue (… 40, 41, 42 …), and your cursor, the text you're typing and the order of rows stay exactly where they were.</p>
+      <ul>
+        <li>Blank rows are only empty lines on the screen: they are never saved, never counted in the totals row and never appear in reports or exports. A row becomes an encounter only when you type in it (or pick a code into it).</li>
+        <li>Rows far below your entries look plain (no buttons) until you reach them; they become ordinary rows as soon as you move into, tap or hover over them.</li>
+        <li>The extra rows last until you lock the app or reload; after that the grid starts again with your entries plus the usual blank rows.</li>
+      </ul>
       <h4>Columns fit what you type</h4>
       <p>Each column widens to fit its longest entry (and narrows again when you shorten it). Past a sensible maximum, <b>Patient name</b>, <b>Fee code(s)</b>, <b>Dx</b> and <b>Billing notes</b> wrap onto more lines and the row grows taller, so nothing is cut off. On a narrow screen the grid scrolls sideways; # and Patient name stay pinned on the left.</p>
       <h4>Moving between cells: only when you say so</h4>
@@ -917,6 +924,7 @@
         <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
         <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock. A code you picked in Fee Desk waits and is added right after you unlock.</dd>
         <dt>I tapped a code in Fee Desk but nothing came back.</dt><dd>Open Fee Desk with <b>↗</b> in the Fee code(s) or Dx cell (the slim "Picking a code for MedBilling Logs" bar must show). Plain Fee Desk links only look codes up. Picks expire after 30 minutes.</dd>
+        <dt>The rows used to stop at 40. Is there a limit?</dt><dd>No. Keep pressing Tab, Enter or Next (or scroll down): when you're within 5 rows of the end, 10 more rows appear. Empty rows aren't saved or counted, so they never change your totals or reports.</dd>
         <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
         <dt>How do I move to a new phone?</dt><dd>On the old phone, Export a backup. On the new phone, install the app, create a passcode, then Import the backup with the passcode it was made with.</dd>
         <dt>Why does an entry say "Entered later"?</dt><dd>It was back-dated, time was added, or its times were edited. See section 7.</dd>
