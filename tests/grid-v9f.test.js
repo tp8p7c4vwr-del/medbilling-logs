@@ -9,7 +9,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 const errors = [];
 const G = '#todayList table.grid';
 const cell = (r, c) => `${G} tbody tr:nth-child(${r}) .gc[data-c="${c}"]`;
-const LONG = { name: 'Maximiliano Fernández-Oyarzún de la Cruz', mrn: '123456789012345', fee: '03.03A, 13.99BA, 03.05JR, 03.08A', dx: '650, 644.21, V22.2', note: 'Seen in L&D triage for reduced fetal movement; NST reactive, discharged home with kick-count instructions and follow-up in clinic.' };
+const LONG = { name: 'Maximiliano Fernández-Oyarzún de la Cruz', mrn: '123456789012345', fee: '03.03A, 13.99BA, 03.05JR, 03.08A', mod1: 'CMGP, BMI, TELES, SURC', mod2: 'ANE, 2ANU, LOCI, AGE', dx: '650, 644.21, V22.2, 626.2', note: 'Seen in L&D triage for reduced fetal movement; NST reactive, discharged home with kick-count instructions and follow-up in clinic.' };
 async function open(browser, o) {
   const ctx = await browser.newContext(Object.assign({ timezoneId: 'America/Edmonton' }, o)); const p = await ctx.newPage();
   p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); }); p.on('pageerror', e => errors.push(e.message));
@@ -35,7 +35,7 @@ const settle = p => p.waitForTimeout(1300);
   await p.screenshot({ path: path.join(OUT, 'narrow-content-1280.png') });
   ok((await aligned(p)).length === 0, '1280: header, body and totals columns aligned (empty grid)');
   // 1. widths grow while typing, wrap past the maximum, shrink back
-  for (const k of ['name', 'mrn', 'fee', 'dx']) {
+  for (const k of ['name', 'mrn', 'fee', 'mod1', 'mod2', 'dx']) {   // v9k: + Modifier code 1 / 2; code columns start wider (~15 characters)
     const w0 = await colW(p, k); await p.click(cell(1, k)); await p.keyboard.type(LONG[k], { delay: 5 }); await p.waitForTimeout(120);
     const w1 = await colW(p, k); ok(w1 > w0, `1280: ${k} column grows while typing (${w0} → ${w1}px)`);
     ok(await where(p) === `${k}@1`, `1280: focus stays in ${k} while typing a long value (${await where(p)})`);
@@ -96,7 +96,7 @@ const settle = p => p.waitForTimeout(1300);
   await m.locator(cell(1, 'name')).tap(); ok(await where(m) === 'name@1', 'tap → that cell');
   ok(await m.isVisible('#gNav'), 'floating ← Next → bar shows while a cell is active');
   for (const ch of LONG.name) { await m.keyboard.type(ch); } await settle(m); ok(await where(m) === 'name@1', 'typing a long name on the phone never moves focus');
-  const order = ['mrn', 'hc', 'tin', 'tout', 'fee', 'dx', 'note'];
+  const order = ['mrn', 'hc', 'tin', 'tout', 'fee', 'mod1', 'mod2', 'dx', 'note'];   // v9k: Modifier code 1 / 2 after Fee code(s)
   for (const k of order) { await m.keyboard.press('Enter'); ok(await where(m) === `${k}@1`, `phone return key → ${k}`); if (k !== 'hc' && k !== 'tin' && k !== 'tout' && k !== 'note') { await m.keyboard.type(LONG[k]); await m.waitForTimeout(500); ok(await where(m) === `${k}@1`, `typing in ${k} keeps focus`); } }
   await m.locator(cell(1, 'note')).tap(); await m.waitForSelector('#noteEd.sheet:not([hidden])'); await m.keyboard.type(LONG.note); await m.locator('#nedDone').tap(); await m.waitForTimeout(300);
   ok(await where(m) === 'note@1' && (await m.getAttribute(cell(1, 'note'), 'data-v')) === LONG.note, 'phone: tap Billing notes → bottom sheet; Done saves and returns to the cell');

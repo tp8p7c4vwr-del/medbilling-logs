@@ -47,9 +47,9 @@ async function exportFmt(page, fmt, pass, opts = {}) {
   await page.check('input[name=sKind][value=phrase]'); await page.fill('#sPass', 'short words'); await page.fill('#sPass2', 'short words'); await page.click('#sBtn'); ok(/12 characters/.test(await page.textContent('#sErr')), 'passphrase needs 12+ chars');
   await setup(page, 'phrase', APP_PASS); ok(true, 'passphrase with spaces accepted at setup');
   const now = Date.now();
-  await typeRow(page, 1, [['name', PATIENTS[0][0]], ['mrn', PATIENTS[0][1]], ['hc', null], ['tin', hm(now - 200 * 60000)], ['tout', hm(now - 160 * 60000)], ['fee', '03.04A'], ['dx', 'V22.1'], ['note', 'Prenatal visit']]);
-  await typeRow(page, 2, [['name', PATIENTS[1][0]], ['mrn', PATIENTS[1][1]], ['hc', null], ['tin', hm(now - 150 * 60000)], ['tout', hm(now - 120 * 60000)], ['fee', '03.08A'], ['dx', '626.2'], ['note', 'Consult']]);
-  await typeRow(page, 3, [['name', PATIENTS[2][0]], ['mrn', PATIENTS[2][1]], ['hc', null], ['tin', hm(now - 100 * 60000)], ['tout', hm(now - 85 * 60000)], ['fee', '13.99A'], ['dx', '650'], ['note', 'Follow-up']]);
+  await typeRow(page, 1, [['name', PATIENTS[0][0]], ['mrn', PATIENTS[0][1]], ['hc', null], ['tin', hm(now - 200 * 60000)], ['tout', hm(now - 160 * 60000)], ['fee', '03.04A'], ['mod1', 'CMGP'], ['mod2', 'BMI'], ['dx', 'V22.1'], ['note', 'Prenatal visit']]);
+  await typeRow(page, 2, [['name', PATIENTS[1][0]], ['mrn', PATIENTS[1][1]], ['hc', null], ['tin', hm(now - 150 * 60000)], ['tout', hm(now - 120 * 60000)], ['fee', '03.08A'], ['mod1', 'TELES'], ['mod2', ''], ['dx', '626.2'], ['note', 'Consult']]);
+  await typeRow(page, 3, [['name', PATIENTS[2][0]], ['mrn', PATIENTS[2][1]], ['hc', null], ['tin', hm(now - 100 * 60000)], ['tout', hm(now - 85 * 60000)], ['fee', '13.99A'], ['mod1', ''], ['mod2', 'ANE'], ['dx', '650'], ['note', 'Follow-up']]);
   ok(await page.locator('#todayList tbody tr[data-id]').count() === 3, '3 sample encounters with fake patient data');
   // dialog validation
   await page.click('#repToday'); await page.waitForSelector('#repDlg[open]');
