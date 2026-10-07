@@ -272,6 +272,10 @@
   const COLS = [['rn', '#'], ['name', 'Patient name'], ['mrn', 'MRN / PHN'], ['hc', 'H/C'], ['tin', 'In'], ['tout', 'Out'], ['min', 'Min'], ['u', 'Units'], ['fee', 'Fee code(s)'], ['dx', 'Dx (ICD-9)'], ['note', 'Billing notes'], ['act', '']];
   const NAV = ['name', 'mrn', 'hc', 'tin', 'tout', 'fee', 'dx', 'note'];
   const MIN_BLANK = 15;
+  // v9h endless rows: when the cursor (or the scroll) gets within GROW_NEAR rows of the end, GROW_BY more empty rows are added.
+  // rowsMin remembers how many rows a day's grid has grown to (memory only), so a redraw never takes rows away.
+  // Empty rows are only HTML: never saved, never in totals, reports or exports.
+  const GROW_NEAR = 5, GROW_BY = 10, rowsMin = {};
   let viewDay = null;                       // null = follow today
   const curDay = () => viewDay || today();
   const blankSet = {};                      // H/C chosen on a still-empty row (row key -> 'H'|'C')
@@ -332,7 +336,19 @@
       + `<td class="c-act"><button type="button" class="rmore" data-a="more" tabindex="-1" aria-label="Row actions" title="Timer, add time, segments and photos, same patient, delete">⋯</button></td></tr>`;
   }
   const perTxtOf = e => { const p = R.periodSplit(e).parts.filter(x => !R.PBY[x.id].regular); return p.length ? R.perTxt(p, true) : ''; };
-  function blankRow(i, first) {
+  // v9h: rows far below the work area are "light": the same cells without editors (hundreds of empty textareas would slow
+  // every keystroke). A light row gets its editors the moment the cursor moves to it or it is tapped (lightUp).
+  const lightRow = i => `<tr class="gr blank light" data-key="r${i}" data-blank="1" data-light="1"><th scope="row" class="rn">${i}</th><td class="c-name"></td><td class="c-mrn"></td><td class="c-hc dim"></td><td class="c-tin"></td><td class="c-tout"></td><td class="num c-min"></td><td class="num c-u"></td><td class="c-fee"></td><td class="c-dx"></td><td class="c-note"></td><td class="c-act"></td></tr>`;
+  function lightUp(tr) {
+    if (!tr || !tr.dataset.light) return tr;
+    const tpl = document.createElement('template'); tpl.innerHTML = '<table><tbody>' + blankRow(tr.sectionRowIndex + 1, false) + '</tbody></table>';
+    const nr = tpl.content.querySelector('tr'), nc = [...nr.cells];
+    [...tr.cells].forEach((c, k) => { if (nc[k] && !c.querySelector('.gc, button')) c.replaceWith(nc[k]); });
+    delete tr.dataset.light; tr.classList.remove('light');
+    return tr;
+  }
+  function blankRow(i, first, light) {
+    if (light) return lightRow(i);
     const key = 'r' + i, set = blankSet[key] || quickSet;
     return `<tr class="gr blank" data-key="${key}" data-blank="1"><th scope="row" class="rn">${i}</th>`
       + `<td class="c-name"><div class="cw">${gInp('name', '', { lbl: 'Patient name (new row)', ph: first ? 'Patient name…' : '' })}</div></td>`
@@ -355,8 +371,9 @@
   }
   function sheetHtml(list, o) {
     let rows = '';
-    if (o.seq) { const fb = o.seq.indexOf(null); o.seq.forEach((e, i) => { rows += e ? gridRow(e, i + 1) : blankRow(i + 1, i === fb); }); }   // v9f: rows kept where they are while editing
-    else { rows = list.map((e, i) => gridRow(e, i + 1)).join(''); for (let j = 0; j < (o.blank || 0); j++) rows += blankRow(list.length + j + 1, j === 0); }
+    const lf = o.lightFrom || Infinity, lt = i => i >= lf && 'r' + i !== o.keepKey;   // v9h: light rows (no editors) from row lightFrom on
+    if (o.seq) { const fb = o.seq.indexOf(null); o.seq.forEach((e, i) => { rows += e ? gridRow(e, i + 1) : blankRow(i + 1, i === fb, lt(i + 1)); }); }   // v9f: rows kept where they are while editing
+    else { rows = list.map((e, i) => gridRow(e, i + 1)).join(''); for (let j = 0; j < (o.blank || 0); j++) rows += blankRow(list.length + j + 1, j === 0, lt(list.length + j + 1)); }
     return `<table class="grid${o.main ? ' main' : ''}" data-day="${esc(o.day)}" aria-label="${esc((o.main ? 'Spreadsheet for ' : '') + R.fmtDay(o.day))}">${gColgroup}${gHead}<tbody>${rows}</tbody>${gFoot(list)}</table>`;
   }
   // rows shown for a day: Today also keeps running / paused entries from earlier days at the top
@@ -430,7 +447,7 @@
     const tr = c.closest('tr'), rows = [...tr.parentNode.rows]; let r = rows.indexOf(tr), ci = NAV.indexOf(c.dataset.c);
     if (dc) { ci += dc; if (ci >= NAV.length) { if (!wrap) return; ci = 0; r++; } else if (ci < 0) { if (!wrap) return; ci = NAV.length - 1; r--; } }
     r += dr; if (r < 0 || r >= rows.length) return;
-    focusCell(cellAt(rows[r], ci));
+    focusCell(cellAt(lightUp(rows[r]), ci));
   }
   // saves run one at a time; the grid re-renders once the queue is empty, so fast typing never sees a half-saved (stale) grid
   let gPendN = 0;
@@ -555,6 +572,31 @@
     if (b.textContent.trim() === nv) return; b.textContent = nv; gridSave(tr.dataset.id, 'hc', nv);
   }
   const entryOf = el => { const tr = el && el.closest('tr[data-id]'); return tr && S ? S.encs.find(x => x.id === tr.dataset.id) : null; };
+  // v9h: add GROW_BY empty rows at the end (row numbers continue); focus, caret and the rows above are untouched
+  function growGrid(t) {
+    const tb = t && t.tBodies[0]; if (!tb || !tb.querySelector('tr[data-blank]')) return false;
+    const n = tb.rows.length; let h = ''; for (let j = 0; j < GROW_BY; j++) h += lightRow(n + j + 1);
+    const tpl = document.createElement('template'); tpl.innerHTML = '<table><tbody>' + h + '</tbody></table>';
+    tb.append(...tpl.content.querySelector('tbody').rows);
+    if (t.dataset.day) rowsMin[t.dataset.day] = Math.max(rowsMin[t.dataset.day] || 0, tb.rows.length);
+    return true;
+  }
+  function growNear(c) {
+    const tr = c && c.closest && c.closest('tbody tr'), t = tr && tr.closest('table.grid'); if (!t) return;
+    if (tr.parentNode.rows.length - 1 - tr.sectionRowIndex <= GROW_NEAR) growGrid(t);
+  }
+  // scrolled near the bottom of a grid that has empty rows (the Today grid scrolls inside its frame; the page may scroll too)
+  let growRaf = 0;
+  function growOnScroll() {
+    if (growRaf) return;
+    growRaf = requestAnimationFrame(() => { growRaf = 0;
+      for (const t of $$('#todayList table.grid')) {
+        const tb = t.tBodies[0], last = tb && tb.rows[tb.rows.length - 1]; if (!last || !tb.querySelector('tr[data-blank]') || !t.offsetParent) continue;
+        const w = t.closest('.gwrap'), rh = last.offsetHeight || 30, bottom = Math.min(innerHeight, w ? w.getBoundingClientRect().bottom : innerHeight);
+        let guard = 0; while (guard++ < 5 && tb.rows[tb.rows.length - 1].getBoundingClientRect().top < bottom + GROW_NEAR * rh) growGrid(t);
+      }
+    });
+  }
   function bindGrid(root) {
     let lpT = null;
     root.addEventListener('pointerdown', ev => {
@@ -563,9 +605,11 @@
       if (rn) lpT = setTimeout(() => { const e = entryOf(rn); if (e) openRowMenu(e); }, 550);
     }, true);
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => root.addEventListener(n, () => clearTimeout(lpT)));
+    // v9h: a mouse over a light empty row gives it its editors, so the hover buttons (▶, ↗) show as on any row
+    root.addEventListener('pointerover', ev => { if (ev.pointerType !== 'mouse') return; const tr = ev.target.closest && ev.target.closest('tr[data-light]'); if (tr) lightUp(tr); });
     root.addEventListener('focusin', ev => {
       const c = ev.target.closest && ev.target.closest('.gc'); if (!c) return;
-      gCell = c; setActive(c); gNavShow(true);
+      gCell = c; setActive(c); gNavShow(true); growNear(c);
       if (gMouse === c) gEdit = true;
       else if (c.select && !COARSE()) { gEdit = false; if (document.activeElement === c && !(c.selectionStart === 0 && c.selectionEnd === c.value.length)) c.select(); }
       else gEdit = true;
@@ -624,13 +668,17 @@
         return;
       }
       if (t.closest('a, input, textarea, button')) return;
-      const td = t.closest('td, th.rn'); if (!td) return;
+      const td0 = t.closest('td, th.rn'); if (!td0) return;
+      const ltr = td0.closest('tr'), ci = [...ltr.cells].indexOf(td0); if (ltr.dataset.light) lightUp(ltr);
+      const td = ltr.cells[ci] || td0;
       const c = td.querySelector('.gc') || (td.classList.contains('rn') && td.parentNode.querySelector('.gc')); if (c) { gMouse = (c.tagName === 'INPUT' || c.tagName === 'TEXTAREA') && !td.classList.contains('rn') ? c : null; c.focus(); if (!gMouse && c.select) c.select(); }
     });
     root.addEventListener('dblclick', ev => { const rn = ev.target.closest('tbody .rn'); if (rn) { const e = entryOf(rn); if (e) openEdit(e); } });
     root.addEventListener('contextmenu', ev => { if (ev.target.closest('input')) return; const e = entryOf(ev.target); if (!e) return; ev.preventDefault(); openRowMenu(e); });
   }
   bindGrid($('#todayList')); bindGrid($('#histList'));
+  $('#todayList').addEventListener('scroll', growOnScroll, { capture: true, passive: true });
+  window.addEventListener('scroll', () => { if (tab === 'today') growOnScroll(); }, { passive: true });
   // the Today grid fills the window below the toolbar (it scrolls inside, like Sheets, with the header and totals pinned)
   function sizeGrid() {
     const w = $('#todayList .gwrap'); if (!w || tab !== 'today' || document.body.classList.contains('locked')) return;
@@ -651,17 +699,19 @@
     // v9f: while you are working in the grid, rows keep their place (a typed In time never moves the row under your cursor);
     // they are re-sorted by time once focus leaves the grid
     // (and a row typed into lower down stays on that line instead of jumping up past the empty rows above it)
-    let seq = null;
+    let seq = null, lightFrom = list.length + 1 + Math.max(MIN_BLANK, fill - list.length);
     if (editing) {
       const byId = new Map(list.map(e => [e.id, e])), used = new Set(); seq = [];
       for (const r of old.tBodies[0].rows) { const k = r.dataset.key; if (byId.has(k)) { seq.push(byId.get(k)); used.add(k); } else if (r.dataset.blank) seq.push(null); }
       const extra = list.filter(e => !used.has(e.id)), lastE = seq.reduce((m, x, i) => x ? i : m, -1); seq.splice(lastE + 1, 0, ...extra);
-      const lastE2 = seq.reduce((m, x, i) => x ? i : m, -1); seq.length = Math.min(seq.length, Math.max(lastE2 + 1, 0) + Math.max(MIN_BLANK, fill - list.length)) ;
-      while (seq.length - (lastE2 + 1) < Math.max(MIN_BLANK, fill - list.length)) seq.push(null);
+      const lastE2 = seq.reduce((m, x, i) => x ? i : m, -1), T = Math.max(lastE2 + 1 + Math.max(MIN_BLANK, fill - list.length), rowsMin[day] || 0);
+      seq.length = Math.min(seq.length, T); while (seq.length < T) seq.push(null);
+      lightFrom = lastE2 + 2 + Math.max(MIN_BLANK, fill - list.length);
       const nat = list.map(e => e.id), now = seq.filter(Boolean).map(e => e.id);
       if (now.some((id, i) => id !== nat[i]) || seq.slice(0, lastE2 + 1).includes(null)) todayResort = true;
     }
-    const html = sheetHtml(list, { day, blank: Math.max(MIN_BLANK, fill - list.length), main: true, seq });
+    const ar = editing && document.activeElement.closest('tr');
+    const html = sheetHtml(list, { day, blank: Math.max(MIN_BLANK, fill - list.length, (rowsMin[day] || 0) - list.length), main: true, seq, lightFrom, keepKey: ar ? ar.dataset.key : '' });
     if (editing) { patchGrid(old, html); setActive(gCell); }
     else if (w) { const st = w.scrollTop, sl = w.scrollLeft, same = old && old.dataset.day === day; w.innerHTML = html; if (same) { w.scrollTop = st; w.scrollLeft = sl; } }
     else { box.innerHTML = `<div class="gwrap main">${html}</div>`; w = box.firstElementChild; }
