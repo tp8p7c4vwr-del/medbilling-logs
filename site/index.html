@@ -69,16 +69,38 @@
     <div class="card warnbox" id="bkRemind" hidden><p class="small" id="bkText"></p><div class="rowbtns"><button type="button" class="primary" id="bkNow">Back up now</button><button type="button" class="ghost" id="bkLater">Remind me later</button></div><p class="bkx small" data-k="auto"></p></div>
     <div class="card abwarn" id="abWarn" hidden role="status"><p class="small" id="abWarnTxt"></p><div class="rowbtns"><button type="button" class="ghost" id="abWarnAllow" hidden>Allow access</button><button type="button" class="ghost" id="abWarnRetry">Try again</button><button type="button" class="linkbtn sm" id="abWarnSet">Backup settings</button></div></div>
     <div class="card warnbox" id="abRemind" hidden><p class="small" id="abRemindTxt"></p><div class="rowbtns"><button type="button" class="primary" id="abRemindNow">Back up now</button><button type="button" class="ghost" id="abRemindLater">Later</button></div><p class="bkx small" data-k="auto"></p></div>
-    <div class="card onsite" id="onsite">
-      <div class="osrow"><button type="button" class="facbtn" id="osFac" aria-label="Choose facility"><span class="fl">Facility</span><b id="osFacName">Choose…</b></button><button type="button" class="arrbtn" id="osBtn">Arrive</button></div>
-      <p class="small muted" id="osInfo"></p>
-      <button type="button" class="linkbtn" id="osEdit" hidden>Edit arrival time / back-date</button>
+    <div class="tbar" id="tbar" role="toolbar" aria-label="Day tools">
+      <div class="tgrp dnav">
+        <button type="button" class="tb ic" id="dPrev" aria-label="Previous day" title="Previous day">‹</button>
+        <label class="tb dpick" title="Choose a day"><span id="dLbl">Today</span><input type="date" id="dPick" aria-label="Choose a day"></label>
+        <button type="button" class="tb ic" id="dNext" aria-label="Next day" title="Next day">›</button>
+        <button type="button" class="tb" id="dToday" title="Back to today">Today</button>
+      </div>
+      <div class="tgrp site">
+        <button type="button" class="tb fac" id="osFac" aria-label="Choose facility"><span class="fl">Facility</span> <b id="osFacName">Choose…</b></button>
+        <button type="button" class="tb arr" id="osBtn">Arrive</button>
+        <span class="tinfo" id="osInfo" aria-live="polite"></span>
+      </div>
+      <span class="tinfo wk" id="wkTot"></span>
+      <span class="tsp" aria-hidden="true"></span>
+      <div class="tgrp acts">
+        <button type="button" class="tb" id="cbBtn">+ Call-back</button>
+        <button type="button" class="tb" id="repToday">Report / share</button>
+        <span class="menuwrap">
+          <button type="button" class="tb" id="moreBtn" aria-haspopup="true" aria-expanded="false" aria-controls="moreMenu">⋯ More</button>
+          <span class="menu" id="moreMenu" hidden>
+            <button type="button" id="manualBtn">+ Add past entry</button>
+            <button type="button" id="tlToday">Timeline</button>
+            <button type="button" id="rvToday">Review day</button>
+            <button type="button" id="repToday2" class="mobonly">Report / share day</button>
+            <button type="button" id="osEdit" hidden>Edit arrival time / back-date</button>
+            <button type="button" class="manlink">Help: using the spreadsheet</button>
+            <span class="mtrack" id="trackAgain" hidden></span>
+          </span>
+        </span>
+      </div>
     </div>
-    <div class="wstrip" id="todayTotals" aria-live="polite"></div>
-    <div class="tagain" id="trackAgain" hidden></div>
-    <div id="todayList" class="list"></div>
-    <div class="rowbtns"><button type="button" class="ghost" id="cbBtn">+ Call-back</button><button type="button" class="ghost" id="manualBtn">+ Add past entry</button><button type="button" class="ghost" id="tlToday">Timeline</button><button type="button" class="ghost" id="rvToday">Review day</button><button type="button" class="ghost" id="repToday">Report / share today</button></div>
-    <p class="small muted units-note" id="unitsNote"></p>
+    <div id="todayList" class="gridbox"></div>
   </section>
 
   <section id="tab-history" class="panel" hidden>
@@ -216,19 +238,9 @@
   </section>
 </main>
 
-<div class="startbar" id="startbar">
-  <form id="quick" autocomplete="off">
-    <input id="qName" maxlength="80" placeholder="Patient name" aria-label="Patient name" autocomplete="off">
-    <input id="qMrn" maxlength="24" placeholder="MRN / PHN" aria-label="MRN or healthcare number" autocomplete="off" inputmode="text">
-    <div class="seg" role="radiogroup" aria-label="Setting">
-      <button type="button" data-set="H" role="radio">Hospital</button><button type="button" data-set="C" role="radio">Clinic</button>
-    </div>
-    <button type="submit" class="startbtn" id="qStart">Start</button>
-  </form>
-  <p class="hint">Spreadsheet: edit name, MRN, times, notes and codes inline. Tap ⧉ for segments, photos and multi-code. All encrypted on this device.</p>
-</div>
 
 <footer class="foot">
+  <p class="small muted units-note" id="unitsNote"></p>
   <p class="small muted">Time log only. Confirm time-based billing rules in your own schedule (e.g. Alberta SOMB) before submitting claims.</p>
   <p class="small muted">Passcode-locked and encrypted on this device. No accounts, analytics or trackers. Nothing is sent anywhere.</p>
   <p class="small muted fdhelp">For help with medical billing codes and diagnostic codes (ICD-9 / ICD-10), use <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></p>
@@ -340,11 +352,19 @@
     <h3 id="rmTitle">Entry</h3>
     <p class="small muted" id="rmSub"></p>
     <div class="rmlist">
+      <button type="button" data-rmi="start"><span class="ei" aria-hidden="true">▶</span>Start timer now</button>
+      <button type="button" data-rmi="pause"><span class="ei" aria-hidden="true">❚❚</span>Pause</button>
+      <button type="button" data-rmi="resume"><span class="ei" aria-hidden="true">▶</span><span id="rmResumeL">Resume</span></button>
+      <button type="button" data-rmi="stop"><span class="ei" aria-hidden="true">■</span>Stop now</button>
       <button type="button" data-rmi="time"><span class="ei" aria-hidden="true">+</span>Add time</button>
+      <button type="button" data-rmi="segs"><span class="ei" aria-hidden="true">⧉</span>Segments &amp; photos (edit details)</button>
       <button type="button" data-rmi="note"><span class="ei" aria-hidden="true">✎</span>Add note</button>
       <button type="button" data-rmi="same" id="rmSame"><span class="ei" aria-hidden="true">↔</span>Same patient, new encounter</button>
-      <button type="button" data-rmi="edit"><span class="ei" aria-hidden="true">⚙</span>Edit</button>
+      <button type="button" data-rmi="fee"><span class="ei" aria-hidden="true">↗</span>Pick fee code in Fee Desk</button>
+      <button type="button" data-rmi="dx"><span class="ei" aria-hidden="true">↗</span>Pick diagnostic code in Fee Desk</button>
+      <button type="button" data-rmi="full"><span class="ei" aria-hidden="true">⛶</span>Full-screen timer</button>
       <button type="button" data-rmi="open"><span class="ei" aria-hidden="true">›</span>Open details</button>
+      <button type="button" data-rmi="del" class="rmdel"><span class="ei" aria-hidden="true">✕</span>Delete row</button>
     </div>
     <div class="dlgbtns"><span></span><button type="button" class="ghost" id="rmClose">Cancel</button></div>
   </div>
@@ -461,7 +481,7 @@
       <a href="#m-start" data-go="m-start">1. Getting started</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
       <a href="#m-site" data-go="m-site">3. Arrival, departure and call-backs</a>
-      <a href="#m-enc" data-go="m-enc">4. Encounters: start, pause, stop</a>
+      <a href="#m-enc" data-go="m-enc">4. Encounters: the spreadsheet</a>
       <a href="#m-det" data-go="m-det">5. Entry details: add time, same patient, notes</a>
       <a href="#m-quick" data-go="m-quick">6. Track again and code sets</a>
       <a href="#m-late" data-go="m-late">7. Past entries and "Entered later"</a>
@@ -498,7 +518,7 @@
       <p>After 5 wrong passcodes in a row, the app makes you wait (30 seconds at first, longer with each further miss, up to 15 minutes).</p>
       <h4>The screens</h4>
       <ul>
-        <li><b>Today:</b> facility arrival/departure, the week strip, Track again chips, and the encounter <b>spreadsheet</b> (running rows update In/Out/Time in place; Pause/Stop in the last column).</li>
+        <li><b>Today:</b> one slim toolbar (date, facility, Arrive/Depart, week totals, + Call-back, Report / share and <b>⋯ More</b>) above the encounter <b>spreadsheet</b>. Running rows count up live in the Min column; a totals row is pinned at the bottom.</li>
         <li><b>History:</b> the same spreadsheet grouped by day, with week totals, timeline, review and reports.</li>
         <li><b>Resources:</b> official billing, privacy and regulatory websites, including MedBilling Fee Desk.</li>
         <li><b>Settings:</b> defaults, timer warnings, time periods and holidays, lock, backups, retention, audit log, this manual and Delete all data.</li>
@@ -529,7 +549,7 @@
       <ol>
         <li>On <b>Today</b>, tap <b>Facility</b> and pick your hospital (Alberta hospitals, grouped by AHS zone; type to filter). For a clinic or a site not listed, type a custom name under <b>Other / clinic</b>.</li>
         <li>Tap <b>Arrive</b> when you get there. The button changes to <b>Depart</b>; tap it when you leave.</li>
-        <li>Forgot to tap Arrive? Tap <b>Edit arrival time / back-date</b> to set the real time.</li>
+        <li>Forgot to tap Arrive? Open <b>⋯ More → Edit arrival time / back-date</b> to set the real time.</li>
       </ol>
       <p>"Time on site today" adds up all your on-site periods for the day.</p>
       <h4>Call-backs</h4>
@@ -542,28 +562,35 @@
     </section>
 
     <section id="m-enc">
-      <h3>4. Encounters: spreadsheet, start, pause, stop</h3>
-      <p>Today and History look like a spreadsheet (Excel / Google Sheets): one continuous grid with cell borders, a sticky header row, and dense rows. Columns: patient name, MRN/PHN, time in, time out, duration/units, billing notes, fee code(s) and diagnostic code(s). Tap a cell to edit; changes save encrypted right away. Live encounters stay in the same grid (no separate timer cards). Use <b>↗</b> beside a fee or dx cell to pick the code in MedBilling Fee Desk (codes travel back via a same-origin handoff — never in the URL). Older entries without a name still show their room/label or initials.</p>
+      <h3>4. Encounters: the spreadsheet</h3>
+      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Fee code(s)</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries. Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
       <ol>
-        <li>In the bar at the bottom, type a <b>patient name</b> and/or <b>MRN / PHN</b>, choose <b>Hospital</b> or <b>Clinic</b>, then tap <b>Start</b>. A new row appears at the top of the spreadsheet with a live timer; use compact Pause/Stop in the last column.</li>
-        <li><b>Pause</b> / <b>Stop</b> on the running card (or ■ on the row). Each stretch of time is kept as a segment.</li>
-        <li>Edit name, MRN, times, billing notes and codes <b>inline in the grid</b>. Paste a fee or ICD-9 code into the cell, or tap <b>↗</b> to pick in Fee Desk.</li>
-        <li>Tap <b>⧉</b> (or the row outside a cell) for full details: segments, photos, multi-code search, Add time, Same patient.</li>
-        <li>Going straight to the next patient? Tap <b>Next pt</b>. It stops this encounter and starts a new one. If you typed a name/MRN in the bottom bar first, the new row gets those.</li>
+        <li><b>New patient:</b> type a name or MRN/PHN in the first blank row. That creates the encounter (not started yet).</li>
+        <li><b>Start the clock:</b> type the time in <b>In</b> (24-hour: <i>0930</i>, <i>9:30</i>, <i>21h05</i>; type <i>n</i> for now), or tap <b>▶</b> in the In cell. The row's Min cell then counts up live.</li>
+        <li><b>Stop:</b> type the time in <b>Out</b> (an Out earlier than In means after midnight), or tap <b>■</b> in the Out cell.</li>
+        <li><b>H/C:</b> tap (or press Space, or type H or C) to switch between Hospital and Clinic.</li>
+        <li><b>Codes:</b> type or paste fee and ICD-9 codes (several separated by commas). Hover or select the cell and tap <b>↗</b> to pick in MedBilling Fee Desk; the code comes back through a same-device handoff, never in the URL.</li>
       </ol>
+      <h4>Keyboard (computer or iPad keyboard)</h4>
       <ul>
-        <li><b>Next unit:</b> the running card shows the minutes and units so far, and when the next unit starts (for example <i>53 min · 4 units · +1 unit at 68 min</i>). It turns orange in the last 2 minutes. This is a display only: recorded minutes are always the real minutes, never rounded.</li>
-        <li><b>Undo:</b> after <b>Stop</b>, <b>Next pt</b> or <b>Delete</b>, an <b>Undo</b> button shows for 5 seconds. Both the action and the undo are kept in the audit log.</li>
-        <li><b>Forgotten timer:</b> a running encounter or call-back turns <b>amber</b> after 60 minutes and <b>red</b> after 3 hours (change this under Settings → Timers). Tap <b>Stop at…</b> on the card to set the real end time. If a timer is red when you unlock, the app asks: <b>Stop now</b>, <b>Stop at time</b> or <b>Keep running</b>. A corrected time is saved as "entered later" with a note in the audit log. All of this happens inside the app, with no notifications.</li>
-        <li><b>Full-screen timer (⛶):</b> big digits for procedures, readable from a distance. It shows the time only (no room, initials or codes), plus Pause and Stop. The screen stays on where the browser allows it. Auto-lock still applies, so for long procedures set a longer auto-lock first.</li>
+        <li><b>Tab</b> / <b>Shift-Tab</b> move right / left, <b>Enter</b> saves and moves down, <b>Esc</b> cancels the edit, and the <b>arrow keys</b> move between cells when you are not editing. Typing over a selected cell replaces it; click or press F2 to edit inside it.</li>
       </ul>
-      <p>Open <b>details</b> (⧉) for segments, photos and multi-code search (section 5). Tap <b>Edit</b> there for setting, type, photos, Minor/Obstetric flags, and anything the spreadsheet cell does not cover. Patient name and MRN/PHN never go into URLs or console logs.</p>
+      <h4>The ⋯ row menu</h4>
+      <p>Tap <b>⋯</b> at the end of a row (or press and hold the row number; right-click on a computer) for: Start now, Pause, Resume, Stop, Add time, Segments &amp; photos, Add note, Same patient (new encounter), pick fee or dx in Fee Desk, Full-screen timer, Open details and Delete. Double-click a row number to open the details.</p>
       <ul>
-        <li>The quick buttons (<b>now, 5, 15, 30 min ago, 1 h ago, End now</b>) fix start or end times in one tap. <b>+ Add time segment</b> adds another stretch.</li>
+        <li><b>Next unit:</b> hover the Units cell of a running row to see when the next unit starts. A running row turns <b>amber</b> after 60 minutes and <b>red</b> after 3 hours (Settings → Timers). This is a display only: recorded minutes are always the real minutes, never rounded.</li>
+        <li><b>Undo:</b> after <b>Delete</b>, an <b>Undo</b> button shows for 5 seconds. Both the action and the undo are kept in the audit log.</li>
+        <li><b>Forgotten timer:</b> type the real time in <b>Out</b>. If a timer is red when you unlock, the app asks: <b>Stop now</b>, <b>Stop at time</b> or <b>Keep running</b>. A corrected time is saved as "entered later" with a note in the audit log. All of this happens inside the app, with no notifications.</li>
+        <li><b>Full-screen timer:</b> big digits for procedures, readable from a distance (⋯ → Full-screen timer). It shows the time only, plus Pause and Stop. Auto-lock still applies, so for long procedures set a longer auto-lock first.</li>
+        <li><b>Other days:</b> use ‹ › or tap the date in the toolbar to show another day in the same grid; <b>Today</b> jumps back. Rows typed on a past day are marked "entered later".</li>
+      </ul>
+      <p>Open <b>details</b> (⋯ → Open details) for segments, photos and multi-code search (section 5). Patient name and MRN/PHN never go into URLs or console logs.</p>
+      <ul>
+        <li>In the details editor, the quick buttons (<b>now, 5, 15, 30 min ago, 1 h ago, End now</b>) fix start or end times in one tap. <b>+ Add time segment</b> adds another stretch.</li>
         <li>If times overlap another entry, you'll see a warning. Check the times, or tap <b>Save anyway</b> if it's correct (for example, two patients seen together).</li>
         <li>Timers use clock times, so they keep counting when the app is locked, in the background, or the phone is off.</li>
         <li>Units are shown as a guide: full 15-minute blocks, plus 1 if the remainder is 8 minutes or more (38 min = 3 units). Always confirm time-based billing rules in the Alberta SOMB.</li>
-        <li>To delete an entry, open it and tap <b>Delete</b>. It stays in the audit log.</li>
+        <li>On a phone the grid scrolls sideways; the row number and patient name stay pinned on the left.</li>
       </ul>
     </section>
 
@@ -580,17 +607,17 @@
       <ul>
         <li>Tap <b>+ Add note</b>, type up to 1000 characters, and tap <b>Save note</b>. Notes save straight away, encrypted with the entry.</li>
         <li>Each note has <b>Edit</b> and <b>Delete</b>. Edited notes show "(edited HH:MM)". A delete asks first. Every add, edit and delete is kept in the audit log, so a deleted note can still be found in the entry's history.</li>
-        <li>The newest note shows on a running card, with "+N more" if there are others. A ✎ on a History row means the entry has notes.</li>
+        <li>The <b>Billing notes</b> column is a separate one-line note that goes into reports. A ✎ on a row means the entry also has dated notes.</li>
         <li>Notes from earlier versions (the single short note) were moved into the first note automatically.</li>
         <li>Notes are left out of reports unless you tick <b>Include notes</b> when you create the report (section 12).</li>
       </ul>
-      <p><b>Quick actions from a row.</b> In History, tap <b>⋯</b> at the end of a row, or press and hold any row (right-click on a computer), to get <b>Add time</b>, <b>Add note</b>, <b>Same patient, new encounter</b>, <b>Edit</b> and <b>Open details</b>.</p>
+      <p><b>Quick actions from a row.</b> On Today or History, tap <b>⋯</b> at the end of a row, or press and hold the row number (right-click on a computer), to get <b>Add time</b>, <b>Add note</b>, <b>Same patient, new encounter</b>, <b>Open details</b> and more.</p>
     </section>
 
     <section id="m-quick">
       <h3>6. Track again and code sets</h3>
       <ul>
-        <li>The <b>Track again</b> chips on Today show your recent and favourite combinations, for example <i>03.03A · 780</i>. Tap one to start a timer with that setting, facility, fee code(s) and ICD-9 code(s) already filled in.</li>
+        <li>The <b>Track again</b> chips (Today → <b>⋯ More</b>) show your recent and favourite combinations, for example <i>03.03A · 780</i>. Tap one to start a timer with that setting, facility, fee code(s) and ICD-9 code(s) already filled in.</li>
         <li>Tap <b>☆</b> on a chip to save it as a favourite code set (★). Favourites come first. Tap ★ to remove it.</li>
         <li>In any saved encounter's details, <b>Track again (codes only)</b> starts a new timer with the same codes, and <b>☆ Save code set</b> saves them as a favourite.</li>
         <li>Only billing fields are copied. Room labels, initials, chart numbers, notes and photos are never copied. To carry the patient over instead (with blank codes), use <b>Same patient, new encounter</b> (section 5).</li>
@@ -599,7 +626,7 @@
 
     <section id="m-late">
       <h3>7. Past entries and "Entered later"</h3>
-      <p>Use <b>+ Add past entry</b> on Today for something you didn't time live, or tap an empty spot in the day timeline. Set the start and end, add details, and save.</p>
+      <p>For a quick past entry, go to the day with ‹ › in the toolbar and type the row with its In and Out times. Or use <b>⋯ More → + Add past entry</b> on Today for something you didn't time live, or tap an empty spot in the day timeline. Set the start and end, add details, and save.</p>
       <ul>
         <li><b>Last stop</b> sets the start to when your previous entry today ended, so back-to-back patients have no gaps.</li>
         <li><b>Start −5 / +5</b> and <b>End −5 / +5</b> nudge the times by 5 minutes. <b>Length +15 / +30</b> extends the end. Times can't go into the future.</li>
@@ -642,18 +669,18 @@
     <section id="m-hist">
       <h3>10. History, week strip and timeline</h3>
       <ul>
-        <li><b>History</b> shows every entry on one page as compact rows: start time, duration, label and initials, billing code and diagnostic code.</li>
+        <li><b>History</b> shows every day as the same spreadsheet as Today, and you can edit cells there too. <b>Open in Today</b> shows that day in the Today grid.</li>
         <li>Rows are grouped by day (newest first) and by week. Each day shows its totals: number of encounters, Hospital minutes/units (H), Clinic minutes/units (C), call-backs (CB) and time on site.</li>
-        <li>Tap a row to open the details. Tap <b>⋯</b> (or press and hold a row) for quick actions: Add time, Add note, Same patient, Edit. In an entry, <b>History of this entry</b> shows every change made to it.</li>
+        <li>Double-click a row number to open the details. Tap <b>⋯</b> (or press and hold the row number) for quick actions: Add time, Add note, Same patient, Edit. In an entry, <b>History of this entry</b> shows every change made to it.</li>
         <li>Each day also shows its <b>time periods</b> (for example <i>Eve 45m/3u · Late 20m/1u</i>).</li>
-        <li><b>Week strip</b> (top of Today and History): Monday to Sunday with minutes and units under each day. Today is outlined, holidays are tinted, and ✓ marks reviewed days. Tap ‹ › or swipe to change weeks, and tap a day to jump to it. Tap <b>Today</b> (it turns teal when you're looking at another week) to go straight back to the current week; in History it also scrolls to today's entries. <b>Today</b> and <b>This week</b> totals sit beside it. On Today, the line under the strip splits today by Hospital, Clinic, call-backs and time period.</li>
+        <li><b>Week strip</b> (top of History; Today has a compact date control with ‹ › and <b>Today</b>): Monday to Sunday with minutes and units under each day. Today is outlined, holidays are tinted, and ✓ marks reviewed days. Tap ‹ › or swipe to change weeks, and tap a day to jump to it. Tap <b>Today</b> (it turns teal when you're looking at another week) to go straight back to the current week; in History it also scrolls to today's entries. <b>Today</b> and <b>This week</b> totals sit beside it. On Today, the totals row at the bottom of the grid splits the day by Hospital, Clinic and time period.</li>
         <li><b>Timeline</b> (Today, or a day in History) draws the day as blocks: on-site time as a shaded band, Hospital in teal, Clinic in orange, call-backs dashed. Gaps and overlaps are easy to see. Tap a block to open it, or tap an empty spot to add a past entry at that time.</li>
       </ul>
     </section>
 
     <section id="m-rev">
       <h3>11. Review a day or week</h3>
-      <p>Before you submit claims, tap <b>Review day</b> on Today, or <b>Review</b> / <b>Review week</b> in History. The checklist shows:</p>
+      <p>Before you submit claims, tap <b>⋯ More → Review day</b> on Today, or <b>Review</b> / <b>Review week</b> in History. The checklist shows:</p>
       <ul>
         <li><b>Fix:</b> timers still running or paused, and arrivals with no departure. These must be cleared before you can mark the period reviewed.</li>
         <li><b>Check:</b> entries with no fee code or no diagnostic code, and overlapping entries.</li>
