@@ -296,8 +296,10 @@
   // One component: a real <table class="grid"> with a grey header row, grey row numbers, gridlines on every cell, blank rows
   // below the real ones (typing in one creates the encounter), a totals row, and Sheets-style keyboard navigation.
   // Name / MRN / notes / codes are encrypted with the entry (saveEnc). Never put them in URLs or console logs.
-  const COLS = [['rn', '#'], ['name', 'Patient name'], ['mrn', 'MRN / PHN'], ['hc', 'H/C'], ['tin', 'In'], ['tout', 'Out'], ['min', 'Min'], ['u', 'Units'], ['fee', 'Fee code(s)'], ['dx', 'Dx (ICD-9)'], ['note', 'Billing notes'], ['act', '']];
-  const NAV = ['name', 'mrn', 'hc', 'tin', 'tout', 'fee', 'dx', 'note'];
+  const COLS = [['rn', '#'], ['name', 'Patient name'], ['mrn', 'MRN / PHN'], ['hc', 'H/C'], ['tin', 'In'], ['tout', 'Out'], ['min', 'Min'], ['u', 'Units'], ['fee', 'Fee code(s)'], ['mod1', 'Modifier code 1'], ['mod2', 'Modifier code 2'], ['dx', 'Dx (ICD-9)'], ['note', 'Billing notes'], ['act', '']];
+  const NAV = ['name', 'mrn', 'hc', 'tin', 'tout', 'fee', 'mod1', 'mod2', 'dx', 'note'];
+  // v9k: two modifier-code columns after Fee code(s); each cell may hold several codes (stored normalised: "CMGP, BMI")
+  const modOf = (e, n) => R.modTxt(e, n), MOD_MAX = 80;
   const MIN_BLANK = 15;
   // v9h endless rows: when the cursor (or the scroll) gets within GROW_NEAR rows of the end, GROW_BY more empty rows are added.
   // rowsMin remembers how many rows a day's grid has grown to (memory only), so a redraw never takes rows away.
@@ -323,10 +325,10 @@
     const h = +m[1], mi = m[2] ? +m[2] : 0; return h > 23 || mi > 59 ? null : [h, mi];
   }
   const gColgroup = '<colgroup>' + COLS.map(c => `<col class="c-${c[0]}">`).join('') + '</colgroup>';
-  const gHead = '<thead><tr>' + COLS.map(c => `<th scope="col" class="h-${c[0]}" data-h="${c[0]}"${c[0] === 'act' ? ' aria-label="Row actions"' : ''}>${esc(c[1])}</th>`).join('') + '</tr></thead>';
+  const gHead = '<thead><tr>' + COLS.map(c => `<th scope="col" class="h-${c[0]}" data-h="${c[0]}"${c[0] === 'act' ? ' aria-label="Row actions"' : ''}${/^mod/.test(c[0]) ? ' title="Modifier code(s); separate several with a comma or space"' : ''}>${esc(c[1])}</th>`).join('') + '</tr></thead>';
   // v9f: name, fee, dx and notes wrap (auto-growing textarea, height set by autoH after the widths are fitted), the rest stay one line.
   // Every editor has enterkeyhint="next": the phone's return key moves to the next cell, exactly like Tab / Enter.
-  const WRAP = { name: 1, fee: 1, dx: 1 };   // v9i: Billing notes is a preview + notes editor
+  const WRAP = { name: 1, fee: 1, mod1: 1, mod2: 1, dx: 1 };   // v9i: Billing notes is a preview + notes editor; v9k: modifiers wrap too
   const gAttrs = (c, o) => `class="gc${o.mono ? ' mono' : ''}" data-c="${c}" maxlength="${o.max || 80}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.lbl)}"${o.title ? ` title="${esc(o.title)}"` : ''} autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next"${o.im ? ` inputmode="${o.im}"` : ''}${o.cap ? ` autocapitalize="${o.cap}"` : ''}`;
   // v9i: Billing notes shows a one-line preview; tapping / clicking it (or typing on it) opens the notes editor.
   // On narrow screens Patient name is a one-line field (ellipsis); the full name shows in a bubble while it has focus.
@@ -351,6 +353,7 @@
       + `<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="Pick a fee code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="fee" data-at="${esc((cs[cs.length - 1] && (cs[cs.length - 1].k || cs[cs.length - 1].c)) || '')}" tabindex="-1" title="Open ${esc(cs[cs.length - 1] && cs[cs.length - 1].c)} in Fee Desk (pick another code there to add it)" aria-label="Open fee code in Fee Desk">ⓘ</button>` : ''}` : '';
     const dxc = ed ? gInp('dx', dxVal, { lbl: 'Diagnostic code(s), ICD-9', mono: 1, max: 60, cap: 'characters', title: dx.map(v => v + (dxDesc(v) ? ' ' + dxDesc(v) : '')).join('; ') })
       + `<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="Pick an ICD-9 code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="dx" data-at="${esc(dx[dx.length - 1])}" tabindex="-1" title="Open ${esc(dx[dx.length - 1])} in Fee Desk (pick another code there to add it)" aria-label="Open diagnostic code in Fee Desk">ⓘ</button>` : ''}` : '';
+    const modc = n => ed ? gInp('mod' + n, modOf(e, n), { lbl: 'Modifier code(s) ' + n, mono: 1, max: MOD_MAX, cap: 'characters' }) : '';
     const wl = warnLvl(e);
     return `<tr class="gr ${st} k-${k}${wl ? ' w' + wl : ''}" data-key="${id}" data-id="${id}">`
       + `<th scope="row" class="rn" title="Row ${i}. Right-click or press and hold for actions">${st === 'run' || st === 'pause' ? `<i class="dot ${st}" aria-label="${st === 'run' ? 'Running' : 'Paused'}"></i>` : ''}${i}</th>`
@@ -362,6 +365,7 @@
       + `<td class="num c-min${open ? ' live' : ''}" data-rm="${id}" title="${started ? (k === 'shift' ? 'Hours on site' : m + ' min') : 'Not started'}">${started ? (open ? fmtDur(ms) : durTxt(e, m)) : ''}</td>`
       + `<td class="num c-u" data-ru="${id}">${started && ed ? R.units(m) : ''}</td>`
       + `<td class="c-fee"><div class="cw">${fee}</div></td>`
+      + `<td class="c-mod1">${modc(1)}</td><td class="c-mod2">${modc(2)}</td>`
       + `<td class="c-dx"><div class="cw">${dxc}</div></td>`
       + `<td class="c-note">${ed ? gInp('note', billingNoteOf(e), { lbl: 'Billing notes', max: 500 }) : ''}</td>`
       + `<td class="c-act"><button type="button" class="rmore" data-a="more" tabindex="-1" aria-label="Row actions" title="Timer, add time, segments and photos, same patient, delete">⋯</button></td></tr>`;
@@ -369,7 +373,7 @@
   const perTxtOf = e => { const p = R.periodSplit(e).parts.filter(x => !R.PBY[x.id].regular); return p.length ? R.perTxt(p, true) : ''; };
   // v9h: rows far below the work area are "light": the same cells without editors (hundreds of empty textareas would slow
   // every keystroke). A light row gets its editors the moment the cursor moves to it or it is tapped (lightUp).
-  const lightRow = i => `<tr class="gr blank light" data-key="r${i}" data-blank="1" data-light="1"><th scope="row" class="rn">${i}</th><td class="c-name"></td><td class="c-mrn"></td><td class="c-hc dim"></td><td class="c-tin"></td><td class="c-tout"></td><td class="num c-min"></td><td class="num c-u"></td><td class="c-fee"></td><td class="c-dx"></td><td class="c-note"></td><td class="c-act"></td></tr>`;
+  const lightRow = i => `<tr class="gr blank light" data-key="r${i}" data-blank="1" data-light="1"><th scope="row" class="rn">${i}</th><td class="c-name"></td><td class="c-mrn"></td><td class="c-hc dim"></td><td class="c-tin"></td><td class="c-tout"></td><td class="num c-min"></td><td class="num c-u"></td><td class="c-fee"></td><td class="c-mod1"></td><td class="c-mod2"></td><td class="c-dx"></td><td class="c-note"></td><td class="c-act"></td></tr>`;
   function lightUp(tr) {
     if (!tr || !tr.dataset.light) return tr;
     const tpl = document.createElement('template'); tpl.innerHTML = '<table><tbody>' + blankRow(tr.sectionRowIndex + 1, false) + '</tbody></table>';
@@ -389,6 +393,8 @@
       + `<td class="c-tout">${gInp('tout', '', { lbl: 'Time out (new row)', mono: 1, max: 5, im: 'numeric' })}</td>`
       + '<td class="num c-min"></td><td class="num c-u"></td>'
       + `<td class="c-fee"><div class="cw">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="New row: pick a fee code in Fee Desk (it comes back to this cell)" aria-label="New row, pick fee code in Fee Desk">↗</button></div></td>`
+      + `<td class="c-mod1">${gInp('mod1', '', { lbl: 'Modifier code(s) 1 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</td>`
+      + `<td class="c-mod2">${gInp('mod2', '', { lbl: 'Modifier code(s) 2 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</td>`
       + `<td class="c-dx"><div class="cw">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="New row: pick an ICD-9 code in Fee Desk (it comes back to this cell)" aria-label="New row, pick diagnostic code in Fee Desk">↗</button></div></td>`
       + `<td class="c-note">${gInp('note', '', { lbl: 'Billing notes (new row)', max: 500 })}</td><td class="c-act"></td></tr>`;
   }
@@ -398,7 +404,7 @@
   }
   function gFoot(list) {
     const t = gTotals(list);
-    return `<tfoot><tr class="gt"><th scope="row" class="rn" aria-label="Totals">Σ</th><td class="c-name"><span class="gtxt" data-tn>${t.n} encounter${t.n === 1 ? '' : 's'}</span></td><td></td><td></td><td></td><td class="tl"><span class="gtxt">Total</span></td><td class="num" data-tm title="Total minutes">${t.m}</td><td class="num" data-tu title="Total units">${t.u}</td><td colspan="3" class="tdet"><span class="gtxt" data-td>${esc(t.det)}</span></td><td></td></tr></tfoot>`;
+    return `<tfoot><tr class="gt"><th scope="row" class="rn" aria-label="Totals">Σ</th><td class="c-name"><span class="gtxt" data-tn>${t.n} encounter${t.n === 1 ? '' : 's'}</span></td><td></td><td></td><td></td><td class="tl"><span class="gtxt">Total</span></td><td class="num" data-tm title="Total minutes">${t.m}</td><td class="num" data-tu title="Total units">${t.u}</td><td colspan="5" class="tdet"><span class="gtxt" data-td>${esc(t.det)}</span></td><td></td></tr></tfoot>`;
   }
   function sheetHtml(list, o) {
     let rows = '';
@@ -493,6 +499,11 @@
     if (f === 'note') { if ((e.billingNote || '') === v) return null; e.billingNote = v; return 'Billing note edited in spreadsheet'; }
     if (f === 'hc') { const nv = v === 'C' ? 'C' : 'H'; if (e.setting === nv) return null; e.setting = nv; return `Setting changed to ${R.SET[nv]} in spreadsheet`; }
     if (f === 'tin' || f === 'tout') return applyTime(e, f, v, day);
+    if (f === 'mod1' || f === 'mod2') {   // v9k: several codes per cell, separated by commas or spaces; saved upper-case, no duplicates
+      const nv = R.normMods(v).slice(0, MOD_MAX); if (modOf(e, f.slice(3)) === nv) return null;
+      if (nv) e[f] = nv; else delete e[f];
+      return `Modifier code(s) ${f.slice(3)} edited in spreadsheet`;
+    }
     if (f === 'fee') {
       const parts = v.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean), prev = (e.codes || []).map(c => c.c).join(', ');
       if (parts.join(', ').toUpperCase() === prev.toUpperCase()) return null;
@@ -643,6 +654,7 @@
     root.addEventListener('focusin', ev => {
       const c = ev.target.closest && ev.target.closest('.gc'); if (!c) return;
       gCell = c; setActive(c); gNavShow(true); growNear(c); nTipShow(c);
+      if (CODEC[c.dataset.c] && COARSE() && gMouse === c) requestAnimationFrame(() => { if (document.activeElement === c) ensureVisible(c); });   // v9k: a tapped, partly hidden code cell slides fully into view
       if (gMouse === c) gEdit = true;
       else if (c.select && !COARSE()) { gEdit = false; if (document.activeElement === c && !(c.selectionStart === 0 && c.selectionEnd === c.value.length)) c.select(); }
       else gEdit = true;
@@ -873,10 +885,15 @@
   // v9i: [min desktop, min touch, max] in characters ('0' widths of the column's font, cell padding included), so the
   // minimums scale with Settings → Display → Text size: MRN/PHN 10 digits, Fee code 6 + ↗, Dx 5 + ↗, Billing notes wider.
   // Patient name on a narrow screen: at most ~30 % of the width (one line, ellipsis; the full name shows on focus).
-  const FIT = { name: [22, 13, 34], mrn: [12.5, 12.5, 26], fee: [13, 12.5, 28], dx: [12, 11.5, 24], note: [26, 22, 40] };
+  // v9k (Jose: several codes per patient; narrow / shallow code cells were hard to fill): Fee code(s) and Dx fit ~15 code
+  // characters next to their ↗ ⓘ buttons, the two Modifier columns ~15 characters, before anything wraps; the cell being
+  // edited is at least two lines tall (CSS) and every code cell wraps and grows the row instead of clipping.
+  const CODEC = { fee: 1, mod1: 1, mod2: 1, dx: 1 };
+  const FIT = { name: [22, 13, 34], mrn: [12.5, 12.5, 26], fee: [24.5, 25.5, 46], mod1: [18, 18, 38], mod2: [18, 18, 38], dx: [24.5, 25.5, 46], note: [30, 28, 44] };
   function fitPx(key, need, ch, ww, touch) {
     const cfg = FIT[key], mn = cfg[touch ? 1 : 0] * ch; let max = cfg[2] * ch;
     if (key === 'name' && ww < 700) max = Math.min(max, Math.max(mn, ww * 0.30));
+    else if (CODEC[key] && ww < 700) max = Math.min(max, Math.max(mn, ww * 0.62));   // v9k phone: a code column never takes the whole screen; long lists wrap
     return Math.ceil(Math.min(Math.max(need, mn), Math.max(max, mn)));
   }
   const txtOf = el => el.tagName === 'DIV' ? el.textContent : (el.value || el.placeholder || '');
@@ -1459,7 +1476,7 @@
     opt = opt || {};
     isNew = !!fresh; calledTouched = !fresh; cur = clone(e); cur.kind = kindOf(cur); cur.codes = cur.codes || []; cur.photos = cur.photos || []; cur.links = cur.links || []; cur.notes = clone(R.notesOf(cur)); delete cur.note; addedPhotos = []; removedPhotos = []; overlapOk = false;
     $('#eKind').hidden = !fresh;
-    $('#eName').value = cur.name || ''; $('#eLabel').value = cur.label || ''; $('#eInit').value = cur.initials || ''; $('#eChart').value = ptMrn(cur); $('#eBillNote').value = cur.billingNote || '';
+    $('#eName').value = cur.name || ''; $('#eLabel').value = cur.label || ''; $('#eInit').value = cur.initials || ''; $('#eChart').value = ptMrn(cur); $('#eBillNote').value = cur.billingNote || ''; $('#eMod1').value = modOf(cur, 1); $('#eMod2').value = modOf(cur, 2);
     $('#eSetting').value = cur.setting || 'H'; $('#eSetting2').value = cur.setting || 'H'; $('#eType').value = cur.type || '';
     $('#eCbType').value = cur.cbType || 'return'; $('#eCalled').value = dtLocal(cur.called);
     eFac = cur.facility || null; showFac($('#eFacName'), eFac);
@@ -1508,6 +1525,7 @@
     if (k !== 'shift') {
       const cs = e.codes || [];
       rows.push(['Codes', cs.length ? cs.map(c => `<span class="sc"><b>${esc(c.c)}</b>${c.dx ? ` <span class="dxc">Dx ${esc(c.dx)}</span>` : ''}${c.d ? ` <span class="muted">${esc(c.d.length > 60 ? c.d.slice(0, 60) + '…' : c.d)}</span>` : ''}</span>`).join('') + (e.dx ? `<span class="sc"><span class="dxc">Dx ${esc(e.dx)}</span></span>` : '') : (e.dx ? `<span class="dxc">Dx ${esc(e.dx)}</span>` : '<span class="muted">None yet. Tap Edit to add fee and diagnostic codes.</span>')]);
+      if (modOf(e, 1) || modOf(e, 2)) rows.push(['Modifiers', [1, 2].filter(n => modOf(e, n)).map(n => `<span class="sc"><span class="muted">${n}:</span> <b>${esc(modOf(e, n))}</b></span>`).join('')]);
       if (k === 'cb' && (e.links || []).length) rows.push(['Linked', (e.links || []).map(id => S.encs.find(x => x.id === id)).filter(Boolean).map(x => `<button type="button" class="linkbtn sm" data-open="${esc(x.id)}">${esc(x.label || 'Encounter')} ${R.hm(R.startOf(x))}</button>`).join(' ')]);
       const fl = [e.minor && ('Minor' + (Number.isFinite(e.minorAge) ? ` (age ${e.minorAge})` : '')), e.obstetric && 'Obstetric'].filter(Boolean);
       rows.push(['Retention', esc((fl.length ? fl.join(' · ') + ' · ' : '') + 'keep until ' + new Date(R.retainUntil(e)).toLocaleDateString())]);
@@ -1685,7 +1703,8 @@
     if (k === 'enc') { cur.name = ($('#eName') && $('#eName').value || '').trim(); cur.label = $('#eLabel').value.trim(); cur.initials = $('#eInit').value.trim().toUpperCase(); setMrn(cur, $('#eChart').value); cur.billingNote = ($('#eBillNote') && $('#eBillNote').value || '').trim(); cur.setting = $('#eSetting').value; cur.type = $('#eType').value.trim(); if (!cur.name && !cur.label) cur.label = 'Encounter'; }
     else { cur.setting = $('#eSetting2').value; }
     if (k === 'cb') { cur.cbType = $('#eCbType').value; cur.called = called; cur.links = $$('#eLinks input:checked').map(i => i.value); cur.label = cur.label || 'Call-back'; }
-    if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; }
+    if (k !== 'shift') for (const n of [1, 2]) { const v = R.normMods($('#eMod' + n).value).slice(0, MOD_MAX); if (v) cur['mod' + n] = v; else delete cur['mod' + n]; }   // v9k
+    if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; delete cur.mod1; delete cur.mod2; }
     else applyPendingDx(cur);
     const open = segs.length > 0 && segs[segs.length - 1].e == null;
     cur.status = !segs.length ? 'new' : open ? 'run' : (cur.status === 'run' ? 'pause' : (isNew || cur.status === 'new' ? 'done' : cur.status));
@@ -1710,7 +1729,7 @@
     if (segs.length && segs.every(x => x.s != null)) c.segs = sumSegs() || segs;
     c.facility = eFac; c.notes = clone(cur.notes || []); if ($('#eNoteText').value.trim()) c.noteDraft = $('#eNoteText').value;
     if (k === 'enc') { c.name = $('#eName') ? $('#eName').value : ''; c.label = $('#eLabel').value; c.initials = $('#eInit').value; c.mrn = $('#eChart').value; c.chart = $('#eChart').value; c.billingNote = $('#eBillNote') ? $('#eBillNote').value : ''; c.setting = $('#eSetting').value; c.type = $('#eType').value; } else c.setting = $('#eSetting2').value;
-    if (k !== 'shift') { c.minor = $('#eMinor').checked; c.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); c.minorAge = Number.isFinite(ag) ? ag : undefined; c.dx = $('#eDxQ').value; }
+    if (k !== 'shift') { c.minor = $('#eMinor').checked; c.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); c.minorAge = Number.isFinite(ag) ? ag : undefined; c.dx = $('#eDxQ').value; c.mod1 = $('#eMod1').value; c.mod2 = $('#eMod2').value; }
     if (k === 'cb') { c.cbType = $('#eCbType').value; c.called = parseLocal($('#eCalled').value); c.links = $$('#eLinks input:checked').map(i => i.value); }
     return { cur: c, isNew, addedPhotos, removedPhotos, at: Date.now(), mode: $('#editDlg').dataset.mode };
   }
