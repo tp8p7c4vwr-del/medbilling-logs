@@ -58,7 +58,7 @@
     if (cur && $('#editDlg').open) { try { V.saveDraft(editSnapshot()).catch(() => {}); } catch (e) { /* locked already */ } }
     hideSnack(); flushPhotoDel(); stopWake();
     if (S && S.settings.abOn && abLocOk && abMode() !== 'manual' && V.unlocked()) { try { runBackup('lock', abSnapshot()); } catch (e) { /* never block locking */ } }
-    V.lock(); S = null; cur = null; sessPass = null;
+    V.lock(); S = null; cur = null; sessPass = null; gCell = null; viewDay = null;
     $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
     ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo', '#eNotes', '#eSummary', '#rmSub'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
@@ -158,21 +158,11 @@
   async function saveSettings() { await V.saveSettings(S.settings); }
 
   // ------------------------------------------------------------ encounters
-  function setQuick() { $$('#quick .seg button').forEach(b => { const on = b.dataset.set === quickSet; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); }
-  $$('#quick .seg button').forEach(b => b.addEventListener('click', () => { quickSet = b.dataset.set; setQuick(); }));
-  $('#quick').addEventListener('submit', async ev => {
-    ev.preventDefault(); if (!S) return;
-    const now = Date.now(), n = S.encs.filter(e => R.encDay(e) === today()).length + 1;
-    const sh = activeShift(), fac = sh ? sh.facility : S.settings.curFac;
-    const name = ($('#qName') && $('#qName').value || '').trim(), mrn = ($('#qMrn') && $('#qMrn').value || '').trim();
-    const e = { id: uid(), kind: 'enc', name, mrn, chart: mrn, label: '', initials: '', billingNote: '', setting: quickSet, facility: fac || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
-    if (!name && !mrn) e.label = `Encounter ${n}`;
-    await saveEnc(e, 'create'); if ($('#qName')) $('#qName').value = ''; if ($('#qMrn')) $('#qMrn').value = ''; tab = 'today'; showTab(); render(); toast(name ? 'Started encounter' : `Started Encounter ${n}`);
-  });
+  function setQuick() { /* v9c: the blank rows show the default setting (quickSet); nothing else to sync */ }
   async function act(e, a, note) {
     const now = Date.now(), prev = clone(e);
     e = clone(e);
-    const l2 = e.segs[e.segs.length - 1];
+    const l2 = e.segs[e.segs.length - 1]; if (!l2 && a !== 'resume') return;
     if (a === 'pause' && l2 && l2.e == null) { l2.e = now; e.status = 'pause'; }
     else if (a === 'resume') { e.segs.push({ s: now, e: null }); e.status = 'run'; }
     else if (a === 'stop') { if (l2 && l2.e == null) l2.e = now; e.status = 'done'; }
@@ -180,165 +170,344 @@
     await saveEnc(e, a, note); render();
     if (a === 'stop') snack(`Stopped ${displayWho(e)}`, () => undoTo(prev, e, 'Stop undone'));
   }
-  function card(e, compact) {
-    // Running/paused cards kept as a compact timer strip above the spreadsheet (phone-friendly Pause/Stop).
-    const ms = R.msOf(e), m = Math.floor(ms / 60000), st = e.status, k = kindOf(e);
-    const who = displayWho(e);
-    const meta = [ptMrn(e) && ('MRN ' + ptMrn(e)), k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') : '', (e.codes || []).map(c => c.c).join(', '), R.dxShort(e) && ('Dx ' + R.dxShort(e).replace(/; /g, ', ')), `${R.hm(R.startOf(e))}${R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''}`].filter(Boolean).join(' · ');
-    const late = e.late ? `<span class="badge late" title="Entered later">Entered later</span>` : '';
-    const fsb = `<button type="button" class="ghost fsbtn" data-a="full" aria-label="Full-screen procedure timer" title="Full-screen timer">⛶</button>`;
-    const acts = st === 'run' ? `<button type="button" class="pausebtn" data-a="pause">Pause</button><button type="button" class="stopbtn" data-a="stop">Stop</button>${k === 'enc' ? '<button type="button" class="ghost swbtn" data-a="switch" title="Stop this encounter and start the next one">Next pt</button>' : ''}${fsb}`
-      : st === 'pause' ? `<button type="button" class="resumebtn" data-a="resume">Resume</button><button type="button" class="stopbtn" data-a="stop">Stop</button>${fsb}`
-      : `<button type="button" class="ghost" data-a="editf">Edit</button><button type="button" class="ghost" data-a="resume">Continue</button>`;
+  // ============================================================ v9c spreadsheet grid (Today screen + each History day)
+  // One component: a real <table class="grid"> with a grey header row, grey row numbers, gridlines on every cell, blank rows
+  // below the real ones (typing in one creates the encounter), a totals row, and Sheets-style keyboard navigation.
+  // Name / MRN / notes / codes are encrypted with the entry (saveEnc). Never put them in URLs or console logs.
+  const COLS = [['rn', '#'], ['name', 'Patient name'], ['mrn', 'MRN / PHN'], ['hc', 'H/C'], ['tin', 'In'], ['tout', 'Out'], ['min', 'Min'], ['u', 'Units'], ['fee', 'Fee code(s)'], ['dx', 'Dx (ICD-9)'], ['note', 'Billing notes'], ['act', '']];
+  const NAV = ['name', 'mrn', 'hc', 'tin', 'tout', 'fee', 'dx', 'note'];
+  const MIN_BLANK = 15;
+  let viewDay = null;                       // null = follow today
+  const curDay = () => viewDay || today();
+  const blankSet = {};                      // H/C chosen on a still-empty row (row key -> 'H'|'C')
+  let gCell = null, gEdit = false, gMouse = null, histDirty = false, gQ = Promise.resolve();
+  const durTxt = (e, m) => kindOf(e) === 'shift' ? `${Math.floor(m / 60)}:${R.pad(m % 60)}` : String(m);
+  const uerr = m => Object.assign(new Error(m), { user: true });
+  const shiftDay = (k, n) => { const d = new Date(k + 'T12:00'); d.setDate(d.getDate() + n); return R.dayKey(d.getTime()); };
+  // wall-clock HH:MM on an Edmonton calendar day -> timestamp (DST-safe; falls back to device time)
+  function edmAt(k, h, mi) {
+    const [y, mo, d] = k.split('-').map(Number), base = Date.UTC(y, mo - 1, d, h, mi);
+    for (const off of [6, 7, 5, 8]) { const t = base + off * 3600000, w = R.edm(t); if (w.key === k && w.h === h && w.mi === mi) return t; }
+    return new Date(y, mo - 1, d, h, mi).getTime();
+  }
+  // "9:30", "0930", "930", "9", "21h05", "now" / "n"
+  function parseHm(v) {
+    v = String(v || '').trim().toLowerCase(); if (v === 'n' || v === 'now' || v === '.') return 'now';
+    const m = v.match(/^(\d{1,2})[:h.\s]?(\d{2})$/) || v.match(/^(\d{1,2})$/); if (!m) return null;
+    const h = +m[1], mi = m[2] ? +m[2] : 0; return h > 23 || mi > 59 ? null : [h, mi];
+  }
+  const gColgroup = '<colgroup>' + COLS.map(c => `<col class="c-${c[0]}">`).join('') + '</colgroup>';
+  const gHead = '<thead><tr>' + COLS.map(c => `<th scope="col" class="h-${c[0]}" data-h="${c[0]}"${c[0] === 'act' ? ' aria-label="Row actions"' : ''}>${esc(c[1])}</th>`).join('') + '</tr></thead>';
+  const gInp = (c, val, o) => `<input class="gc${o.mono ? ' mono' : ''}" data-c="${c}" value="${esc(val)}" maxlength="${o.max || 80}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.lbl)}"${o.title ? ` title="${esc(o.title)}"` : ''} autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next"${o.im ? ` inputmode="${o.im}"` : ''}${o.cap ? ` autocapitalize="${o.cap}"` : ''}>`;
+  const hcBtn = (v, lbl) => `<button type="button" class="gc hc" data-c="hc" aria-label="${esc(lbl)}: ${R.SET[v]}. Tap to switch" title="${R.SET[v]} (tap, or type H / C)">${v}</button>`;
+  function gridRow(e, i) {
+    const k = kindOf(e), st = e.status, ms = R.msOf(e), m = Math.floor(ms / 60000), cs = e.codes || [], dx = R.dxList(e);
+    const started = e.segs.length > 0, en = R.endOf(e), open = started && en == null, ed = k !== 'shift', id = esc(e.id);
+    const nameVal = ptName(e), mrnVal = ptMrn(e), feeVal = cs.map(c => c.c).join(', '), dxVal = dx.join(', ');
+    const tags = (k === 'cb' ? '<i class="tag cb" title="Call-back">CB</i>' : '') + (e.pt && S.encs.some(x => x.pt === e.pt && x.id !== e.id) ? '<i class="tag" title="Same patient as another encounter">↔</i>' : '') + ((e.photos || []).length ? `<i class="tag" title="${e.photos.length} photo(s)">📷${e.photos.length}</i>` : '') + (R.notesOf(e).length ? `<i class="tag" title="${R.notesOf(e).length} note(s) in details">✎</i>` : '');
+    const name = ed ? gInp('name', nameVal, { lbl: 'Patient name', ph: nameVal ? '' : (e.label || e.initials || ''), title: !nameVal && (e.label || e.initials) ? [e.label, e.initials].filter(Boolean).join(' · ') : '' })
+      : `<span class="gtxt">On site${e.facility ? ' · ' + esc(e.facility.n) : ''}</span>`;
+    const multi = e.segs.length > 1 ? ` (${e.segs.length} segments)` : '';
+    const tin = gInp('tin', started ? R.hm(R.startOf(e)) : '', { lbl: 'Time in (24-hour HH:MM)', mono: 1, max: 5, im: 'numeric', title: started ? 'In' + multi + (perTxtOf(e) ? ' · ' + perTxtOf(e) : '') : 'Type a time, or tap ▶ to start now' })
+      + (started ? (e.late ? '<i class="tag lt" title="Entered later (typed or corrected after the fact)">*</i>' : '') : `<button type="button" class="cbtn now soft" data-a="now" tabindex="-1" title="Start the clock now" aria-label="Start now">▶</button>`);
+    const tout = open ? gInp('tout', '', { lbl: 'Time out (24-hour HH:MM). Running', mono: 1, max: 5, im: 'numeric', title: 'Running. Type the end time, or tap ■ to stop now' }) + '<button type="button" class="cbtn stop" data-a="stop" tabindex="-1" title="Stop now" aria-label="Stop now">■</button>'
+      : gInp('tout', started ? R.hm(en) : '', { lbl: 'Time out (24-hour HH:MM)', mono: 1, max: 5, im: 'numeric', title: st === 'pause' ? 'Paused (⋯ to resume)' : 'Out' + multi });
+    const fee = ed ? gInp('fee', feeVal, { lbl: 'Fee code(s)', mono: 1, max: 60, cap: 'characters', title: cs.map(c => c.c + (c.d ? ' ' + c.d : '')).join('; ') })
+      + `<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="Pick in Fee Desk" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<a class="cbtn hov fdmini" tabindex="-1" href="${esc(fdCodeHref(cs[0] && (cs[0].k || cs[0].c), cs[0] && cs[0].j || S.settings.prov))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk" aria-label="Open fee code in Fee Desk">ⓘ</a>` : ''}` : '';
+    const dxc = ed ? gInp('dx', dxVal, { lbl: 'Diagnostic code(s), ICD-9', mono: 1, max: 60, cap: 'characters', title: dx.map(v => v + (dxDesc(v) ? ' ' + dxDesc(v) : '')).join('; ') })
+      + `<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="Pick in Fee Desk" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<a class="cbtn hov fdmini" tabindex="-1" href="${esc(fdDxHref(dx[0]))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk" aria-label="Open diagnostic code in Fee Desk">ⓘ</a>` : ''}` : '';
     const wl = warnLvl(e);
-    return `<div class="enc ${st} ${k}${wl ? ' w' + wl : ''}" data-id="${esc(e.id)}">
-      <div class="r1"><span class="lbl" data-a="edit">${esc(who)}</span>${(e.photos || []).length ? `<span class="pc">📷 ${e.photos.length}</span>` : ''}${late}${k === 'cb' ? '<span class="badge cb">Call-back</span>' : k === 'shift' ? '<span class="badge">On site</span>' : `<span class="badge ${e.setting}">${R.SET[e.setting]}</span>`}${st !== 'done' ? `<span class="badge st ${st}">${st === 'run' ? 'Running' : 'Paused'}</span>` : ''}</div>
-      <p class="meta" data-a="edit">${esc(meta)}</p>${noteLine(e)}
-      <div class="timer" data-t="${esc(e.id)}">${st === 'done' ? m + ' min' : fmtDur(ms)}</div>
-      <div class="units" data-u="${esc(e.id)}" data-k="${k}">${unitsHtml(e, m)}</div>
-      ${st === 'run' && k !== 'shift' ? `<p class="lwarn" data-w="${esc(e.id)}"${wl ? '' : ' hidden'}>${warnHtml(e)}</p>` : ''}
-      ${compact ? '' : `<div class="acts">${acts}</div>`}</div>`;
+    return `<tr class="gr ${st} k-${k}${wl ? ' w' + wl : ''}" data-key="${id}" data-id="${id}">`
+      + `<th scope="row" class="rn" title="Row ${i}. Right-click or press and hold for actions">${st === 'run' || st === 'pause' ? `<i class="dot ${st}" aria-label="${st === 'run' ? 'Running' : 'Paused'}"></i>` : ''}${i}</th>`
+      + `<td class="c-name"><div class="cw">${name}${tags}</div></td>`
+      + `<td class="c-mrn">${ed ? gInp('mrn', mrnVal, { lbl: 'MRN or PHN', mono: 1, max: 24 }) : ''}</td>`
+      + `<td class="c-hc">${ed ? hcBtn(e.setting === 'C' ? 'C' : 'H', 'Hospital or clinic') : '<span class="gtxt mid">–</span>'}</td>`
+      + `<td class="c-tin"><div class="cw">${tin}</div></td>`
+      + `<td class="c-tout"><div class="cw">${tout}</div></td>`
+      + `<td class="num c-min${open ? ' live' : ''}" data-rm="${id}" title="${started ? (k === 'shift' ? 'Hours on site' : m + ' min') : 'Not started'}">${started ? (open ? fmtDur(ms) : durTxt(e, m)) : ''}</td>`
+      + `<td class="num c-u" data-ru="${id}">${started && ed ? R.units(m) : ''}</td>`
+      + `<td class="c-fee"><div class="cw">${fee}</div></td>`
+      + `<td class="c-dx"><div class="cw">${dxc}</div></td>`
+      + `<td class="c-note">${ed ? gInp('note', billingNoteOf(e), { lbl: 'Billing notes', max: 200 }) : ''}</td>`
+      + `<td class="c-act"><button type="button" class="rmore" data-a="more" tabindex="-1" aria-label="Row actions" title="Timer, add time, segments and photos, same patient, delete">⋯</button></td></tr>`;
   }
-  function noteLine(e) { const ns = R.notesOf(e); const bn = (e.billingNote || '').trim(); if (!bn && !ns.length) return ''; const x = bn || ns[ns.length - 1].x; return `<p class="note" data-a="edit">${esc(x.length > 140 ? x.slice(0, 140) + '…' : x)}${!bn && ns.length > 1 ? ` <span class="nc">+${ns.length - 1} more</span>` : ''}</p>`; }
-  const ptCount = e => e.pt && S ? S.encs.filter(x => x.pt === e.pt).length : 0;
-  const durTxt = (e, m) => kindOf(e) === 'shift' ? `${Math.floor(m / 60)}h${R.pad(m % 60)}` : `${m}m`;
-  const hmInput = ts => { if (ts == null) return ''; return R.hm(ts); };  // America/Edmonton 24h HH:MM (same as header clock)
-  // v9b spreadsheet row: real <table> cells; live encounters stay in-grid (no timer cards)
-  function rowHtml(e, cont, more) {
-    const ms = R.msOf(e), m = Math.floor(ms / 60000), k = kindOf(e), st = e.status, cs = e.codes || [], dx = R.dxList(e);
-    const who = displayWho(e), nameVal = ptName(e), mrnVal = ptMrn(e), noteVal = billingNoteOf(e);
-    const feeVal = cs.map(c => c.c).join(', '), dxVal = dx.join(', ');
-    const badge = (st === 'run' ? '<i class="b run">Running</i>' : st === 'pause' ? '<i class="b pause">Paused</i>' : '') + (k === 'cb' ? '<i class="b cb">CB</i>' : k === 'shift' ? '<i class="b">On site</i>' : '') + (e.late ? '<i class="b late" title="Entered later">*</i>' : '') + ((e.photos || []).length ? `<i class="b">📷${e.photos.length}</i>` : '') + (ptCount(e) > 1 ? '<i class="b sp" title="Same patient as another encounter">↔</i>' : '') + (R.notesOf(e).length || (e.billingNote || '').trim() ? `<i class="b nb" title="Has notes">✎</i>` : '');
-    const wl = warnLvl(e), en = R.endOf(e);
-    const fac = k === 'shift' ? '' : [k === 'cb' ? (R.CBT[e.cbType] || 'Call-back') : R.SET[e.setting], e.facility && e.facility.n].filter(Boolean).join(' · ');
-    const migHint = !nameVal && (e.label || e.initials) ? ` title="Migrated: ${esc([e.label, e.initials].filter(Boolean).join(' · '))}"` : '';
-    const migMrn = !ptName(e) && !e.mrn && e.chart ? ' title="From older chart field"' : '';
-    const editable = k !== 'shift';
-    const nameCell = editable
-      ? `<input class="cell cn" data-f="name" maxlength="80" value="${esc(nameVal)}" placeholder="${esc(nameVal ? '' : (e.label || e.initials || 'Patient'))}" aria-label="Patient name"${migHint} autocomplete="off">`
-      : `<span class="who">${esc(who)}${badge}</span>`;
-    const mrnCell = editable
-      ? `<input class="cell cm" data-f="mrn" maxlength="24" value="${esc(mrnVal)}" placeholder="MRN / PHN" aria-label="MRN or healthcare number"${migMrn} autocomplete="off" inputmode="text">`
-      : '<span class="nil">–</span>';
-    const tinCell = `<input class="cell ct" data-f="tin" type="text" inputmode="numeric" maxlength="5" placeholder="HH:MM" value="${hmInput(R.startOf(e))}" aria-label="Time in (24-hour)" autocomplete="off">`;
-    const toutCell = st !== 'done' && en == null
-      ? `<span class="xe live" data-out="${esc(e.id)}">…</span>`
-      : `<input class="cell ct" data-f="tout" type="text" inputmode="numeric" maxlength="5" placeholder="HH:MM" value="${hmInput(en)}" aria-label="Time out (24-hour)" autocomplete="off">`;
-    const feeCell = editable
-      ? `<span class="ccode"><input class="cell cf" data-f="fee" maxlength="40" value="${esc(feeVal)}" placeholder="Fee" aria-label="Billing fee code(s)" autocomplete="off"><button type="button" class="pickfd" data-kind="fee" title="Pick in Fee Desk" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<a class="fdmini" href="${esc(fdCodeHref(cs[0] && (cs[0].k || cs[0].c), cs[0] && cs[0].j || S.settings.prov))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk">ⓘ</a>` : ''}</span>`
-      : '<span class="nil">–</span>';
-    const dxCell = editable
-      ? `<span class="ccode"><input class="cell cdx" data-f="dx" maxlength="40" value="${esc(dxVal)}" placeholder="Dx" aria-label="Diagnostic ICD-9 code(s)" autocomplete="off" autocapitalize="characters"><button type="button" class="pickfd" data-kind="dx" title="Pick in Fee Desk" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<a class="fdmini" href="${esc(fdDxHref(dx[0]))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk">ⓘ</a>` : ''}</span>`
-      : '<span class="nil">–</span>';
-    const noteCell = editable
-      ? `<input class="cell cnote" data-f="billingNote" maxlength="200" value="${esc(noteVal)}" placeholder="Billing note" aria-label="Billing notes" autocomplete="off">`
-      : '<span class="nil">–</span>';
-    const acts = cont && st === 'done' ? `<button type="button" class="cont" data-a="resume" aria-label="Continue" title="Continue">▶</button>`
-      : st === 'run' ? `<button type="button" class="cont pausemini" data-a="pause" title="Pause" aria-label="Pause">❚❚</button><button type="button" class="cont stopmini" data-a="stop" title="Stop" aria-label="Stop">■</button>`
-      : st === 'pause' ? `<button type="button" class="cont" data-a="resume" title="Resume" aria-label="Resume">▶</button><button type="button" class="cont stopmini" data-a="stop" title="Stop" aria-label="Stop">■</button>`
-      : more ? `<button type="button" class="rmore" data-a="more" aria-label="Actions" title="Add time, note, same patient, edit">⋯</button>` : '';
-    return `<tr class="erow ${st} rk-${k}${wl ? ' w' + wl : ''}" data-id="${esc(e.id)}">
-      <td class="cname">${nameCell}${badge && editable ? badge : ''}</td>
-      <td class="cmrn">${mrnCell}</td>
-      <td class="t">${tinCell}${perTags(e)}</td>
-      <td class="xe">${toutCell}</td>
-      <td class="du" data-rm="${esc(e.id)}" data-k="${k}" title="${k === 'shift' ? '' : R.units(m) + ' units'}">${st === 'run' ? fmtDur(ms) : durTxt(e, m)}${k === 'shift' ? '' : `<small>${R.units(m)}u</small>`}</td>
-      <td class="cnote">${noteCell}</td>
-      <td class="fc">${feeCell}</td>
-      <td class="dx">${dxCell}</td>
-      <td class="xf" title="${esc(fac)}">${esc(fac)}</td>
-      <td class="ra">${acts}<button type="button" class="rmore" data-a="open" aria-label="Open details" title="Details">⧉</button></td></tr>`;
+  const perTxtOf = e => { const p = R.periodSplit(e).parts.filter(x => !R.PBY[x.id].regular); return p.length ? R.perTxt(p, true) : ''; };
+  function blankRow(i, first) {
+    const key = 'r' + i, set = blankSet[key] || quickSet;
+    return `<tr class="gr blank" data-key="${key}" data-blank="1"><th scope="row" class="rn">${i}</th>`
+      + `<td class="c-name"><div class="cw">${gInp('name', '', { lbl: 'Patient name (new row)', ph: first ? 'Type a patient name…' : '' })}</div></td>`
+      + `<td class="c-mrn">${gInp('mrn', '', { lbl: 'MRN or PHN (new row)', mono: 1, max: 24, ph: first ? 'MRN / PHN' : '' })}</td>`
+      + `<td class="c-hc dim${blankSet[key] ? ' set' : ''}">${hcBtn(set, 'Hospital or clinic for a new row')}</td>`
+      + `<td class="c-tin"><div class="cw">${gInp('tin', '', { lbl: 'Time in (new row)', mono: 1, max: 5, im: 'numeric', ph: first ? 'HH:MM' : '' })}<button type="button" class="cbtn now${first ? '' : ' hov'}" data-a="now" tabindex="-1" title="New row, start the clock now" aria-label="New row, start now">▶</button></div></td>`
+      + `<td class="c-tout">${gInp('tout', '', { lbl: 'Time out (new row)', mono: 1, max: 5, im: 'numeric' })}</td>`
+      + '<td class="num c-min"></td><td class="num c-u"></td>'
+      + `<td class="c-fee">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}</td>`
+      + `<td class="c-dx">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}</td>`
+      + `<td class="c-note">${gInp('note', '', { lbl: 'Billing notes (new row)', max: 200 })}</td><td class="c-act"></td></tr>`;
   }
-  const sheetHead = () => `<tr class="erowh"><th scope="col">Patient</th><th scope="col">MRN / PHN</th><th scope="col">In</th><th scope="col">Out</th><th scope="col">Time</th><th scope="col">Billing notes</th><th scope="col">Fee code</th><th scope="col">Dx</th><th scope="col" class="xfh">Setting</th><th scope="col" class="rah"></th></tr>`;
-  const sheetCols = '<colgroup><col class="c-name"><col class="c-mrn"><col class="c-in"><col class="c-out"><col class="c-time"><col class="c-note"><col class="c-fee"><col class="c-dx"><col class="c-set"><col class="c-act"></colgroup>';
-  const sheetTable = rows => `<div class="sheetwrap"><table class="sheet">${sheetCols}<thead>${sheetHead()}</thead><tbody>${rows}</tbody></table></div>`;
-  function bindCards(root) {
-    root.querySelectorAll('.erow').forEach(el => {
-      longPress(el);
-      el.addEventListener('click', ev => {
-        if (el.dataset.lp) { delete el.dataset.lp; return; }
-        const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return;
-        const a = ev.target.closest('[data-a]');
-        if (a && a.dataset.a === 'pause') { ev.stopPropagation(); return act(e, 'pause'); }
-        if (a && a.dataset.a === 'resume') { ev.stopPropagation(); return act(e, 'resume'); }
-        if (a && a.dataset.a === 'stop') { ev.stopPropagation(); return act(e, 'stop'); }
-        if (a && a.dataset.a === 'more') { ev.stopPropagation(); return openRowMenu(e); }
-        if (a && a.dataset.a === 'open') { ev.stopPropagation(); return openEdit(e); }
-        if (ev.target.closest('.cell, .pickfd, .fdmini, a, button, input')) return;
-        openEdit(e);
-      });
-      el.addEventListener('keydown', ev => {
-        if ((ev.key === 'Enter' || ev.key === ' ') && ev.target === el) { ev.preventDefault(); openEdit(S.encs.find(x => x.id === el.dataset.id)); }
-      });
-      el.querySelectorAll('.cell').forEach(inp => {
-        inp.addEventListener('click', ev => ev.stopPropagation());
-        inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); } ev.stopPropagation(); });
-        inp.addEventListener('change', () => cellSave(el.dataset.id, inp.dataset.f, inp.value));
-        inp.addEventListener('blur', () => { if (inp.dataset.dirty) { delete inp.dataset.dirty; cellSave(el.dataset.id, inp.dataset.f, inp.value); } });
-        inp.addEventListener('input', () => { inp.dataset.dirty = '1'; });
-      });
-      el.querySelectorAll('.pickfd').forEach(b => b.addEventListener('click', ev => {
-        ev.stopPropagation();
-        const e = S && S.encs.find(x => x.id === el.dataset.id); if (e) pickInFeeDesk(e, b.dataset.kind);
-      }));
+  function gTotals(list) {
+    const enc = list.filter(e => kindOf(e) !== 'shift'), t = R.totals(enc), site = R.totals(list.filter(e => kindOf(e) === 'shift')).site;
+    return { n: enc.length, m: t.H.m + t.C.m + t.cb.m, u: t.H.u + t.C.u + t.cb.u, det: [t.H.n && `H ${t.H.m} min / ${t.H.u} u`, t.C.n && `C ${t.C.m} min / ${t.C.u} u`, t.cb.n && `CB ${t.cb.n} · ${t.cb.m} min`, site.n && `on site ${R.hmin(site.m)}`].concat(t.perList.map(p => `${R.PBY[p.id].short} ${p.m}m/${p.u}u`)).filter(Boolean).join(' · ') };
+  }
+  function gFoot(list) {
+    const t = gTotals(list);
+    return `<tfoot><tr class="gt"><th scope="row" class="rn" aria-label="Totals">Σ</th><td class="c-name"><span class="gtxt" data-tn>${t.n} encounter${t.n === 1 ? '' : 's'}</span></td><td></td><td></td><td></td><td class="tl"><span class="gtxt">Total</span></td><td class="num" data-tm title="Total minutes">${t.m}</td><td class="num" data-tu title="Total units">${t.u}</td><td colspan="3" class="tdet"><span class="gtxt" data-td>${esc(t.det)}</span></td><td></td></tr></tfoot>`;
+  }
+  function sheetHtml(list, o) {
+    let rows = list.map((e, i) => gridRow(e, i + 1)).join('');
+    for (let j = 0; j < (o.blank || 0); j++) rows += blankRow(list.length + j + 1, j === 0);
+    return `<table class="grid${o.main ? ' main' : ''}" data-day="${esc(o.day)}" aria-label="${esc((o.main ? 'Spreadsheet for ' : '') + R.fmtDay(o.day))}">${gColgroup}${gHead}<tbody>${rows}</tbody>${gFoot(list)}</table>`;
+  }
+  // rows shown for a day: Today also keeps running / paused entries from earlier days at the top
+  function dayList(day, main) {
+    const td = today();
+    return S.encs.filter(e => main ? kindOf(e) !== 'shift' && (R.encDay(e) === day || (day === td && R.encDay(e) < td && (e.status === 'run' || e.status === 'pause'))) : R.encDay(e) === day)
+      .sort((a, b) => R.startOf(a) - R.startOf(b) || (a.created || 0) - (b.created || 0));
+  }
+  // ---- DOM patching: never replace the focused cell (keeps the iPhone keyboard up and the caret where it is)
+  function syncKids(o, n, act) {
+    const oc = [...o.children], nc = [...n.children];
+    nc.forEach((x, i) => {
+      const y = oc[i]; if (!y) return o.appendChild(x);
+      if (y === act) { for (const a of [...x.attributes]) if (a.name !== 'value' && a.name !== 'class' && y.getAttribute(a.name) !== a.value) y.setAttribute(a.name, a.value);
+        const nv = x.getAttribute('value') || ''; if (act.value === act.defaultValue && nv !== act.defaultValue) { act.defaultValue = nv; act.value = nv; if (!gEdit && act.select) act.select(); } return; }
+      if (y.contains(act)) { syncKids(y, x, act); for (const a of [...x.attributes]) if (y.getAttribute(a.name) !== a.value) y.setAttribute(a.name, a.value); return; }
+      if (y.outerHTML !== x.outerHTML) y.replaceWith(x);
     });
-    root.querySelectorAll('.enc').forEach(el => el.addEventListener('click', ev => {
-      const a = ev.target.closest('[data-a]'); const e = S && S.encs.find(x => x.id === el.dataset.id); if (!e) return;
-      if (!a || a.dataset.a === 'edit') return openEdit(e);
-      if (a.dataset.a === 'editf') return openEdit(e, false, { edit: true });
-      if (a.dataset.a === 'switch') return switchPatient(e);
-      if (a.dataset.a === 'full') return openProc(e);
-      if (a.dataset.a === 'stopat') return longPrompt(e, false);
-      act(e, a.dataset.a);
-    }));
+    oc.slice(nc.length).forEach(y => { if (!y.contains(act)) y.remove(); });
   }
-  async function cellSave(id, field, raw) {
-    if (!S || !field) return;
-    const e0 = S.encs.find(x => x.id === id); if (!e0) return;
-    const e = clone(e0), v = String(raw == null ? '' : raw).trim();
-    let note;
-    if (field === 'name') { if ((e.name || '') === v) return; e.name = v; note = 'Patient name edited in spreadsheet'; }
-    else if (field === 'mrn') { if (ptMrn(e) === v) return; setMrn(e, v); note = 'MRN/PHN edited in spreadsheet'; }
-    else if (field === 'billingNote') { if ((e.billingNote || '') === v) return; e.billingNote = v; note = 'Billing note edited in spreadsheet'; }
-    else if (field === 'tin' || field === 'tout') {
-      if (!/^\d{2}:\d{2}$/.test(v) && !(field === 'tout' && !v)) return;
-      const segs = clone(e.segs || []); if (!segs.length) return;
-      const applyHm = (ts, hm) => { const d = new Date(ts), [hh, mm] = hm.split(':').map(Number); d.setHours(hh, mm, 0, 0); return d.getTime(); };
-      if (field === 'tin') { const ns = applyHm(segs[0].s, v); if (ns === segs[0].s) return; segs[0].s = ns; e.late = true; e.edits = (e.edits || []).concat(Date.now()); note = 'Time in edited in spreadsheet'; }
-      else {
-        const last = segs[segs.length - 1];
-        if (!v) { if (last.e == null) return; last.e = null; e.status = 'run'; note = 'Time out cleared (running)'; }
-        else { const base = last.e != null ? last.e : Date.now(); const ne = applyHm(base, v); if (ne === last.e) return; if (ne <= segs[0].s) return toast('Out must be after In'); last.e = ne; if (e.status === 'run') e.status = 'done'; e.late = true; e.edits = (e.edits || []).concat(Date.now()); note = 'Time out edited in spreadsheet'; }
-      }
-      e.segs = segs;
-    } else if (field === 'fee') {
-      const parts = v.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
-      const prev = (e.codes || []).map(c => c.c).join(', ');
-      if (parts.join(', ') === prev) return;
-      const prov = S.settings.prov || 'AB';
-      await codesFor(prov).catch(() => null);
-      const o = codeCache[prov];
-      e.codes = parts.map((c, i) => {
-        const old = (e0.codes || [])[i] || {};
-        const hit = o && o.byNorm.get(norm(c));
-        return hit ? Object.assign({}, old, { c: hit.c || hit.k || c, k: hit.k || c, d: hit.d || old.d || '', j: prov, f: hit.f || old.f || '', dx: old.dx, dxd: old.dxd })
-          : Object.assign({}, old, { c: c.toUpperCase(), k: c.toUpperCase(), d: old.d || '', j: old.j || prov });
-      });
-      note = 'Fee code(s) edited in spreadsheet';
-    } else if (field === 'dx') {
-      const parts = v.split(/[,;]+/).map(s => dxCode(s) || s.trim().toUpperCase()).filter(Boolean);
-      const prev = R.dxList(e).join(', ');
-      if (parts.join(', ') === prev) return;
+  function patchGrid(table, html) {
+    const tpl = document.createElement('template'); tpl.innerHTML = html; const nt = tpl.content.firstElementChild, act = document.activeElement;
+    const otb = table.tBodies[0], ntb = nt.tBodies[0], old = new Map([...otb.rows].map(r => [r.dataset.key, r]));
+    const want = [...ntb.rows].map(nr => {
+      const o = old.get(nr.dataset.key); if (!o) return nr;
+      if (o.contains(act)) { syncKids(o, nr, act); [...o.attributes].forEach(a => { if (!nr.hasAttribute(a.name)) o.removeAttribute(a.name); }); [...nr.attributes].forEach(a => o.setAttribute(a.name, a.value)); return o; }
+      return o.outerHTML === nr.outerHTML ? o : nr;
+    });
+    [...otb.rows].forEach(r => { if (!want.includes(r)) r.remove(); });
+    const keep = want.find(r => r.contains(act));
+    if (!keep) otb.replaceChildren(...want);
+    else {
+      const ai = want.indexOf(keep); let ref = keep;
+      for (let i = ai - 1; i >= 0; i--) { if (ref.previousElementSibling !== want[i]) otb.insertBefore(want[i], ref); ref = want[i]; }
+      ref = keep; for (let i = ai + 1; i < want.length; i++) { if (ref.nextElementSibling !== want[i]) otb.insertBefore(want[i], ref.nextElementSibling); ref = want[i]; }
+    }
+    const of = table.tFoot, nf = nt.tFoot; if (of && nf) { if (of.outerHTML !== nf.outerHTML) of.replaceWith(nf); } else if (nf) table.appendChild(nf);
+    table.dataset.day = nt.dataset.day; table.setAttribute('aria-label', nt.getAttribute('aria-label') || '');
+  }
+  function setActive(c) {
+    $$('table.grid .act').forEach(x => x.classList.remove('act'));
+    if (!c || !document.contains(c)) return;
+    const td = c.closest('td'), tr = c.closest('tr'), t = c.closest('table'); if (!td || !tr || !t) return;
+    td.classList.add('act'); tr.classList.add('act'); const h = t.querySelector(`thead [data-h="${c.dataset.c}"]`); if (h) h.classList.add('act');
+  }
+  function ensureVisible(el) {
+    const w = el.closest('.gwrap'), td = el.closest('td'); if (!w || !td) return;
+    const t = w.querySelector('table'), hh = (t.tHead && t.tHead.offsetHeight) || 0, fh = (t.tFoot && w.classList.contains('main') && t.tFoot.offsetHeight) || 0;
+    const rn = t.querySelector('tbody .rn'), nm = t.querySelector('tbody .c-name'), lw = (rn ? rn.offsetWidth : 0) + (nm && td !== nm && getComputedStyle(nm).position === 'sticky' ? nm.offsetWidth : 0);
+    const wr = w.getBoundingClientRect(), r = td.getBoundingClientRect();
+    if (r.top < wr.top + hh) w.scrollTop -= wr.top + hh - r.top; else if (r.bottom > wr.bottom - fh) w.scrollTop += r.bottom - (wr.bottom - fh);
+    if (td !== nm) { if (r.left < wr.left + lw) w.scrollLeft -= wr.left + lw - r.left; else if (r.right > wr.right) w.scrollLeft += r.right - wr.right; }
+    if (w.classList.contains('main')) { const pr = w.getBoundingClientRect(); if (pr.bottom > innerHeight) td.scrollIntoView({ block: 'nearest' }); }
+  }
+  function focusCell(el) { if (!el) return; el.focus({ preventScroll: true }); gEdit = false; if (el.select) el.select(); ensureVisible(el); }
+  function cellAt(tr, ci) {
+    for (let d = 0; d < NAV.length; d++) for (const x of [ci + d, ci - d]) { if (x < 0 || x >= NAV.length) continue; const el = tr.querySelector(`.gc[data-c="${NAV[x]}"]`); if (el) return el; }
+    return null;
+  }
+  function gMove(c, dr, dc, wrap) {
+    const tr = c.closest('tr'), rows = [...tr.parentNode.rows]; let r = rows.indexOf(tr), ci = NAV.indexOf(c.dataset.c);
+    if (dc) { ci += dc; if (ci >= NAV.length) { if (!wrap) return; ci = 0; r++; } else if (ci < 0) { if (!wrap) return; ci = NAV.length - 1; r--; } }
+    r += dr; if (r < 0 || r >= rows.length) return;
+    focusCell(cellAt(rows[r], ci));
+  }
+  // saves run one at a time; the grid re-renders once the queue is empty, so fast typing never sees a half-saved (stale) grid
+  let gPendN = 0;
+  const gEnq = fn => { gPendN++; return (gQ = gQ.then(fn).catch(er => { toast('Could not save: ' + (er && er.message || er)); }).then(() => { if (--gPendN === 0) render(true); })); };
+  // apply one cell's value to a (cloned) entry; returns an audit note, null when nothing changed, throws uerr() for bad input
+  async function applyCell(e, f, raw, day) {
+    const v = String(raw == null ? '' : raw).trim();
+    if (f === 'name') { if ((e.name || '') === v) return null; e.name = v; return 'Patient name edited in spreadsheet'; }
+    if (f === 'mrn') { if (ptMrn(e) === v) return null; setMrn(e, v); return 'MRN/PHN edited in spreadsheet'; }
+    if (f === 'note') { if ((e.billingNote || '') === v) return null; e.billingNote = v; return 'Billing note edited in spreadsheet'; }
+    if (f === 'hc') { const nv = v === 'C' ? 'C' : 'H'; if (e.setting === nv) return null; e.setting = nv; return `Setting changed to ${R.SET[nv]} in spreadsheet`; }
+    if (f === 'tin' || f === 'tout') return applyTime(e, f, v, day);
+    if (f === 'fee') {
+      const parts = v.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean), prev = (e.codes || []).map(c => c.c).join(', ');
+      if (parts.join(', ').toUpperCase() === prev.toUpperCase()) return null;
+      const prov = S.settings.prov || 'AB'; await codesFor(prov).catch(() => null); const o = codeCache[prov];
+      const old = e.codes || [];
+      e.codes = parts.map((c, i) => { const was = old[i] || {}, hit = o && o.byNorm.get(norm(c));
+        return hit ? Object.assign({}, was, { c: hit.c || hit.k || c, k: hit.k || c, d: hit.d || '', j: prov, f: hit.f || '' }) : Object.assign({}, was, { c: c.toUpperCase(), k: c.toUpperCase(), d: '', j: prov, f: '' }); });
+      if (!e.codes.length && old.some(c => c.dx)) e.dx = old.find(c => c.dx).dx;   // keep the diagnostic code when the fee code is cleared
+      return 'Fee code(s) edited in spreadsheet';
+    }
+    if (f === 'dx') {
+      const parts = v.split(/[,;\s]+/).map(s => dxCode(s) || s.trim().toUpperCase()).filter(Boolean);
+      if (parts.join(', ') === R.dxList(e).join(', ')) return null;
       await loadIcd().catch(() => null);
-      if (!(e.codes || []).length) { e.dx = parts[0] || ''; if (!e.dx) delete e.dx; }
+      if (!(e.codes || []).length) { e.dx = parts[0] || ''; if (!e.dx) delete e.dx; if (parts.length > 1) toast('Without a fee code only the first diagnostic code is kept'); }
       else {
-        e.codes = e.codes.map((c, i) => { const x = Object.assign({}, c); if (parts[i]) { x.dx = parts[i]; x.dxd = dxDesc(parts[i]); } else if (i === 0 && parts[0]) { x.dx = parts[0]; x.dxd = dxDesc(parts[0]); } else if (!parts.length) { delete x.dx; delete x.dxd; } return x; });
-        if (parts.length && e.codes[0] && !e.codes[0].dx) { e.codes[0].dx = parts[0]; e.codes[0].dxd = dxDesc(parts[0]); }
+        e.codes = e.codes.map((c, i) => { const x = Object.assign({}, c); if (parts[i]) { x.dx = parts[i]; x.dxd = dxDesc(parts[i]); } else if (i >= parts.length) { delete x.dx; delete x.dxd; } return x; });
+        if (parts.length > e.codes.length) toast('Extra diagnostic codes need a fee code each (open ⋯ → Segments & photos for multi-code)');
         delete e.dx;
       }
-      note = 'Diagnostic code(s) edited in spreadsheet';
-    } else return;
-    await saveEnc(e, 'edit', note); render();
+      return 'Diagnostic code(s) edited in spreadsheet';
+    }
+    return null;
+  }
+  function applyTime(e, f, v, day) {
+    const segs = clone(e.segs || []), now = Date.now(), stamp = () => { e.edits = (e.edits || []).concat(now); };
+    if (!v) {
+      if (f === 'tout') { const l = segs[segs.length - 1]; if (!l || l.e == null) return null; l.e = null; e.status = 'run'; e.segs = segs; e.late = true; stamp(); return 'Time out cleared (running again)'; }
+      if (!segs.length) return null; throw uerr('To clear the times, open ⋯ → Segments & photos');
+    }
+    const p = parseHm(v); if (!p) throw uerr('Type a 24-hour time such as 09:30 or 930, or "now"');
+    if (f === 'tin') {
+      let t = now;
+      if (p !== 'now') { const base = segs.length ? R.encDay(e) : day; t = edmAt(base, p[0], p[1]); if (!segs.length && t > now + 60000 && base === today()) t = edmAt(shiftDay(base, -1), p[0], p[1]); }
+      if (t > now + 60000) throw uerr('In cannot be in the future');
+      if (!segs.length) { e.segs = [{ s: t, e: null }]; e.status = 'run'; if (t < now - 120000) e.late = true; delete e.at; return `Started in spreadsheet (In ${R.hm(t)})`; }
+      if (Math.floor(t / 60000) === Math.floor(segs[0].s / 60000)) return null;
+      if (segs[0].e != null && t >= segs[0].e) throw uerr('In must be before Out');
+      segs[0].s = t; e.segs = segs; e.late = true; stamp(); return 'Time in edited in spreadsheet';
+    }
+    if (!segs.length) throw uerr('Type In first (or tap ▶ to start now)');
+    const last = segs[segs.length - 1]; let t = now;
+    if (p !== 'now') { const k = R.dayKey(last.s); t = edmAt(k, p[0], p[1]); if (t <= last.s) { const t2 = edmAt(shiftDay(k, 1), p[0], p[1]); if (t2 > now + 60000) throw uerr('Out must be after In'); t = t2; } }
+    if (t <= last.s) throw uerr('Out must be after In');
+    if (t > now + 60000) throw uerr('Out cannot be in the future');
+    if (last.e != null && Math.floor(t / 60000) === Math.floor(last.e / 60000)) return null;
+    const wasOpen = last.e == null; last.e = t; e.segs = segs;
+    if (e.status === 'run' || e.status === 'new') e.status = 'done';
+    if (!(p === 'now' && wasOpen)) { e.late = true; stamp(); }
+    return wasOpen ? `Stopped in spreadsheet (Out ${R.hm(t)})` : 'Time out edited in spreadsheet';
+  }
+  const actOf = n => /^Started/.test(n) ? 'start' : /^Stopped/.test(n) ? 'stop' : 'edit';
+  function gridSave(id, f, v) {
+    return gEnq(async () => {
+      const e0 = S && S.encs.find(x => x.id === id); if (!e0) return;
+      const e = clone(e0); let note;
+      try { note = await applyCell(e, f, v, R.encDay(e0)); } catch (er) { if (!er.user) throw er; toast(er.message, 3500); return; }
+      if (!note) return;
+      await saveEnc(e, actOf(note), note);
+    });
+  }
+  function createFromBlank(tr, f, v) {
+    if (!S || !String(v || '').trim()) return;
+    const key = tr.dataset.key, day = tr.closest('table').dataset.day, id = uid(), set = blankSet[key] || quickSet;
+    if ((f === 'tin' || f === 'tout') && !parseHm(v)) { toast('Type a 24-hour time such as 09:30 or 930, or "now"', 3500); const c = tr.querySelector(`[data-c="${f}"]`); if (c) { c.value = ''; c.defaultValue = ''; } return; }
+    if (f === 'tout') { toast('Type In first (or tap ▶ to start now)', 3500); const c = tr.querySelector('[data-c="tout"]'); if (c) { c.value = ''; c.defaultValue = ''; } return; }
+    delete tr.dataset.blank; tr.dataset.id = id; tr.dataset.key = id; tr.classList.remove('blank');
+    for (const k of Object.keys(blankSet)) delete blankSet[k];
+    gEnq(async () => {
+      const now = Date.now(), sh = activeShift(), n = S.encs.filter(x => R.encDay(x) === day && kindOf(x) === 'enc').length + 1;
+      const e = { id, kind: 'enc', name: '', mrn: '', chart: '', label: '', initials: '', billingNote: '', setting: set, facility: (sh ? sh.facility : S.settings.curFac) || null, type: '', codes: [], notes: [], segs: [], status: 'new', photos: [], links: [], created: now, updated: now };
+      if (day !== today()) { e.at = edmAt(day, 12, 0); e.late = true; }
+      let note;
+      try { note = await applyCell(e, f, v, day); } catch (er) { if (!er.user) throw er; toast(er.message, 3500); tr.dataset.blank = '1'; tr.dataset.key = key; delete tr.dataset.id; return; }
+      if (!ptName(e) && !ptMrn(e)) e.label = `Encounter ${n}`;
+      await saveEnc(e, 'create', ['Created in the spreadsheet', note].filter(Boolean).join('. '));
+    });
+    // keep at least MIN_BLANK blank rows below, even before the save lands
+    const tb = tr.parentNode, nb = tb.querySelectorAll('tr[data-blank]').length;
+    if (nb < MIN_BLANK) { const t = document.createElement('template'); let h = ''; for (let j = 0; j < MIN_BLANK - nb; j++) h += blankRow(tb.rows.length + j + 1, false); t.innerHTML = '<table><tbody>' + h + '</tbody></table>'; tb.append(...t.content.querySelector('tbody').rows); }
+  }
+  function commitCell(c) {
+    if (!c || c.tagName !== 'INPUT' || !S || c.value === c.defaultValue) return;
+    const v = c.value, tr = c.closest('tr'); c.defaultValue = v;
+    if (!tr) return; if (tr.dataset.blank) return createFromBlank(tr, c.dataset.c, v);
+    gridSave(tr.dataset.id, c.dataset.c, v);
+  }
+  function hcToggle(b, val) {
+    const tr = b.closest('tr'), nv = val || (b.textContent.trim() === 'C' ? 'H' : 'C'); if (!tr) return;
+    if (tr.dataset.blank) { blankSet[tr.dataset.key] = nv; b.textContent = nv; b.parentNode.classList.add('set'); b.title = R.SET[nv] + ' (tap, or type H / C)'; return; }
+    if (b.textContent.trim() === nv) return; b.textContent = nv; gridSave(tr.dataset.id, 'hc', nv);
+  }
+  const entryOf = el => { const tr = el && el.closest('tr[data-id]'); return tr && S ? S.encs.find(x => x.id === tr.dataset.id) : null; };
+  function bindGrid(root) {
+    let lpT = null;
+    root.addEventListener('pointerdown', ev => {
+      const c = ev.target.closest('.gc'); gMouse = c || null;
+      const rn = ev.target.closest('tbody .rn'); clearTimeout(lpT);
+      if (rn) lpT = setTimeout(() => { const e = entryOf(rn); if (e) openRowMenu(e); }, 550);
+    }, true);
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => root.addEventListener(n, () => clearTimeout(lpT)));
+    root.addEventListener('focusin', ev => {
+      const c = ev.target.closest && ev.target.closest('.gc'); if (!c) return;
+      gCell = c; setActive(c);
+      if (gMouse === c) gEdit = true; else { gEdit = false; if (c.select) c.select(); }
+      gMouse = null;
+    });
+    root.addEventListener('focusout', ev => {
+      const c = ev.target.closest && ev.target.closest('.gc'); if (c) commitCell(c);
+      setTimeout(() => { if (!root.contains(document.activeElement)) { setActive(null); if (root.id === 'histList' && histDirty) { histDirty = false; renderHistory(); } } }, 0);
+    });
+    root.addEventListener('input', ev => { if (ev.target.closest('input.gc')) gEdit = true; });
+    root.addEventListener('keydown', ev => {
+      const c = ev.target.closest && ev.target.closest('.gc'); if (!c || ev.isComposing) return;
+      const isIn = c.tagName === 'INPUT', k = ev.key;
+      if (k === 'Tab') { ev.preventDefault(); commitCell(c); return gMove(c, 0, ev.shiftKey ? -1 : 1, true); }
+      if (k === 'Enter') { ev.preventDefault(); commitCell(c); return gMove(c, ev.shiftKey ? -1 : 1, 0); }
+      if (k === 'Escape') { if (isIn && (c.value !== c.defaultValue || gEdit)) { ev.preventDefault(); ev.stopPropagation(); c.value = c.defaultValue; gEdit = false; c.select(); } return; }
+      if (k === 'ArrowUp' || k === 'ArrowDown') { ev.preventDefault(); commitCell(c); return gMove(c, k === 'ArrowUp' ? -1 : 1, 0); }
+      if ((k === 'ArrowLeft' || k === 'ArrowRight') && (!isIn || !gEdit)) { ev.preventDefault(); commitCell(c); return gMove(c, 0, k === 'ArrowLeft' ? -1 : 1, false); }
+      if (k === 'F2' && isIn) { ev.preventDefault(); gEdit = true; const n = c.value.length; c.setSelectionRange(n, n); return; }
+      if (!isIn) { if (/^[hHcC]$/.test(k)) { ev.preventDefault(); hcToggle(c, k.toUpperCase()); } return; }
+      if (k.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) gEdit = true;
+      if (k === 'Backspace' || k === 'Delete') gEdit = true;
+    });
+    root.addEventListener('click', ev => {
+      const t = ev.target;
+      const hc = t.closest('.gc.hc'); if (hc) return hcToggle(hc);
+      const pk = t.closest('.pickfd'); if (pk) { const e = entryOf(pk); if (e) pickInFeeDesk(e, pk.dataset.kind); return; }
+      const a = t.closest('[data-a]');
+      if (a) {
+        const tr = a.closest('tr'), e = entryOf(a);
+        if (a.dataset.a === 'now') { if (tr.dataset.blank) createFromBlank(tr, 'tin', 'now'); else if (e) gridSave(e.id, 'tin', 'now'); return; }
+        if (a.dataset.a === 'stop' && e) return act(e, 'stop');
+        if (a.dataset.a === 'more' && e) return openRowMenu(e);
+        return;
+      }
+      if (t.closest('a, input, button')) return;
+      const td = t.closest('td, th.rn'); if (!td) return;
+      const c = td.querySelector('.gc') || (td.classList.contains('rn') && td.parentNode.querySelector('.gc')); if (c) { gMouse = c.tagName === 'INPUT' && !td.classList.contains('rn') ? c : null; c.focus(); if (!gMouse && c.select) c.select(); }
+    });
+    root.addEventListener('dblclick', ev => { const rn = ev.target.closest('tbody .rn'); if (rn) { const e = entryOf(rn); if (e) openEdit(e); } });
+    root.addEventListener('contextmenu', ev => { if (ev.target.closest('input')) return; const e = entryOf(ev.target); if (!e) return; ev.preventDefault(); openRowMenu(e); });
+  }
+  bindGrid($('#todayList')); bindGrid($('#histList'));
+  // the Today grid fills the window below the toolbar (it scrolls inside, like Sheets, with the header and totals pinned)
+  function sizeGrid() {
+    const w = $('#todayList .gwrap'); if (!w || tab !== 'today' || document.body.classList.contains('locked')) return;
+    const top = w.getBoundingClientRect().top + window.scrollY, h = Math.max(300, Math.floor(window.innerHeight - top - 8));
+    if (w.style.height !== h + 'px') w.style.height = h + 'px';
+  }
+  window.addEventListener('resize', () => { sizeGrid(); if (S && tab === 'today' && fillRows() !== fillRows.last) render(true); });
+  function fillRows() {
+    const w = $('#todayList .gwrap'), r = w && w.querySelector('tbody tr'), rh = (r && r.offsetHeight) || 30;
+    const h = w ? (parseFloat(w.style.height) || w.clientHeight) : window.innerHeight - 200;
+    return Math.max(0, Math.floor((h - 2 * rh - 4) / rh));
+  }
+  function renderToday() {
+    const day = curDay(), list = dayList(day, true), box = $('#todayList');
+    const fill = fillRows(); fillRows.last = fill;
+    const html = sheetHtml(list, { day, blank: Math.max(MIN_BLANK, fill - list.length), main: true });
+    let w = box.querySelector('.gwrap');
+    const old = w && w.querySelector('table.grid');
+    if (old && old.contains(document.activeElement) && old.dataset.day === day) { patchGrid(old, html); setActive(gCell); }
+    else if (w) { const st = w.scrollTop, sl = w.scrollLeft, same = old && old.dataset.day === day; w.innerHTML = html; if (same) { w.scrollTop = st; w.scrollLeft = sl; } }
+    else { box.innerHTML = `<div class="gwrap main">${html}</div>`; w = box.firstElementChild; }
+    sizeGrid();
+  }
+  function renderToolbar() {
+    const day = curDay(), td = today(), isT = day === td, d = new Date(day + 'T12:00');
+    $('#dLbl').textContent = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) + (isT ? ' · Today' : '');
+    $('#dPick').value = day; $('#dToday').disabled = isT; $('#dToday').classList.toggle('on', !isT); $('#dNext').disabled = day >= td;
+    $('#tbar').classList.toggle('past', !isT);
+    const ws = weekStart(day), we = shiftDay(ws, 6), wl = S.encs.filter(e => { const k = R.encDay(e); return k >= ws && k <= we && kindOf(e) !== 'shift'; }), wt = R.totals(wl);
+    $('#wkTot').innerHTML = `Week <b>${wt.H.m + wt.C.m + wt.cb.m}</b> min · <b>${wt.H.u + wt.C.u + wt.cb.u}</b> u`;
+    $('#wkTot').title = `Week of ${R.fmtDay(ws)} (Mon–Sun): ${wl.length} entr${wl.length === 1 ? 'y' : 'ies'}. Hospital ${wt.H.m} min / ${wt.H.u} u, Clinic ${wt.C.m} min / ${wt.C.u} u${wt.cb.n ? `, call-backs ${wt.cb.m} min` : ''}`;
   }
   function pickInFeeDesk(e, kind) {
     if (!e || !kind) return;
@@ -381,81 +550,92 @@
   window.addEventListener('focus', () => { if (S) applyHandoffResponse(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S) applyHandoffResponse(); });
 
-  // v7: long-press (or right-click) on a row opens the quick-action sheet
-  function longPress(el) {
-    let t = null, x0 = 0, y0 = 0;
-    const clear = () => { clearTimeout(t); t = null; };
-    el.addEventListener('pointerdown', ev => { if (ev.button > 0 || ev.target.closest('button')) return; x0 = ev.clientX; y0 = ev.clientY; clear(); t = setTimeout(() => { t = null; el.dataset.lp = '1'; setTimeout(() => { delete el.dataset.lp; }, 900); const e = S && S.encs.find(x => x.id === el.dataset.id); if (e) { if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {} openRowMenu(e); } }, 500); });
-    el.addEventListener('pointermove', ev => { if (t && (Math.abs(ev.clientX - x0) > 8 || Math.abs(ev.clientY - y0) > 8)) clear(); });
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => el.addEventListener(n, clear));
-    el.addEventListener('contextmenu', ev => { ev.preventDefault(); clear(); const e = S && S.encs.find(x => x.id === el.dataset.id); if (e) openRowMenu(e); });
-  }
-  function totHtml(list) {
-    const t = R.totals(list);
-    return ['H', 'C'].map(k => `<div class="tot"><b>${t[k].m} min</b><span>${R.SET[k]} · ${t[k].n} enc · ${t[k].u} units</span></div>`).join('');
-  }
   function render() {
     if (!S) return;
-    const td = today();
-    renderOnsite();
-    const list = S.encs.filter(e => kindOf(e) !== 'shift' && (R.encDay(e) === td || e.status !== 'done')).sort((a, b) => (a.status === 'done') - (b.status === 'done') || R.startOf(b) - R.startOf(a));
-    renderStrip('today'); renderTrackAgain();
-    // v9b: one Excel-like sheet; live encounters are first rows (In/Out/Time update; Pause/Stop in last column)
-    const grid = list.length ? sheetTable(list.map(e => rowHtml(e, true, true)).join('')) : '';
-    $('#todayList').innerHTML = list.length ? grid : '<div class="empty">No encounters yet today. Enter a patient name and/or MRN below and tap <b>Start</b>.</div>';
-    bindCards($('#todayList'));
+    renderOnsite(); renderToolbar(); renderTrackAgain();
+    renderToday();
     $('#unitsNote').textContent = R.UNITS_NOTE;
     renderHistory(); renderRetention(); renderPbar(); renderPeriodSettings();
     if ($('#revDlg').open) renderReview(); if ($('#tlDlg').open) renderTimeline();
     $('#storeInfo').textContent = `${S.encs.length} entr${S.encs.length === 1 ? 'y' : 'ies'} and ${S.encs.reduce((a, e) => a + (e.photos || []).length, 0)} photo(s) stored encrypted on this device.`;
   }
-  function weekStart(k) { const [y, m, d] = k.split('-').map(Number); const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); return R.dayKey(dt.getTime()); }
+  function weekStart(k) { const [y, m, d] = k.split('-').map(Number); const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); return R.dayKey(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12).getTime()); }
+  const histSort = l => l.slice().sort((a, b) => R.startOf(a) - R.startOf(b) || (a.created || 0) - (b.created || 0));
   function renderHistory() {
     renderStrip('hist');
     const days = R.byDay(S.encs.slice().sort((a, b) => R.startOf(b) - R.startOf(a)));
-    if (!days.size) { $('#histList').innerHTML = '<div class="empty">No history yet.</div>'; return; }
+    const hl = $('#histList'), ae = document.activeElement;
+    // editing a History cell: patch the day tables in place (focus and keyboard stay); full redraw when focus leaves
+    if (hl.contains(ae) && ae.closest('table.grid')) {
+      for (const t of $$('#histList table.grid')) { const l = days.get(t.dataset.day); if (l) patchGrid(t, sheetHtml(histSort(l), { day: t.dataset.day })); }
+      histDirty = true; setActive(gCell); return;
+    }
+    if (!days.size) { hl.innerHTML = '<div class="empty">No history yet.</div>'; return; }
     const rv = S.settings.reviews || {}, re = S.settings.revEdited || {};
     const weeks = new Map(); for (const k of days.keys()) { const w = weekStart(k); if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(k); }
     let h = '';
     for (const [w, ks] of weeks) {
       const all = ks.flatMap(k => days.get(k)), t = R.totals(all);
-      const wkRev = ks.every(k => rv[k]), wkEnd = (d => { d.setDate(d.getDate() + 6); return R.dayKey(d.getTime()); })(new Date(w + 'T12:00'));
+      const wkRev = ks.every(k => rv[k]), wkEnd = shiftDay(w, 6);
       h += `<div class="week"><div class="weekh"><span class="wl">Week of ${esc(R.fmtDay(w))}${wkRev ? ' <i class="rvb">✎ Reviewed</i>' : ''}</span><span>H ${t.H.m} min/${t.H.u} u · C ${t.C.m} min/${t.C.u} u${t.cb.n ? ` · CB ${t.cb.m} min` : ''}${t.site.n ? ` · on site ${R.hmin(t.site.m)}` : ''} <button type="button" class="linkbtn sm" data-rvw="${w}|${wkEnd}">Review week</button></span></div>`;
       for (const k of ks) {
-        const l = days.get(k), d = R.totals(l);
-        const hol = R.holidayName(k);
-        h += `<div class="dayg" id="d-${k}"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span>${hol ? `<i class="holb" title="${esc(hol)}">Holiday</i>` : ''}${rv[k] ? '<i class="rvb" title="Reviewed">✎ Reviewed</i>' : re[k] ? '<i class="rve" title="An entry changed after this day was reviewed">Edited after review</i>' : ''}<span class="sp"></span><button type="button" class="linkbtn sm" data-tl="${k}">Timeline</button><button type="button" class="linkbtn sm" data-rv="${k}">Review</button><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>
-          <div class="dayt">${d.H.n + d.C.n} enc · H ${d.H.m}m/${d.H.u}u · C ${d.C.m}m/${d.C.u}u${d.cb.n ? ` · CB ${d.cb.n}/${d.cb.m}m` : ''}${d.site.n ? ` · on site ${R.hmin(d.site.m)}` : ''}${perShort(d)}</div>`;
-        h += sheetTable(l.sort((a, b) => R.startOf(a) - R.startOf(b)).map(e => rowHtml(e, false, true)).join('')) + '</div>';
+        const l = days.get(k), hol = R.holidayName(k);
+        h += `<div class="dayg" id="d-${k}"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span>${hol ? `<i class="holb" title="${esc(hol)}">Holiday</i>` : ''}${rv[k] ? '<i class="rvb" title="Reviewed">✎ Reviewed</i>' : re[k] ? '<i class="rve" title="An entry changed after this day was reviewed">Edited after review</i>' : ''}<span class="sp"></span><button type="button" class="linkbtn sm" data-open-day="${k}">Open in Today</button><button type="button" class="linkbtn sm" data-tl="${k}">Timeline</button><button type="button" class="linkbtn sm" data-rv="${k}">Review</button><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>`;
+        h += `<div class="gwrap">${sheetHtml(histSort(l), { day: k })}</div></div>`;
       }
       h += '</div>';
     }
-    $('#histList').innerHTML = h;
+    hl.innerHTML = h;
     $$('#histList [data-rep]').forEach(b => b.addEventListener('click', () => openReport(b.dataset.rep, b.dataset.rep)));
     $$('#histList [data-rv]').forEach(b => b.addEventListener('click', () => openReview(b.dataset.rv, b.dataset.rv)));
     $$('#histList [data-rvw]').forEach(b => b.addEventListener('click', () => { const [f, t2] = b.dataset.rvw.split('|'); openReview(f, t2); }));
     $$('#histList [data-tl]').forEach(b => b.addEventListener('click', () => openTimeline(b.dataset.tl)));
-    bindCards($('#histList'));
+    $$('#histList [data-open-day]').forEach(b => b.addEventListener('click', () => setDay(b.dataset.openDay)));
   }
   // live tick (display only; durations always computed from timestamps)
   setInterval(() => {
     $('#clock').textContent = R.hm(Date.now());  // America/Edmonton 24h, same source as In/Out cells
     if (!S) return;
-    for (const e of S.encs) { if (e.status !== 'run') continue; const ms = R.msOf(e), m = Math.floor(ms / 60000), u = R.units(m);
-      $$(`[data-rm="${CSS.escape(e.id)}"]`).forEach(el => { el.innerHTML = `${fmtDur(ms)}<small>${R.units(m)}u</small>`; });
-      $$(`[data-t="${CSS.escape(e.id)}"]`).forEach(el => { el.textContent = fmtDur(ms); });
-      $$(`[data-u="${CSS.escape(e.id)}"]`).forEach(el => { el.innerHTML = unitsHtml(e, m); });
-      if (kindOf(e) !== 'shift') { const wl = warnLvl(e); $$(`.enc[data-id="${CSS.escape(e.id)}"], .erow[data-id="${CSS.escape(e.id)}"]`).forEach(el => { el.classList.toggle('wa', wl === 'a'); el.classList.toggle('wr', wl === 'r'); });
-        $$(`[data-w="${CSS.escape(e.id)}"]`).forEach(el => { el.hidden = !wl; if (wl) el.innerHTML = warnHtml(e); }); } }
+    let live = false;
+    for (const e of S.encs) { if (e.status !== 'run') continue; live = true; const ms = R.msOf(e), m = Math.floor(ms / 60000), id = CSS.escape(e.id);
+      $$(`[data-rm="${id}"]`).forEach(el => { el.textContent = fmtDur(ms); el.title = m + ' min'; });
+      if (kindOf(e) !== 'shift') $$(`[data-ru="${id}"]`).forEach(el => { const u = String(R.units(m)); if (el.textContent !== u) el.textContent = u; const n = e.status === 'run' ? nextUnit(m) : null, tt = n ? `+1 unit at ${n} min` : ''; if (el.title !== tt) el.title = tt; });
+      if (kindOf(e) !== 'shift') { const wl = warnLvl(e); $$(`.gr[data-id="${id}"]`).forEach(el => { el.classList.toggle('wa', wl === 'a'); el.classList.toggle('wr', wl === 'r'); }); } }
+    if (live) $$('table.grid').forEach(t => { const f = t.tFoot; if (!f) return; const g = gTotals(dayList(t.dataset.day, t.classList.contains('main'))), tm = f.querySelector('[data-tm]'), tu = f.querySelector('[data-tu]'), tdd = f.querySelector('[data-td]');
+      if (tm && tm.textContent !== String(g.m)) tm.textContent = g.m; if (tu && tu.textContent !== String(g.u)) tu.textContent = g.u; if (tdd && tdd.textContent !== g.det) tdd.textContent = g.det; });
     renderPbar(); procTick();
     if (S && activeShift()) renderOnsiteInfo();
-    if (tab === 'today' && render.day !== today()) { render.day = today(); render(); }
+    if (render.day !== today()) { const was = render.day; render.day = today(); if (was && viewDay === was) viewDay = null; if (tab === 'today' && !$('#todayList').contains(document.activeElement)) render(); }
   }, 1000);
 
   // ------------------------------------------------------------ tabs
-  function showTab() { $$('#tabs button').forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); }); $$('main .panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; }); }
+  function showTab() { $$('#tabs button').forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); }); $$('main .panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; }); document.body.dataset.tab = tab;
+    if (tab === 'today' && S) requestAnimationFrame(() => { sizeGrid(); if (fillRows() !== fillRows.last) renderToday(); }); }
   $$('#tabs button').forEach(b => b.addEventListener('click', () => { tab = b.dataset.tab; showTab(); if (tab === 'history' && !$('#rFrom').value) { $('#rTo').value = today(); const d = new Date(); d.setDate(d.getDate() - 6); $('#rFrom').value = R.dayKey(d.getTime()); } }));
   $('#homeLink').addEventListener('click', ev => { ev.preventDefault(); tab = 'today'; showTab(); window.scrollTo(0, 0); });
+  // ---- v9c toolbar: date navigator, More menu
+  function setDay(k) {
+    if (!k || !/^\d{4}-\d{2}-\d{2}$/.test(k)) return;
+    if (k > today()) k = today();
+    viewDay = k === today() ? null : k; tab = 'today'; showTab();
+    const w = $('#todayList .gwrap'); if (w) { w.scrollTop = 0; w.scrollLeft = 0; }
+    render(); window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+  $('#dPrev').onclick = () => setDay(shiftDay(curDay(), -1));
+  $('#dNext').onclick = () => setDay(shiftDay(curDay(), 1));
+  $('#dToday').onclick = () => setDay(today());
+  $('#dPick').addEventListener('change', () => setDay($('#dPick').value));
+  $('#dPick').addEventListener('click', ev => { try { ev.target.showPicker(); } catch (e) { /* older browsers open their own picker */ } });
+  const moreMenu = $('#moreMenu');
+  function moreOpen(on) { moreMenu.hidden = !on; $('#moreBtn').setAttribute('aria-expanded', String(on)); if (on) { const f = moreMenu.querySelector('button:not([hidden])'); if (f) f.focus(); } }
+  $('#moreBtn').onclick = ev => { ev.stopPropagation(); moreOpen(moreMenu.hidden); };
+  moreMenu.addEventListener('click', ev => { if (ev.target.closest('button')) setTimeout(() => moreOpen(false), 0); });
+  document.addEventListener('click', ev => { if (!moreMenu.hidden && !ev.target.closest('#moreMenu, #moreBtn')) moreOpen(false); });
+  moreMenu.addEventListener('keydown', ev => {
+    const items = [...moreMenu.querySelectorAll('button:not([hidden])')], i = items.indexOf(document.activeElement);
+    if (ev.key === 'Escape') { ev.preventDefault(); moreOpen(false); $('#moreBtn').focus(); }
+    else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); const n = items[(i + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]; if (n) n.focus(); }
+  });
 
   // ------------------------------------------------------------ fee codes (Fee Desk data, bundled)
   async function loadProvs() { try { PROVS = (await (await fetch('data/codes-index.json')).json()).list; } catch (e) { PROVS = [{ id: 'AB', name: 'Alberta' }]; } }
@@ -508,7 +688,7 @@
   let cur = null, isNew = false, addedPhotos = [], removedPhotos = [];
   const dtLocal = ts => { if (ts == null) return ''; return `${R.dayKey(ts)}T${R.hm(ts)}`; };
   const parseLocal = v => v ? new Date(v).getTime() : null;
-  function segRow(s) { return `<div class="segrow"><label>Start<input type="datetime-local" class="ss" value="${dtLocal(s.s)}" required></label><label>End${s.e == null ? ' (running)' : ''}<input type="datetime-local" class="se" value="${dtLocal(s.e)}"></label><button type="button" class="x" aria-label="Remove segment">✕</button></div>`; }
+  function segRow(s) { return `<div class="segrow"><label>Start<input type="datetime-local" class="ss" value="${dtLocal(s.s)}"${s.s == null ? '' : ' required'}></label><label>End${s.e == null ? ' (running)' : ''}<input type="datetime-local" class="se" value="${dtLocal(s.e)}"></label><button type="button" class="x" aria-label="Remove segment">✕</button></div>`; }
   function bindSegs() { $$('#eSegs .x').forEach(b => b.onclick = () => { if ($$('#eSegs .segrow').length > 1) { b.closest('.segrow').remove(); sumSegs(); } }); $$('#eSegs input').forEach(i => i.oninput = sumSegs); }
   function readSegs() { return $$('#eSegs .segrow').map(r => { const s = parseLocal(r.querySelector('.ss').value), e = parseLocal(r.querySelector('.se').value); return { s, e }; }); }
   function sumSegs() {
@@ -666,7 +846,7 @@
     renderChips(); dxSync($('#eDxQ')); syncCodeLink();
     const jl = [...new Set([$('#eProv').value].concat(cur.codes.map(c => c.j || 'AB')))].map(j => codesFor(j).catch(() => null));
     Promise.all(jl.concat(cur.codes.some(c => c.dx) || cur.dx ? [loadIcd()] : [])).then(() => { if (cur) { renderChips(); dxSync($('#eDxQ')); syncCodeLink(); } }).catch(() => {});
-    $('#eSegs').innerHTML = cur.segs.map(segRow).join(''); bindSegs(); sumSegs(); $('#eErr').textContent = ''; $('#eWarn').hidden = true; $('#eSave').textContent = 'Save';
+    $('#eSegs').innerHTML = (cur.segs.length ? cur.segs : [{ s: null, e: null }]).map(segRow).join(''); bindSegs(); sumSegs(); $('#eErr').textContent = ''; $('#eWarn').hidden = true; $('#eSave').textContent = 'Save';
     const lt = lateText(cur); $('#eLate').hidden = !lt; $('#eLate').textContent = lt;
     $('#eDelete').hidden = !!fresh; $('#eHist').hidden = !!fresh; $('#ePhotos').innerHTML = ''; thumbs();
     $('#eRepRow').hidden = !!fresh || cur.kind === 'shift'; syncFavBtn();
@@ -735,6 +915,7 @@
   $('#eaSeg').onclick = () => { if (!cur) return; setMode('edit'); $('#eAddSeg').click(); const rows = $$('#eSegs .segrow'); const last = rows[rows.length - 1]; if (last) { last.scrollIntoView({ block: 'center' }); last.querySelector('.ss').focus(); } };
   // quick add: running = start earlier; finished/paused = later end (capped at now, the rest goes before the start)
   async function addTime(e, min) {
+    if (!(e.segs || []).length) { toast('Start the timer first (type In, or ⋯ → Start timer now)'); return null; }
     const now = Date.now(), prev = clone(e), x = clone(e), sg = x.segs, ms = min * 60000, last = sg[sg.length - 1];
     let how;
     if (last.e == null) { sg[0].s -= ms; how = `start ${R.hm(prev.segs[0].s)} → ${R.hm(sg[0].s)}`; }
@@ -801,13 +982,15 @@
     const n = { id: uid(), t: Date.now(), x: v.slice(0, 1000) };
     await noteOp('note-add', l => l.concat(n), `Note added (${v.length} characters)`); closeNoteNew(); renderNotes(); toast(isNew ? 'Note added. It saves with the entry.' : 'Note saved');
   };
-  // ---- v7 row quick actions (History ⋯ button, or long-press / right-click on any row)
+  // ---- row actions (⋯ in the last column, right-click a row, or press and hold its row number)
   let rmEnt = null;
   function openRowMenu(e) {
-    rmEnt = e; const k = kindOf(e);
+    rmEnt = e; const k = kindOf(e), st = e.status, started = (e.segs || []).length > 0;
     $('#rmTitle').textContent = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : displayWho(e);
-    $('#rmSub').textContent = [R.fmtDay(R.encDay(e)), R.hm(R.startOf(e)) + (R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ''), ptMrn(e), (e.codes || []).map(c => c.c).join(', ')].filter(Boolean).join(' · ');
-    $('#rmSame').hidden = k === 'shift';
+    $('#rmSub').textContent = [R.fmtDay(R.encDay(e)), started ? R.hm(R.startOf(e)) + (R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ' (running)') : 'not started', ptMrn(e), (e.codes || []).map(c => c.c).join(', ')].filter(Boolean).join(' · ');
+    const ed = k !== 'shift', show = { start: !started && ed, pause: st === 'run' && ed, resume: started && ed && (st === 'pause' || st === 'done'), stop: st === 'run' || st === 'pause', time: started, same: ed, fee: ed, dx: ed, full: st === 'run' && ed };
+    $$('#rowMenu [data-rmi]').forEach(b => { if (b.dataset.rmi in show) b.hidden = !show[b.dataset.rmi]; });
+    $('#rmResumeL').textContent = st === 'done' ? 'Continue timing (new segment)' : 'Resume';
     const d = $('#rowMenu'); if (!d.open) d.showModal();
   }
   $('#rmClose').onclick = () => $('#rowMenu').close();
@@ -815,9 +998,21 @@
   $$('#rowMenu [data-rmi]').forEach(b => b.onclick = async () => {
     const e = rmEnt && S && S.encs.find(x => x.id === rmEnt.id); $('#rowMenu').close(); if (!e) return;
     const a = b.dataset.rmi;
+    if (a === 'start') return gridSave(e.id, 'tin', 'now');
+    if (a === 'pause' || a === 'resume' || a === 'stop') return act(e, a);
     if (a === 'same') return samePatient(e);
-    openEdit(e, false, a === 'edit' ? { edit: true } : a === 'time' ? { panel: 'time' } : a === 'note' ? { panel: 'note' } : {});
+    if (a === 'fee' || a === 'dx') return pickInFeeDesk(e, a);
+    if (a === 'full') return openProc(e);
+    if (a === 'del') return delEntry(e);
+    openEdit(e, false, a === 'segs' ? { edit: true } : a === 'time' ? { panel: 'time' } : a === 'note' ? { panel: 'note' } : {});
   });
+  async function delEntry(e) {
+    const ok = await ask({ title: 'Delete row', text: `Delete "${displayWho(e) || 'this entry'}"${(e.photos || []).length ? ' and its photos' : ''}? It disappears from your logs and reports, but a full copy stays in the encrypted audit log.`, ok: 'Delete', danger: true });
+    const cur0 = ok && S && S.encs.find(x => x.id === e.id); if (!cur0) return;
+    const gone = clone(cur0), ph = await deleteEnc(cur0, 'Deleted from the spreadsheet row menu', true); render();
+    const tm = setTimeout(() => { photoDel.delete(tm); ph.forEach(p => V.removePhoto(p)); }, 6000); photoDel.set(tm, ph);
+    snack(`Deleted ${R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
+  }
   async function closeEdit(saved) {
     if (!saved) for (const p of addedPhotos) await V.removePhoto(p);
     cur = null; addedPhotos = []; removedPhotos = []; noteEdit = null; closeNoteNew(); $('#editDlg').close();
@@ -839,8 +1034,11 @@
   $('#eSegs').addEventListener('input', () => { overlapOk = false; $('#eWarn').hidden = true; $('#eSave').textContent = 'Save'; });
   $('#editForm').addEventListener('submit', async ev => {
     ev.preventDefault(); if (!cur) return;
-    const segs = sumSegs(), err = $('#eErr'), k = cur.kind; err.textContent = '';
-    if (!segs || !segs.length) return err.textContent = 'Each time segment needs a start time.';
+    const err = $('#eErr'), k = cur.kind, rawSegs = readSegs(); err.textContent = '';
+    // v9c: an encounter made in the spreadsheet may not be started yet (no In time); it can stay that way
+    const notStarted = k === 'enc' && rawSegs.length === 1 && rawSegs[0].s == null && rawSegs[0].e == null && !(cur.segs || []).length;
+    const segs = notStarted ? [] : sumSegs();
+    if (!segs || (!segs.length && !notStarted)) return err.textContent = 'Each time segment needs a start time.';
     for (let i = 0; i < segs.length; i++) {
       const s = segs[i];
       if (s.e == null && i !== segs.length - 1) return err.textContent = 'Only the last segment can be open (still running).';
@@ -867,11 +1065,12 @@
     if (k === 'cb') { cur.cbType = $('#eCbType').value; cur.called = called; cur.links = $$('#eLinks input:checked').map(i => i.value); cur.label = cur.label || 'Call-back'; }
     if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; }
     else applyPendingDx(cur);
-    const open = segs[segs.length - 1].e == null;
-    cur.status = open ? 'run' : (cur.status === 'run' ? 'pause' : (isNew ? 'done' : cur.status));
-    if (k !== 'enc' && !open) cur.status = 'done';
+    const open = segs.length > 0 && segs[segs.length - 1].e == null;
+    cur.status = !segs.length ? 'new' : open ? 'run' : (cur.status === 'run' ? 'pause' : (isNew || cur.status === 'new' ? 'done' : cur.status));
+    if (k !== 'enc' && !open && segs.length) cur.status = 'done';
+    if (segs.length) delete cur.at;
     // honest audit trail: back-dated or edited times are marked "entered later"
-    if (isNew) { cur.created = Date.now(); if (segs[0].s < Date.now() - 2 * 60000) cur.late = true; }
+    if (isNew) { cur.created = Date.now(); if (segs.length && segs[0].s < Date.now() - 2 * 60000) cur.late = true; }
     else if (timesChanged) cur.late = true;
     if (!isNew) cur.edits = (cur.edits || []).concat(Date.now());
     for (const p of removedPhotos) await V.removePhoto(p);
@@ -911,7 +1110,7 @@
     snack(`Deleted ${R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
   };
   const blank = (k, s, e) => ({ id: uid(), kind: k, name: '', mrn: '', billingNote: '', label: '', initials: '', chart: '', setting: k === 'enc' ? S.settings.defSetting : 'H', facility: (activeShift() || {}).facility || S.settings.curFac || null, type: '', codes: [], notes: [], segs: [{ s, e }], status: e == null ? 'run' : 'done', photos: [], links: [], created: Date.now() });
-  $('#manualBtn').onclick = () => { const s = Date.now() - 30 * 60000; const e = blank('enc', s, s + 30 * 60000); e.late = true; openEdit(e, true); };
+  $('#manualBtn').onclick = () => { const d = curDay(), s = d === today() ? Date.now() - 30 * 60000 : edmAt(d, 12, 0); const e = blank('enc', s, s + 30 * 60000); e.late = true; openEdit(e, true); };
   $('#cbBtn').onclick = () => { const now = Date.now(); const e = blank('cb', now, null); e.called = now; e.cbType = 'return'; e.setting = 'H'; openEdit(e, true); };
   // entry history (from the audit log)
   async function showHistory(eid, title) {
@@ -925,18 +1124,18 @@
 
   // ------------------------------------------------------------ on site (arrival / departure)
   const activeShift = () => S && S.encs.find(e => kindOf(e) === 'shift' && e.status === 'run');
+  const hShort = m => `${Math.floor(m / 60)}h ${R.pad(m % 60)}m`;
   function renderOnsiteInfo() {
-    const sh = activeShift(), td = today(), t = R.totals(S.encs.filter(e => R.encDay(e) === td));
-    $('#osInfo').textContent = (sh ? `On site since ${R.hm(R.startOf(sh))}${sh.late ? ' (entered later)' : ''}. ` : '') + `Time on site today: ${R.hmin(t.site.m)}${t.site.n ? ` (${t.site.n} period${t.site.n > 1 ? 's' : ''})` : ''}.`;
+    const sh = activeShift(), day = curDay(), t = R.totals(S.encs.filter(e => R.encDay(e) === day && kindOf(e) === 'shift'));
+    const el = $('#osInfo');
+    el.innerHTML = sh ? `On site since <b>${R.hm(R.startOf(sh))}</b>${sh.late ? '*' : ''} · ${hShort(t.site.m)}` : t.site.n ? `On site <b>${hShort(t.site.m)}</b>` : '';
+    el.title = sh ? `Arrived ${R.hm(R.startOf(sh))}${sh.late ? ' (entered later)' : ''}. Time on site ${day === today() ? 'today' : R.fmtDay(day)}: ${R.hmin(t.site.m)}${t.site.n > 1 ? ` (${t.site.n} periods)` : ''}` : t.site.n ? `Time on site: ${R.hmin(t.site.m)} (${t.site.n} period${t.site.n > 1 ? 's' : ''})` : '';
   }
   function renderOnsite() {
     const sh = activeShift(), f = sh ? sh.facility : S.settings.curFac;
-    $('#osFacName').textContent = f ? f.n : 'Choose…';
+    $('#osFacName').textContent = f ? f.n : 'Choose…'; $('#osFac').title = f ? `Facility: ${f.n}${f.z ? ` (${f.z} Zone)` : ''}` : 'Choose a facility';
     const b = $('#osBtn'); b.textContent = sh ? 'Depart' : 'Arrive'; b.classList.toggle('dep', !!sh); $('#osEdit').hidden = !sh;
     renderOnsiteInfo();
-    const td = today(), list = S.encs.filter(e => kindOf(e) === 'shift' && R.encDay(e) === td).sort((a, b) => R.startOf(a) - R.startOf(b));
-    let box = $('#osList'); if (!box) { box = document.createElement('div'); box.id = 'osList'; box.className = 'list'; $('#onsite').appendChild(box); }
-    const dn = list.filter(e => e.status !== 'run'); box.innerHTML = dn.length ? sheetTable(dn.map(e => rowHtml(e)).join('')) : ''; bindCards(box);
   }
   $('#osEdit').onclick = () => { const sh = activeShift(); if (sh) openEdit(sh); };
   $('#osFac').onclick = async () => {
@@ -1074,7 +1273,8 @@
   $$('#repForm .fmt button').forEach(b => b.onclick = () => setFmt(b.dataset.fmt));
   ['#pFrom', '#pTo', '#pPhotos', '#pNotes'].forEach(s => $(s).addEventListener('change', () => { repInfo(); $('#pReady').hidden = true; repFile = null; }));
   $('#pClose').onclick = () => { $('#repDlg').close(); repFile = null; };
-  $('#repToday').onclick = () => openReport(today(), today());
+  $('#repToday').onclick = () => openReport(curDay(), curDay());
+  $('#repToday2').onclick = () => openReport(curDay(), curDay());
   $('#repRange').onclick = () => { const f = $('#rFrom').value, t = $('#rTo').value; if (!f || !t) return toast('Choose both dates'); openReport(f <= t ? f : t, f <= t ? t : f); };
   const credits = list => { const ids = new Set(); list.forEach(e => (e.codes || []).forEach(c => ids.add(c.j || 'AB'))); return PROVS.filter(p => ids.has(p.id)).map(p => `Fee codes (${p.name}): ${p.title}${p.eff ? ', ' + p.eff : ''}. ${p.credit} Code data via MedBilling Fee Desk.`); };
   $('#pMake').onclick = async () => {
@@ -1633,6 +1833,7 @@
       if (k === 'shift' && e.status !== 'done') out.push({ lvl: 'block', e, t: 'No departure recorded' });
       if (k !== 'shift' && e.status === 'run') out.push({ lvl: 'block', e, t: 'Timer still running' });
       if (k !== 'shift' && e.status === 'pause') out.push({ lvl: 'block', e, t: 'Paused, not stopped' });
+      if (k !== 'shift' && !(e.segs || []).length) out.push({ lvl: 'block', e, t: 'Not started: no In time' });
       if (k !== 'shift' && !(e.codes || []).length) out.push({ lvl: 'warn', e, t: 'No fee code' });
       if (k !== 'shift' && !R.dxList(e).length) out.push({ lvl: 'warn', e, t: 'No diagnostic code' });
       else if (k !== 'shift' && (e.codes || []).length > 1 && e.codes.some(c => !c.dx) && !e.dx) out.push({ lvl: 'warn', e, t: 'A fee code has no diagnostic code' });
@@ -1665,7 +1866,7 @@
     await V.appendAudit({ action: 'review', note: `Marked reviewed: ${from === to ? from : from + ' to ' + to} (${list.length} entries${nw ? `, ${nw} item(s) checked and accepted` : ''}).`, after: { days, ids: list.map(e => e.id) } });
     render(); renderReview(); toast('Marked reviewed');
   };
-  $('#rvToday').onclick = () => openReview(today(), today());
+  $('#rvToday').onclick = () => openReview(curDay(), curDay());
   // ---- 9. day timeline: blocks between arrival and departure
   let tlDay = null; const PX = 1.1;
   function openTimeline(k) { tlDay = k; renderTimeline(); $('#tlDlg').showModal(); }
@@ -1694,11 +1895,10 @@
       const e = blank('enc', t, Math.min(Date.now(), t + 15 * 60000)); e.late = true; e.status = 'done'; openEdit(e, true);
     };
   }
-  const shiftDay = (k, n) => { const d = new Date(k + 'T12:00'); d.setDate(d.getDate() + n); return R.dayKey(d.getTime()); };
   $('#tlPrev').onclick = () => { tlDay = shiftDay(tlDay, -1); renderTimeline(); };
   $('#tlNext').onclick = () => { tlDay = shiftDay(tlDay, 1); renderTimeline(); };
   $('#tlClose').onclick = () => $('#tlDlg').close();
-  $('#tlToday').onclick = () => openTimeline(today());
+  $('#tlToday').onclick = () => openTimeline(curDay());
   // ---- time periods and holidays in Settings (per user; verify against the current SOMB)
   function renderPeriodSettings() {
     if (!S) return; const C = R.PERIOD_CFG, y = new Date().getFullYear(), td = today(), off = new Set(S.settings.holOff || []);

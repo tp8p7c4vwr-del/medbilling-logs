@@ -9,7 +9,9 @@
   const minsOf = (e, now) => Math.floor(msOf(e, now) / 60000);
   // 15-minute units: full 15-min blocks, plus one more if the remainder is 8 min or more (e.g. 38 min = 3 units).
   const units = m => m <= 0 ? 0 : Math.floor(m / 15) + (m % 15 >= 8 ? 1 : 0);
-  const startOf = e => e.segs.length ? e.segs[0].s : e.created;
+  // v9c: a spreadsheet row can exist before its clock starts (no segments yet); it sorts/dates by e.at (rows added on an earlier day) or e.created
+  const startOf = e => e.segs.length ? e.segs[0].s : (e.at || e.created);
+  const started = e => !!(e && e.segs && e.segs.length);
   const endOf = e => { const l = e.segs[e.segs.length - 1]; return l ? l.e : null; };
   const encDay = e => dayKey(startOf(e));
   const SET = { H: 'Hospital', C: 'Clinic' };
@@ -144,7 +146,7 @@
   const samePtTxt = (e, all) => samePt(e, all).map(x => `${x.label || KIND[kindOf(x)]} ${encDay(x)} ${hm(startOf(x))}`).join('; ');
   function row(e, now) {
     const m = minsOf(e, now), en = endOf(e);
-    return { start: hm(startOf(e)) + lateMark(e), end: en == null ? (kindOf(e) === 'shift' ? 'on site' : 'running') : hm(en), min: String(m), units: String(units(m)), set: [SET[e.setting] || '', facTxt(e)].filter(Boolean).join(', '), name: ptName(e) || ptWho(e), mrn: ptMrn(e), room: e.label || '', init: e.initials || '', chart: ptMrn(e), type: e.type || '',
+    return { start: started(e) ? hm(startOf(e)) + lateMark(e) : '', end: !started(e) ? 'not started' : en == null ? (kindOf(e) === 'shift' ? 'on site' : 'running') : hm(en), min: String(m), units: String(units(m)), set: [SET[e.setting] || '', facTxt(e)].filter(Boolean).join(', '), name: ptName(e) || ptWho(e), mrn: ptMrn(e), room: e.label || '', init: e.initials || '', chart: ptMrn(e), type: e.type || '',
       codes: (e.codes || []).map(c => c.c + (c.f ? ` (${c.f})` : '')).join('; '), dx: dxTxt(e), note: billingNoteOf(e), per: perTxt(periodSplit(e, now).parts, true), fac: facTxt(e), cbt: CBT[e.cbType] || '', called: e.called ? hm(e.called) : '', site: hmin(m) };
   }
   // ---------- CSV
@@ -159,7 +161,7 @@
       const m = minsOf(e, now), en = endOf(e), k = kindOf(e);
       const linked = (e.links || []).map(id => byId.get(id)).filter(Boolean).map(x => `${x.label} ${hm(startOf(x))}`).join('; ');
       const ps = periodSplit(e, now).parts, pv = PERIODS.flatMap(p => { const q = ps.find(x => x.id === p.id); return k === 'shift' ? ['', ''] : [q ? q.m : 0, q ? q.u : 0]; });
-      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', ptName(e) || ptWho(e), ptMrn(e), e.label, e.initials, e.chart || e.mrn || '', SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), codesTxt(e), dxTxt(e), billingNoteOf(e), iso(startOf(e)), iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
+      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', ptName(e) || ptWho(e), ptMrn(e), e.label, e.initials, e.chart || e.mrn || '', SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), codesTxt(e), dxTxt(e), billingNoteOf(e), started(e) ? iso(startOf(e)) : '', iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
     }
     return { head, rows };
   }
