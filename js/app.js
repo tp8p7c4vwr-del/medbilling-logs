@@ -1013,8 +1013,8 @@
     let d = fix(); if (!d) return; const w = c.closest('.gwrap'); if (w) w.scrollTop += d; d = fix(); if (d) window.scrollBy(0, d);
     gNavPos();
   }
-  function gNavPos() { const n = $('#gNav'), vv = window.visualViewport; if (!n || n.hidden) return; n.style.top = Math.round((vv ? vv.offsetTop + vv.height : innerHeight) - n.offsetHeight - 8) + 'px'; }
-  function gNavShow(on) { const n = $('#gNav'); if (!n) return; n.hidden = !(on && COARSE()); gNavPos(); }
+  function gNavPos() { const n = $('#gNav'), vv = window.visualViewport; if (!n || n.hidden) return; n.style.top = Math.round((vv ? vv.offsetTop + vv.height : innerHeight) - n.offsetHeight - 8) + 'px'; snackAvoidNav(); }
+  function gNavShow(on) { const n = $('#gNav'); if (!n) return; n.hidden = !(on && COARSE()); gNavPos(); if (n.hidden) snackAvoidNav(); }
   if (window.visualViewport) { visualViewport.addEventListener('resize', () => { gNavPos(); kbSoon(); }); visualViewport.addEventListener('scroll', gNavPos); }
   // the explicit arrow buttons (toolbar ← → and the floating touch bar): same as Shift+Tab / Tab
   function gStep(dir) {
@@ -1058,6 +1058,7 @@
     pickSave({ tok, id: e.id, col, day: R.encDay(e), tab, t: Date.now() });
     const u = new URL(FD);
     u.searchParams.set('pick', col === 'dx' ? 'dx' : 'hsc'); u.searchParams.set('ctx', tok);
+    u.searchParams.set('pv', '2');   // v9l: Logs takes several codes at once (pick protocol 2); older Fee Desk versions ignore it
     u.searchParams.set('return', NATIVE ? 'mblogs://pick' : location.origin + location.pathname);
     const cs = e.codes || [], j = (cs[cs.length - 1] && cs[cs.length - 1].j) || (S && S.settings.prov) || 'AB';
     if (/^[A-Z]{2}$/.test(j)) u.searchParams.set('jur', j);
@@ -1065,10 +1066,11 @@
     if (at) { const h = col === 'dx' ? fdDxHref(at) : fdCodeHref(at, j); u.hash = h.includes('#') ? h.slice(h.indexOf('#')) : ''; }
     else if (col === 'dx') u.hash = '#/icd9';
     fdSince = Date.now(); pickStart();
-    if (NATIVE) { window.open(u.href, '_blank'); toast(col === 'dx' ? 'Tap an ICD-9 code in Fee Desk to bring it back' : 'Tap a fee code in Fee Desk to bring it back', 3000); return; }
+    const hint = (col === 'dx' ? 'Tap an ICD-9 code in Fee Desk to bring it back' : 'Tap a fee code in Fee Desk to bring it back') + ' (＋ picks several)';
+    if (NATIVE) { window.open(u.href, '_blank'); toast(hint, 3000); return; }
     // a named window keeps the opener, so Fee Desk can hand the code back to this tab and close itself
     let w = null; try { w = window.open(u.href, 'mbfeedesk'); } catch (er) { w = null; }
-    if (w) { toast(col === 'dx' ? 'Tap an ICD-9 code in Fee Desk to bring it back' : 'Tap a fee code in Fee Desk to bring it back', 3000); return; }
+    if (w) { toast(hint, 3000); return; }
     // pop-up blocked: go there in this tab once the save is done (the code comes back in the return link)
     picking = Math.max(0, picking - 1); fdSince = 0;
     gQ.then(() => location.assign(u.href));
@@ -1085,27 +1087,128 @@
     $('#lockMsg').textContent = `Unlock to add ${code} to the spreadsheet.`;
     return 'held';
   }
+  // ---- v9l multi-code return (pick protocol 2). Logs asks for it with pv=2; Fee Desk may then send up to 3 fee codes, 3 ICD-9
+  // codes and 3 modifiers at once: ?pickv=2&ctx=<token>&fee=A,B&dx=X&dxfor=A&mod=M1,M2&modfor=A, (return link / mblogs://pick)
+  // or {type:'pick', v:2, ctx, fee:[], dx:[], dxFor:[], mod:[], modFor:[]} (same-browser message). "dxfor"/"modfor" are
+  // positional: the fee code (from the same send) each Dx / modifier belongs to, or empty. One code per pick (?picked=…&kind=…)
+  // still works exactly as before. Same one-time token, same checks: codes only, never patient data.
+  const MODC_RE = /^[A-Z0-9]{1,8}$/;
+  function pickParse2(o) {
+    const arr = v => (Array.isArray(v) ? v : v == null || v === '' ? [] : String(v).split(',')).map(x => String(x == null ? '' : x).trim().toUpperCase());
+    const raw = { fee: arr(o.fee), dx: arr(o.dx), mod: arr(o.mod) };
+    if (raw.fee.length > 3 || raw.dx.length > 3 || raw.mod.length > 3) return null;
+    if (!raw.fee.every(c => PICK_RE.test(c)) || !raw.dx.every(c => PICK_RE.test(c)) || !raw.mod.every(c => MODC_RE.test(c))) return null;
+    const fee = raw.fee.filter((c, i, a) => a.indexOf(c) === i);
+    const withFor = (list, fr) => { const f = arr(fr), out = [], forOut = [];
+      list.forEach((c, i) => { if (out.includes(c)) return; out.push(c); forOut.push(fee.includes(f[i]) ? f[i] : ''); }); return [out, forOut]; };
+    const [dx, dxFor] = withFor(raw.dx, o.dxFor != null ? o.dxFor : o.dxfor), [mod, modFor] = withFor(raw.mod, o.modFor != null ? o.modFor : o.modfor);
+    if (!(fee.length + dx.length + mod.length)) return null;
+    return { v: 2, fee, dx, dxFor, mod, modFor };
+  }
+  function pickInbound2(o, tok) {
+    if (!TOK_RE.test(tok || '')) return 'bad';
+    const v = pickParse2(o || {}); if (!v) return 'bad';
+    const p = pickLoad(); if (!p || p.tok !== tok) return 'stale';
+    if (p.picked) return 'held';
+    p.picked = v; p.pt = Date.now(); pickSave(p);
+    picking = 0; fdSince = 0;
+    if (S) { pickApply(); return 'applied'; }
+    $('#lockMsg').textContent = pickLockMsg();
+    return 'held';
+  }
+  const pickCodesTxt = v => { const all = [].concat(v.fee, v.dx, v.mod); return all.length <= 3 ? all.join(', ') : all.length + ' codes'; };
+  // merge the codes into the row (a clone): Fee code(s) append without duplicates; Dx one per fee code, beside the fee code it came
+  // with, else on fee codes that have none (new ones first), never replacing one; modifiers: Modifier code 1 for the row's first fee
+  // code, Modifier code 2 for its second or later fee code; a modifier linked to (or sent with only) one fee code follows that fee
+  // code, others go to Modifier code 1; never a duplicate across the two cells. Returns what happened, for the confirmation.
+  async function pickMerge(e, v) {
+    const nc = s => norm(s), out = { fee: [], dx: [], m1: [], m2: [], have: [], skipped: [] };
+    const list0 = (e.codes || []).map(c => c.c), newFee = [];
+    v.fee.forEach(c => { if (list0.concat(newFee).some(x => nc(x) === nc(c))) out.have.push(c); else newFee.push(c); });
+    if (newFee.length) {
+      await applyCell(e, 'fee', list0.concat(newFee).join(', '), R.encDay(e));
+      out.fee = (e.codes || []).slice(list0.length).map(c => c.c);
+      // a Dx typed before there was any fee code moves onto the first fee code without one (as when typing in the Dx cell)
+      if (e.dx && e.codes.length) { const j = e.codes.findIndex(c => !c.dx); if (j >= 0 && !e.codes.some(c => c.dx && nc(c.dx) === nc(e.dx))) { e.codes[j] = Object.assign({}, e.codes[j], { dx: e.dx, dxd: dxDesc(e.dx) }); delete e.dx; } }
+    }
+    const codes = e.codes || [], posOf = f => f ? codes.findIndex(c => nc(c.c) === nc(f) || nc(c.k || '') === nc(f)) : -1;
+    if (v.dx.length) {
+      await loadIcd().catch(() => null);
+      const dl = R.dxList(e);
+      v.dx.forEach((d, i) => {
+        if (dl.some(x => nc(x) === nc(d))) { out.have.push(d); return; }
+        if (!codes.length) { if (!e.dx) { e.dx = d; dl.push(d); out.dx.push(d); } else out.skipped.push(d); return; }
+        let at = posOf(v.dxFor[i]); if (at >= 0 && codes[at].dx) at = -1;
+        if (at < 0) { const order = codes.map((c, j) => j).sort((a, b) => ((b >= list0.length) - (a >= list0.length)) || a - b); const f = order.find(j => !codes[j].dx); at = f == null ? -1 : f; }
+        if (at < 0) { out.skipped.push(d); return; }
+        codes[at] = Object.assign({}, codes[at], { dx: d, dxd: dxDesc(d) }); dl.push(d); out.dx.push(d);
+      });
+      e.codes = codes; if (codes.length && e.dx && codes.some(c => c.dx && nc(c.dx) === nc(e.dx))) delete e.dx;
+    }
+    if (v.mod.length) {
+      const m = { 1: R.normMods(e.mod1).split(', ').filter(Boolean), 2: R.normMods(e.mod2).split(', ').filter(Boolean) };
+      v.mod.forEach((x, i) => {
+        if (m[1].includes(x) || m[2].includes(x)) { out.have.push(x); return; }
+        const f = v.modFor[i] || (v.fee.length === 1 ? v.fee[0] : ''), n = posOf(f) > 0 ? 2 : 1;
+        if (m[n].concat(x).join(', ').length > MOD_MAX) { out.skipped.push(x); return; }
+        m[n].push(x); out['m' + n].push(x);
+      });
+      [1, 2].forEach(n => { const s = m[n].join(', '); if (s) e['mod' + n] = s; else delete e['mod' + n]; });
+    }
+    out.noFee = !codes.length;
+    out.changed = !!(out.fee.length || out.dx.length || out.m1.length || out.m2.length);
+    return out;
+  }
+  async function pickApply2(p) {
+    const v = p.picked;
+    if (!S.encs.find(x => x.id === p.id)) { toast(`That row no longer exists, so ${pickCodesTxt(v)} ${[].concat(v.fee, v.dx, v.mod).length === 1 ? 'was' : 'were'} not added`, 4000); return; }
+    const act = document.activeElement; if (act && act.classList && act.classList.contains('gc')) commitCell(act);
+    let r = null, before = null, after = null;
+    await gEnq(async () => {
+      const cur = S.encs.find(x => x.id === p.id); if (!cur) return;
+      const e = clone(cur); before = clone(cur);
+      r = await pickMerge(e, v); if (!r.changed) return;
+      const aud = [r.fee.length && 'fee +' + r.fee.join(', '), r.dx.length && 'Dx +' + r.dx.join(', '), r.m1.length && 'modifier 1 +' + r.m1.join(', '), r.m2.length && 'modifier 2 +' + r.m2.join(', ')].filter(Boolean).join('; ');
+      await saveEnc(e, 'edit', 'Codes picked in Fee Desk: ' + aud); after = e;
+    });
+    pickFocus(p, p.col);
+    if (!r) return;
+    const parts = [r.fee.length && 'Fee ' + r.fee.join(', '), r.dx.length && 'Dx ' + r.dx.join(', '), r.m1.length && 'Modifier 1 ' + r.m1.join(', '), r.m2.length && 'Modifier 2 ' + r.m2.join(', ')].filter(Boolean);
+    const msg = (parts.length ? 'Added: ' + parts.join(' · ') : 'Nothing new added') + (r.have.length ? `. Already in this row: ${r.have.join(', ')}` : '') +
+      (r.skipped.length ? `. Not added: ${r.skipped.join(', ')} (${r.skipped.some(x => v.dx.includes(x)) ? (r.noFee ? 'one Dx without a fee code; add a fee code first' : 'one Dx per fee code, and each fee code here has one') : 'cell full'})` : '');
+    pickConfirm(p, r);
+    if (after) snack(msg, () => undoTo(before, after, 'Codes from Fee Desk removed'), 9000, true); else toast(msg, 4500);
+  }
+  // a brief highlight on the cells that were filled, so it is clear where the codes went
+  function pickConfirm(p, r) {
+    const cols = [r.fee.length && 'fee', r.m1.length && 'mod1', r.m2.length && 'mod2', r.dx.length && 'dx'].filter(Boolean);
+    requestAnimationFrame(() => cols.forEach(c => { const el = $(`${tab === 'history' ? '#histList' : '#todayList'} tr[data-id="${CSS.escape(p.id)}"] .gc[data-c="${c}"]`); const td = el && el.closest('td');
+      if (td) { td.classList.remove('pickfill'); void td.offsetWidth; td.classList.add('pickfill'); setTimeout(() => td.classList.remove('pickfill'), 2600); } }));
+  }
   function pickCancelled(tok) { const p = pickLoad(); if (p && p.tok === tok && !p.picked) { pickClear(); picking = 0; fdSince = 0; if (S) pickFocus(p, null); } }
   function pickReadMsg() {
     let m = null; try { m = JSON.parse(localStorage.getItem(PICK_MSG) || 'null'); } catch (e) { m = null; }
     if (!m || typeof m !== 'object') return;
     try { localStorage.removeItem(PICK_MSG); } catch (e) { /* ignore */ }
     if (Date.now() - (m.t || 0) > PICK_TTL) return;
-    if (m.type === 'cancel') pickCancelled(m.ctx); else pickInbound(m.code, m.kind, m.ctx);
+    if (m.type === 'cancel') pickCancelled(m.ctx); else if (m.v === 2) pickInbound2(m, m.ctx); else pickInbound(m.code, m.kind, m.ctx);
   }
   if (pickBC) pickBC.onmessage = ev => {
     const m = ev.data || {}; if (typeof m !== 'object') return;
-    if (m.type === 'pick') { const st = pickInbound(m.code, m.kind, m.ctx); if (st !== 'bad' && st !== 'stale') { pickBC.postMessage({ type: 'ack', ctx: m.ctx, status: st }); try { localStorage.removeItem(PICK_MSG); } catch (e) { /* ignore */ } } }
+    if (m.type === 'pick') { const st = m.v === 2 ? pickInbound2(m, m.ctx) : pickInbound(m.code, m.kind, m.ctx); if (st !== 'bad' && st !== 'stale') { pickBC.postMessage({ type: 'ack', ctx: m.ctx, status: st }); try { localStorage.removeItem(PICK_MSG); } catch (e) { /* ignore */ } } }
     else if (m.type === 'cancel') { const p = pickLoad(); if (p && p.tok === m.ctx) { pickCancelled(m.ctx); pickBC.postMessage({ type: 'ack', ctx: m.ctx, status: 'cancelled' }); } }
   };
   window.addEventListener('storage', ev => { if (ev.key === PICK_MSG && ev.newValue) pickReadMsg(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { pickReadMsg(); if (fdSince) fdBack(); } });
-  // the return link: ?picked=<code>&kind=hsc|dx&ctx=<token> (or ?pickcancel=1&ctx=<token>); read once, then removed from the address bar
+  // the return link: ?picked=<code>&kind=hsc|dx&ctx=<token>, v9l ?pickv=2&ctx=<token>&fee=…&dx=…&dxfor=…&mod=…&modfor=…
+  // (or ?pickcancel=1&ctx=<token>); read once, then removed from the address bar
   function pickFromUrl(href) {
     let u; try { u = new URL(href); } catch (e) { return; }
-    const sp = u.searchParams; if (!sp.has('picked') && !sp.has('pickcancel')) return false;
+    const sp = u.searchParams; if (!sp.has('picked') && !sp.has('pickcancel') && !sp.has('pickv')) return false;
     const tok = sp.get('ctx') || '';
-    if (sp.has('pickcancel')) pickCancelled(tok); else pickInbound(sp.get('picked'), sp.get('kind'), tok);
+    if (sp.has('pickcancel')) pickCancelled(tok);
+    else if (sp.get('pickv') === '2') pickInbound2({ fee: sp.get('fee'), dx: sp.get('dx'), dxFor: sp.get('dxfor'), mod: sp.get('mod'), modFor: sp.get('modfor') }, tok);
+    else if (sp.has('picked')) pickInbound(sp.get('picked'), sp.get('kind'), tok);
     return true;
   }
   if (pickFromUrl(location.href)) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* ignore */ } }
@@ -1119,6 +1222,7 @@
     const p = pickLoad(); if (!p || !p.picked) return;
     pickBusy = true; pickClear();
     try {
+      if (p.picked.v === 2) { await pickApply2(p); return; }
       const { code, kind } = p.picked, col = kind === 'dx' ? 'dx' : 'fee';
       const e0 = S.encs.find(x => x.id === p.id);
       if (!e0) { toast(`That row no longer exists, so ${code} was not added`, 4000); return; }
@@ -1160,7 +1264,7 @@
     if (el.closest('#histList') && tab !== 'history') { tab = 'history'; showTab(); }
     focusCell(el); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) { /* not a text field */ }
   }
-  function pickLockMsg() { const p = pickLoad(); return p && p.picked ? `Unlock to add ${p.picked.code} to the spreadsheet.` : ''; }
+  function pickLockMsg() { const p = pickLoad(); return p && p.picked ? `Unlock to add ${p.picked.v === 2 ? pickCodesTxt(p.picked) : p.picked.code} to the spreadsheet.` : ''; }
 
   function render() {
     if (!S) return;
@@ -2375,8 +2479,11 @@
   const perShort = t => t.perList && t.perList.length ? `<br><span class="pert">${t.perList.map(p => `${esc(R.PBY[p.id].short)} ${p.m}m/${p.u}u`).join(' · ')}</span>` : '';
   // ---- 6. undo snackbar (5 s) for delete and stop
   let snackT = null, snackFn = null; const photoDel = new Map();
-  function snack(text, fn) { $('#snackTxt').textContent = text; snackFn = fn; $('#snack').hidden = false; clearTimeout(snackT); snackT = setTimeout(hideSnack, 5000); }
-  function hideSnack() { clearTimeout(snackT); snackFn = null; const n = $('#snack'); if (n) n.hidden = true; }
+  function snack(text, fn, ms, wrap) { $('#snackTxt').textContent = text; snackFn = fn; const n = $('#snack'); if (wrap) $('#toast').classList.remove('show'); n.classList.toggle('wrap', !!wrap); n.hidden = false; snackAvoidNav(); clearTimeout(snackT); snackT = setTimeout(hideSnack, ms || 5000); }
+  function hideSnack() { clearTimeout(snackT); snackFn = null; const n = $('#snack'); if (n) { n.hidden = true; n.style.bottom = ''; } }
+  // v9l: on a phone the cell Next/Done bar sits at the bottom while a cell has the cursor; keep the snackbar (and its Undo) above it
+  function snackAvoidNav() { const n = $('#snack'), g = $('#gNav'); if (!n || n.hidden) return; n.style.bottom = '';
+    if (g && !g.hidden) { const gr = g.getBoundingClientRect(), sr = n.getBoundingClientRect(); if (sr.bottom > gr.top - 6 && sr.top < gr.bottom) n.style.bottom = Math.round(innerHeight - gr.top + 8) + 'px'; } }
   $('#snackUndo').onclick = async () => { const f = snackFn; hideSnack(); if (f && S) { try { await f(); } catch (e) { toast('Could not undo: ' + e.message); } } };
   function flushPhotoDel() { for (const [tm, ph] of photoDel) { clearTimeout(tm); ph.forEach(p => V.removePhoto(p)); } photoDel.clear(); }
   async function undoTo(prev, after, note) {   // only if nothing changed the entry since
