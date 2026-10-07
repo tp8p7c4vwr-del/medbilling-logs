@@ -535,7 +535,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9m (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9n (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -775,7 +775,7 @@
       </ol>
       <ul>
         <li><b>Several fee codes:</b> the code is added after the ones already in the cell (separated by a comma). A code already in the cell is not added twice.</li>
-        <li><b>Diagnostic codes (one tapped code):</b> it goes beside the first fee code that has no Dx yet; if every fee code already has one, it replaces the last Dx, and the message offers <b>Undo</b>. To keep more Dx than fee codes, type them in the Dx cell or bring them back with <b>＋</b> (<a href="#m-multi">Several codes at once</a>).</li>
+        <li><b>Diagnostic codes (one tapped code):</b> it goes beside the first fee code that has no Dx yet; if every fee code already has one, it is added after the others (v9n). An existing Dx is never replaced, a code already in the row is not added twice, and the message (for example <i>V22.1 added beside 03.04A</i>) offers <b>Undo</b>.</li>
         <li>A billing code tapped while picking a Dx (or an ICD-9 code while picking a fee code) goes into the matching column of the same row.</li>
         <li><b>Cancel</b> in the bar goes back without changes. A pick that isn't finished expires after 30 minutes.</li>
         <li>If MedBilling Logs locked meanwhile, the code waits: unlock and it is added. MedBilling Logs stays unlocked for at most 10 minutes while Fee Desk is open for a pick, then locks as usual.</li>
