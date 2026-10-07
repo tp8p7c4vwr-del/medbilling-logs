@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build compact fee-code lists for Med Billing Logs from MedBilling Fee Desk's bundled data.
+"""Build compact fee-code lists for MedBilling Logs from MedBilling Fee Desk's bundled data.
 Source: ../delara-medbilling/public/data (codes.json = Alberta SOMB; data/prov/*.json = live provinces).
-Only jurisdictions marked live in Fee Desk's index.json are used. Held jurisdictions (BC, ON, QC, PE, NB)
+Only jurisdictions marked live in Fee Desk's index.json are used. Held jurisdictions (BC, ON, QC, PE, NB, NS)
 are refused: the build fails if any of them would be bundled.
 Output: public/data/codes-<ID>.json = {"meta": {...credit...}, "codes": [[code, description, feeLabel], ...]}
 and public/data/codes-index.json. Fee labels follow Fee Desk's display (units as printed, no conversion)."""
@@ -9,7 +9,9 @@ import json, os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, '..', 'delara-medbilling', 'public', 'data'))
 OUT = os.path.join(ROOT, 'public', 'data')
-HELD = {'BC', 'ON', 'QC', 'PE', 'NB'}
+HELD = {'BC', 'ON', 'QC', 'PE', 'NB', 'NS'}
+# held but still listed (no data) so a user's saved province setting and typed codes keep working
+SHOW_HELD = {'NS': ('Nova Scotia', 'Code lookup unavailable until permission is granted; type codes manually and confirm them in the official MSI Physician’s Manual.')}
 TXT = {'BR': 'By report', 'FS': 'F/S (included)', 'NC': 'No charge', 'IC': 'Independent consideration'}
 def die(m): sys.exit('build-codes: ' + m)
 def money(v): return '${:,.2f}'.format(v)
@@ -47,7 +49,8 @@ json.dump({'meta': meta, 'codes': codes}, open(os.path.join(OUT, 'codes-AB.json'
 lst.append({'id': 'AB', 'name': 'Alberta', 'n': len(codes), 'title': meta['title'], 'eff': 'Effective ' + eff, 'credit': meta['credit']})
 for j in idx['list']:
     if j['id'] == 'AB' or j.get('status') != 'live': continue
-    if j['id'] in HELD: die(f"held jurisdiction {j['id']} is marked live in Fee Desk's index.json")
+    if j['id'] in HELD and j['id'] not in SHOW_HELD: die(f"held jurisdiction {j['id']} is marked live in Fee Desk's index.json")
+    if j['id'] in HELD: continue
     d = json.load(open(os.path.join(SRC, 'prov', j['file']))); m = d['meta']; secs = d['secs']
     spec = set(m.get('specSecs') or [])
     best = {}
@@ -64,5 +67,7 @@ for j in idx['list']:
     lst.append({'id': j['id'], 'name': j['name'], 'n': len(codes), 'title': meta['title'], 'eff': meta.get('effectiveLabel') or '', 'credit': meta['credit']})
 for n in os.listdir(OUT):
     if n.split('.')[0].replace('codes-', '').upper() in HELD: die('held data file present: ' + n)
+for hid, (hname, hnote) in SHOW_HELD.items():
+    lst.append({'id': hid, 'name': hname, 'held': True, 'n': 0, 'title': 'Approval pending', 'eff': '', 'credit': hnote})
 json.dump({'list': lst}, open(os.path.join(OUT, 'codes-index.json'), 'w'), ensure_ascii=False, indent=1)
 print('codes:', ', '.join(f"{x['id']} {x['n']}" for x in lst), '| held excluded:', ','.join(sorted(HELD)))

@@ -1,0 +1,61 @@
+{
+ "list": [
+  {
+   "id": "AB",
+   "name": "Alberta",
+   "n": 2491,
+   "title": "Schedule of Medical Benefits (SOMB)",
+   "eff": "Effective 2026-04-01",
+   "credit": "Source: Alberta Health, Schedule of Medical Benefits (SOMB), effective 2026-04-01. Contains information licensed under the Open Government Licence – Alberta. Fees shown are SOMB base rates; modifiers and fee skills are not applied."
+  },
+  {
+   "id": "MB",
+   "name": "Manitoba",
+   "n": 3825,
+   "title": "Physician's Manual",
+   "eff": "Updated 1 October 2026",
+   "credit": "Source: Manitoba Health, Seniors and Long-Term Care, Physician's Manual. Contains information from the Government of Manitoba, licensed under the OpenMB Information and Data Use License (Manitoba.ca/OpenMB)."
+  },
+  {
+   "id": "NL",
+   "name": "Newfoundland and Labrador",
+   "n": 4182,
+   "title": "MCP Medical Payment Schedule",
+   "eff": "Effective 1 October 2026",
+   "credit": "© Government of Newfoundland and Labrador. Reproduced for reference; not an official version."
+  },
+  {
+   "id": "NS",
+   "name": "Nova Scotia",
+   "held": true,
+   "n": 0,
+   "title": "Approval pending",
+   "eff": "",
+   "credit": "Code lookup unavailable until permission is granted; type codes manually and confirm them in the official MSI Physician’s Manual."
+  },
+  {
+   "id": "SK",
+   "name": "Saskatchewan",
+   "n": 3156,
+   "title": "Payment Schedule for Insured Services Provided by a Physician",
+   "eff": "Effective 1 October 2026",
+   "credit": "© 2026, Government of Saskatchewan. Reproduced for non-commercial reference under the Government of Saskatchewan copyright terms (saskatchewan.ca/copyright); this is not an official version."
+  },
+  {
+   "id": "NT",
+   "name": "Northwest Territories",
+   "n": 1463,
+   "title": "Insured Services Tariff (physicians)",
+   "eff": "Effective 1 April 2025",
+   "credit": "© Government of the Northwest Territories. Reproduced for non-commercial reference."
+  },
+  {
+   "id": "YT",
+   "name": "Yukon",
+   "n": 2647,
+   "title": "Payment Schedule",
+   "eff": "Effective 1 April 2026",
+   "credit": "© Government of Yukon 2026. Reproduced for non-commercial reference; not an official version."
+  }
+ ]
+}

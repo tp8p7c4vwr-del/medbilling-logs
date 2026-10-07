@@ -1,3 +1,28 @@
+# MedBilling Logs v9f — Spreadsheet moves only when you say so; columns fit their content; Nova Scotia codes withheld (2026-10-06)
+
+## Why
+Jose: "The row width need to adapt how much information I enter on any of the column... It jumped in the next column when I was not ready. It should only jump if i click the forward arrow, enter or tab. On the mobile, i need to press with my finger on the cell or next column to type or press enter." Then: the phone's return key must move to the next cell in every column, including notes. And: no Nova Scotia code data until permission arrives.
+
+## What was causing the "jump"
+- **← → arrow keys left the cell** when it had been entered with Tab/Enter or the ▶ flow (cell selected, not "editing"): pressing → to get to the end of the text moved to the next column.
+- **Enter moved down a row**, not to the next cell.
+- **Rows moved under the cursor**: typing In re-sorted rows by time immediately, and a row typed lower down jumped up past the empty rows above it after the save.
+- **Truncated narrow columns** (fixed widths) made long text scroll inside the cell, so it looked as if it ran into the next column.
+- (Found while testing at 390px: tapping a cell next to a wrapped cell could leave the browser's caret in the neighbouring cell, so typing went nowhere. The tap now puts the caret back in the tapped cell.)
+
+## What changed (Logs v9f)
+- **Dynamic column widths** (`fitCols`): canvas measurement in the cells' own fonts (header + every cell, placeholder included), per-column min and max (name 34ch, MRN 26ch, fee 28ch, dx 24ch, notes 40ch; name ≤ 42% of the screen on phones). Grows/shrinks while typing (rAF), refits on render, tab switch and resize. Billing notes takes the remaining width. One table with a shared `<colgroup>`, so the sticky header and totals stay aligned; horizontal scroll unchanged.
+- **Wrapping cells**: Patient name, Fee code(s), Dx and Billing notes are auto-growing `<textarea rows=1>` (no line breaks except in notes); the row grows instead of truncating. Notes maxlength 500.
+- **Navigation only on Tab / Shift-Tab, Enter / Shift-Enter (right / left, wrapping to the next row), the new toolbar ← → buttons and a floating "← Next →" bar on touch**. ↑↓ change rows only before editing starts; ←→ never leave a text cell. Shift-Enter in notes = new line on a computer only. `beforeinput` line breaks (Android IMEs) also mean "next cell".
+- Re-renders keep the focused cell, its value and caret; rows keep their place while you are in the grid and are re-sorted when focus leaves.
+- Touch: 16px in every editor (mono columns were 15.5px → iOS zoom), `enterkeyhint="next"` everywhere, focused cell kept above the on-screen keyboard (visualViewport), caret repair after tap.
+- **Nova Scotia withheld**: `data/codes-NS.json` removed from the web app, service worker and mobile www; `build-codes.py` now holds NS (listed with `held: true`, no data). Fee search for NS shows "Nova Scotia (approval pending): code lookup unavailable, type the code manually" and still offers "Add as typed"; typed codes and existing saved NS entries are untouched; reports credit typed NS codes as user-entered.
+- Manual: section 4 (columns, moving between cells, phone/tablet), section 8 (Nova Scotia), version 9f.
+- Test: `tests/grid-v9f.test.js` (1280 + 390 touch + NS): all pass; encrypted-export and easy-unlock suites still pass.
+- Service worker cache: **`bl-v9f-2026-10-06`**.
+
+---
+
 # MedBilling Logs v9e — Easy unlock: Face ID / Touch ID / fingerprint, passkey, quick PIN (2026-10-06)
 
 ## Why
