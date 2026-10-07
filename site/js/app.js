@@ -49,7 +49,7 @@
   async function showLock(msg) {
     document.body.classList.add('locked');
     const has = await V.exists();
-    $('#setupForm').hidden = has; $('#unlockForm').hidden = !has; if (has) unlockUi(); else kindUi();
+    $('#setupForm').hidden = has; $('#unlockForm').hidden = !has; if (has) { unlockUi(); euLockUi(true); } else kindUi();
     $('#lockMsg').textContent = msg || '';
     setTimeout(() => (has ? $('#uPass') : $('#sPass')).focus(), 50);
   }
@@ -105,6 +105,71 @@
     if (k === 'pin') i.setAttribute('inputmode', 'numeric'); else i.removeAttribute('inputmode');
     $('#uLbl').textContent = k === 'pin' ? 'Passcode' : k === 'phrase' ? 'Passphrase' : 'Passcode or passphrase';
   }
+  // ---- v9e easy unlock (Face ID / Touch ID / fingerprint in the app, passkey PRF on the web, quick PIN in the app)
+  const EU = window.EasyUnlock;
+  const bioLbl = n => n === 'Face ID' || n === 'Touch ID' ? n : n === 'fingerprint' ? 'fingerprint' : n ? n : 'biometrics';
+  let euAutoPending = false, euBusy = false;
+  async function euLockUi(auto, keepMsg) {
+    const box = $('#euLock'); if (!keepMsg) $('#euErr').textContent = '';
+    if (!EU) { box.hidden = true; return {}; }
+    let st, c; try { [st, c] = await Promise.all([EU.status(), EU.caps()]); } catch (e) { box.hidden = true; return {}; }
+    const bio = st.bio && c.bio, key = st.passkey && c.passkey, pin = st.pin && c.pin;
+    $('#euBio').hidden = !bio; $('#euBio').textContent = `Unlock with ${bioLbl(c.bioName)}`;
+    $('#euKey').hidden = !key; $('#euPinBox').hidden = !pin; box.hidden = !(bio || key || pin);
+    if (auto && bio) { euAutoPending = true; if (document.visibilityState === 'visible') setTimeout(euAuto, 350); }
+    return { bio, key, pin };
+  }
+  function euAuto() { if (!euAutoPending || S || !document.body.classList.contains('locked') || $('#euBio').hidden || document.visibilityState !== 'visible') return; euAutoPending = false; $('#euBio').click(); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(euAuto, 350); });
+  async function euDone(raw) {
+    const ok = await V.unlockRaw(raw).catch(() => false); raw.fill(0);
+    if (!ok) throw new Error('That didn\u2019t unlock the app. Use your passcode or passphrase.');
+    localStorage.removeItem(failKey); $('#uErr').textContent = ''; $('#euErr').textContent = ''; $('#uPass').value = ''; $('#euPin').value = '';
+    sessPass = null; await afterUnlock(false);
+  }
+  async function euTry(fn) {
+    if (euBusy) return; euBusy = true; $('#euErr').textContent = '';
+    try { await euDone(await fn()); }
+    catch (e) { const m = e && e.name === 'NotAllowedError' ? '' : (e && e.message) || ''; $('#euErr').textContent = m; if (e && (e.code === 'gone' || e.code === 'wiped')) euLockUi(false, true); }
+    euBusy = false;
+  }
+  $('#euBio').onclick = () => euTry(() => EU.unlockBio());
+  $('#euKey').onclick = () => euTry(() => EU.unlockPasskey());
+  $('#euPinBtn').onclick = () => { const p = $('#euPin').value; if (!/^\d{4,6}$/.test(p)) { $('#euErr').textContent = 'Enter your 4 to 6 digit PIN.'; return; } euTry(async () => { try { return await EU.unlockPin(p); } finally { $('#euPin').value = ''; } }); };
+  $('#euPin').addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); $('#euPinBtn').click(); } });
+  async function euRender() {
+    if (!EU || !S) return;
+    let c, st; try { [c, st] = await Promise.all([EU.caps(), EU.status()]); } catch (e) { $('#euCard').hidden = true; return; }
+    const showBio = c.native ? c.bio : c.passkey;
+    $('#euBioL').hidden = !showBio; $('#euPinL').hidden = !c.pin; $('#euCard').hidden = !(showBio || c.pin);
+    $('#euBioLbl').textContent = c.native ? `Unlock with ${bioLbl(c.bioName)}` : 'Unlock with a passkey (Face ID / Touch ID / Windows Hello)';
+    $('#euBioOn').checked = c.native ? st.bio : st.passkey; $('#euPinOn').checked = st.pin;
+    $('#euInfo').textContent = (c.native ? `${bioLbl(c.bioName)} unlocks with a key kept in this device's ${/Android/i.test(navigator.userAgent) ? 'Android Keystore' : 'Keychain'}; it stops working if your ${bioLbl(c.bioName)} enrolment changes.` : 'A passkey on this device (or synced in your password manager) unlocks the app through the WebAuthn PRF extension.')
+      + ' Your passcode or passphrase always works and is never replaced. Easy unlock turns off when you change the passcode, and it never opens exports: export passwords are always typed.';
+  }
+  async function euEnable(kind) {
+    const pin = kind === 'pin';
+    const fields = [{ id: 'p', label: 'Current passcode or passphrase' }].concat(pin ? [{ id: 'n1', label: 'New quick PIN (4–6 digits)' }, { id: 'n2', label: 'Repeat the PIN' }] : []);
+    let raw = null;
+    const v = await ask({ title: pin ? 'Turn on quick PIN' : 'Turn on easy unlock', text: pin ? 'Enter your passcode or passphrase once, then choose a 4–6 digit PIN. After 5 wrong PINs the quick PIN is erased and you need the full passcode.' : 'Enter your passcode or passphrase once to turn it on. It stays your fallback.', ok: 'Turn on', fields,
+      check: async v => { if (pin && !EU.pinOk(v.n1)) return 'Use 4 to 6 digits, not all the same and not a straight sequence (1234).'; if (pin && v.n1 !== v.n2) return 'The PINs do not match.'; raw = await V.rawKey(v.p).catch(() => null); return raw ? '' : 'Wrong passcode or passphrase.'; } });
+    if (!v || !raw) return false;
+    const c = await EU.caps();
+    try {
+      if (pin) await EU.enablePin(raw, v.n1); else if (c.native) await EU.enableBio(raw); else await EU.enablePasskey(raw);
+      const what = pin ? 'Quick PIN' : c.native ? bioLbl(c.bioName) : 'Passkey';
+      await V.appendAudit({ action: 'easy-unlock', note: `${what} unlock turned on` }).catch(() => {}); toast(`${what} unlock is on`); return true;
+    } catch (e) { toast(e && e.name === 'NotAllowedError' ? 'Cancelled' : 'Could not turn it on: ' + ((e && e.message) || e), 4500); return false; }
+    finally { raw.fill(0); }
+  }
+  async function euToggle(kind, on) {
+    if (!S) return;
+    if (on) await euEnable(kind);
+    else { const c = await EU.caps(), m = kind === 'pin' ? 'pin' : c.native ? 'bio' : 'passkey'; await EU.disable(m); await V.appendAudit({ action: 'easy-unlock', note: `${m === 'pin' ? 'Quick PIN' : m === 'bio' ? bioLbl(c.bioName) : 'Passkey'} unlock turned off` }).catch(() => {}); toast('Turned off'); }
+    euRender();
+  }
+  $('#euBioOn').onchange = () => euToggle('bio', $('#euBioOn').checked);
+  $('#euPinOn').onchange = () => euToggle('pin', $('#euPinOn').checked);
   $('#unlockForm').addEventListener('submit', async ev => {
     ev.preventDefault(); const err = $('#uErr'), f = fails();
     if (f.until > Date.now()) return err.textContent = `Too many attempts. Try again in ${Math.ceil((f.until - Date.now()) / 1000)} s.`;
@@ -121,7 +186,7 @@
     await afterUnlock(false);
   });
   $('#forgot').addEventListener('click', () => ask({ title: 'Forgot passcode', text: "The passcode is never stored, so there is no way to recover it or decrypt your data. If you can't remember it, the only option is to delete all data on this device and start again (you can then import an encrypted backup if you remember that backup's passcode). Type DELETE to erase everything.", fields: [{ id: 'conf', label: 'Type DELETE', type: 'text' }], ok: 'Delete everything', danger: true,
-    check: v => v.conf.trim().toUpperCase() === 'DELETE' ? '' : 'Type DELETE to confirm.' }).then(async v => { if (!v) return; await V.wipe(); await abForget(); localStorage.removeItem(failKey); showLock('All data deleted. Create a new passcode.'); }));
+    check: v => v.conf.trim().toUpperCase() === 'DELETE' ? '' : 'Type DELETE to confirm.' }).then(async v => { if (!v) return; if (window.EasyUnlock) await EasyUnlock.disableAll().catch(() => {}); await V.wipe(); await abForget(); localStorage.removeItem(failKey); showLock('All data deleted. Create a new passcode.'); }));
   // built-in user manual (static, offline; no patient data). Reachable from the lock screen, Settings and the footer.
   const manDlg = $('#manDlg');
   $$('.manlink').forEach(b => b.addEventListener('click', () => { if (!manDlg.open) { manDlg.showModal(); $('#manBody').scrollTop = 0; manDlg.scrollTop = 0; } }));
@@ -137,7 +202,7 @@
     document.body.classList.remove('locked'); window.scrollTo(0, 0);
     R.setHolidays({ off: settings.holOff, extra: settings.holExtra });
     $('#defSetting').value = settings.defSetting; $('#autolock').value = String(settings.autolock); $('#warnA').value = String(settings.warnA); $('#warnR').value = String(settings.warnR);
-    fillProv($('#defProv'), settings.prov);
+    fillProv($('#defProv'), settings.prov); euRender();
     renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings(); abInit().catch(() => {});
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
     else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else checkLongTimers(); }
@@ -1442,7 +1507,7 @@
   $('#wipe').onclick = async () => {
     const v = await ask({ title: 'Delete all data', text: 'This erases every encounter, arrival/departure, call-back, photo, the whole audit log, all settings and the passcode from this device. It cannot be undone and the developer cannot recover anything. Check your retention obligations and make an encrypted backup first. Enter your passcode and type DELETE ALL to confirm.', ok: 'Delete everything', danger: true, fields: [{ id: 'p', label: 'Passcode' }, { id: 'c', label: 'Type DELETE ALL', type: 'text' }],
       check: async v => v.c.trim().toUpperCase() !== 'DELETE ALL' ? 'Type DELETE ALL to confirm.' : ((await V.verify(v.p)) ? '' : 'Wrong passcode.') });
-    if (!v) return; S = null; await V.wipe(); await abForget(); localStorage.removeItem(failKey); lockNow('All data deleted.'); showLock('All data deleted. Create a new passcode to start again.');
+    if (!v) return; S = null; if (EU) await EU.disableAll().catch(() => {}); await V.wipe(); await abForget(); localStorage.removeItem(failKey); lockNow('All data deleted.'); showLock('All data deleted. Create a new passcode to start again.');
   };
 
   // ============================================================ v8 backups: automatic (folder / native) or reminder + share
@@ -1538,7 +1603,7 @@
     const docs = [];
     for (const f of fm) docs.push({ name: `billing-log-${stamp}.${f}`, blob: f === 'pdf' ? await R.pdf(list, from, to, o) : f === 'docx' ? await R.docx(list, from, to, o) : f === 'md' ? R.md(list, from, to, o) : R.xlsx(list, from, to, o) });
     {   // v9d: readable copies are always inside the AES-256 .zip (the unencrypted option was removed)
-      if (!snap.pw) throw abErr('password', st.abPwMode === 'custom' ? 'Set a backup password in Settings → Backups (needed for the protected copies).' : 'The protected copies need your app passcode: lock and unlock the app once.');
+      if (!snap.pw) throw abErr('password', st.abPwMode === 'custom' ? 'Set a backup password in Settings → Backups (needed for the protected copies).' : 'The protected copies need your app passcode: lock the app and unlock it once with the passcode (not Face ID, passkey or PIN).');
       files.push(await zipFiles(docs, snap.pw, `${prefix}${stamp}-readable.zip`));
     }
     return files;

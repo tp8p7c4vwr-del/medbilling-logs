@@ -607,3 +607,9 @@ table.grid tfoot .tdet .gtxt{font-weight:500;color:#5f6368;font-size:12px}
 .kindseg label{flex:1 1 0;display:flex;gap:6px;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:.85rem;cursor:pointer;background:#fff}
 .kindseg label:has(input:checked){border-color:#2f6fb0;background:#eef5fc;font-weight:600}
 .kindseg input{margin:0}
+/* v9e easy unlock */
+.eulock{margin:4px 0 8px}
+.eulock .primary{margin:4px 0}
+.euor{margin:8px 0 0;text-align:center}
+.easybox{border-top:1px solid var(--line);margin-top:8px;padding-top:6px}
+.easybox h4{font-size:.9rem;margin:2px 0}
