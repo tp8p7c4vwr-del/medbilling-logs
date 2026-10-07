@@ -24,10 +24,13 @@
   const UNITS_NOTE = 'Units = full 15-minute blocks plus 1 if the remainder is 8 minutes or more (e.g. 38 min = 3 units). Confirm time-based billing rules in your own schedule (e.g. Alberta SOMB) before submitting claims.';
   const codesTxt = e => (e.codes || []).map(c => c.c).join('; ');
   // Diagnostic codes (v2): one per fee code (c.dx), plus an entry-level e.dx when no fee code was added. Older entries have none.
-  const dxList = e => { const out = []; for (const c of (e && e.codes) || []) if (c.dx && !out.includes(c.dx)) out.push(c.dx); if (e && e.dx && !out.includes(e.dx)) out.push(e.dx); return out; };
+  // v9m: e.dxx = more diagnostic codes than fee codes (e.g. up to 10 ICD-9 from one Fee Desk pick), kept in order after the paired ones.
+  const dxExtra = e => (e && Array.isArray(e.dxx) ? e.dxx : []).filter(x => typeof x === 'string' && x);
+  const dxList = e => { const out = []; for (const c of (e && e.codes) || []) if (c.dx && !out.includes(c.dx)) out.push(c.dx); if (e && e.dx && !out.includes(e.dx)) out.push(e.dx); for (const x of dxExtra(e)) if (!out.includes(x)) out.push(x); return out; };
   const dxShort = e => dxList(e).join('; ');
   // export form keeps the pairing with fee codes when an entry has more than one code
-  const dxTxt = e => { const cs = (e.codes || []).filter(c => c.dx), multi = (e.codes || []).length > 1; return cs.map(c => multi ? `${c.c}: ${c.dx}` : c.dx).concat(e.dx && !cs.some(c => c.dx === e.dx) ? [e.dx] : []).join('; '); };
+  const dxTxt = e => { const cs = (e.codes || []).filter(c => c.dx), multi = (e.codes || []).length > 1, seen = cs.map(c => c.dx).concat(e.dx ? [e.dx] : []);
+    return cs.map(c => multi ? `${c.c}: ${c.dx}` : c.dx).concat(e.dx && !cs.some(c => c.dx === e.dx) ? [e.dx] : []).concat(dxExtra(e).filter((x, i, a) => !seen.includes(x) && a.indexOf(x) === i)).join('; '); };
   // v9k: modifier codes, two free-text columns per entry (e.mod1, e.mod2), each may hold several codes. Older entries have none.
   const normMods = v => String(v == null ? '' : v).split(/[,;\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(', ');
   const modTxt = (e, n) => normMods(e && e['mod' + n]);
@@ -380,5 +383,5 @@
     return t;
   }
   const RET_RULE = 'Retention: 10 years from the last entry; minors: the longer of 10 years or 2 years after age 18 (CPSA); obstetric: 10 years after the infant reaches majority (CMPA). Nothing is removed without your confirmation.';
-  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxShort, dxTxt, codesTxt, normMods, modTxt, modsTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, hmEdm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
+  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxExtra, dxShort, dxTxt, codesTxt, normMods, modTxt, modsTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, hmEdm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
 })(window);

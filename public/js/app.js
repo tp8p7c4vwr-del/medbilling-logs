@@ -299,7 +299,7 @@
   const COLS = [['rn', '#'], ['name', 'Patient name'], ['mrn', 'MRN / PHN'], ['hc', 'H/C'], ['tin', 'In'], ['tout', 'Out'], ['min', 'Min'], ['u', 'Units'], ['fee', 'Fee code(s)'], ['mod1', 'Modifier code 1'], ['mod2', 'Modifier code 2'], ['dx', 'Dx (ICD-9)'], ['note', 'Billing notes'], ['act', '']];
   const NAV = ['name', 'mrn', 'hc', 'tin', 'tout', 'fee', 'mod1', 'mod2', 'dx', 'note'];
   // v9k: two modifier-code columns after Fee code(s); each cell may hold several codes (stored normalised: "CMGP, BMI")
-  const modOf = (e, n) => R.modTxt(e, n), MOD_MAX = 80;
+  const modOf = (e, n) => R.modTxt(e, n), MOD_MAX = 200, CODE_MAX = 200;   // v9m: room for 10+ codes with separators (was 80 / 60)
   const MIN_BLANK = 15;
   // v9h endless rows: when the cursor (or the scroll) gets within GROW_NEAR rows of the end, GROW_BY more empty rows are added.
   // rowsMin remembers how many rows a day's grid has grown to (memory only), so a redraw never takes rows away.
@@ -349,9 +349,9 @@
       + (started ? (e.late ? '<i class="tag lt" title="Entered later (typed or corrected after the fact)">*</i>' : '') : `<button type="button" class="cbtn now soft" data-a="now" tabindex="-1" title="Start the clock now" aria-label="Start now">▶</button>`);
     const tout = open ? gInp('tout', '', { lbl: 'Time out (24-hour HH:MM). Running', mono: 1, max: 5, im: 'numeric', title: 'Running. Type the end time, or tap ■ to stop now' }) + '<button type="button" class="cbtn stop" data-a="stop" tabindex="-1" title="Stop now" aria-label="Stop now">■</button>'
       : gInp('tout', started ? R.hm(en) : '', { lbl: 'Time out (24-hour HH:MM)', mono: 1, max: 5, im: 'numeric', title: st === 'pause' ? 'Paused (⋯ to resume)' : 'Out' + multi });
-    const fee = ed ? gInp('fee', feeVal, { lbl: 'Fee code(s)', mono: 1, max: 60, cap: 'characters', title: cs.map(c => c.c + (c.d ? ' ' + c.d : '')).join('; ') })
+    const fee = ed ? gInp('fee', feeVal, { lbl: 'Fee code(s)', mono: 1, max: CODE_MAX, cap: 'characters', title: cs.map(c => c.c + (c.d ? ' ' + c.d : '')).join('; ') })
       + `<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="Pick a fee code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="fee" data-at="${esc((cs[cs.length - 1] && (cs[cs.length - 1].k || cs[cs.length - 1].c)) || '')}" tabindex="-1" title="Open ${esc(cs[cs.length - 1] && cs[cs.length - 1].c)} in Fee Desk (pick another code there to add it)" aria-label="Open fee code in Fee Desk">ⓘ</button>` : ''}` : '';
-    const dxc = ed ? gInp('dx', dxVal, { lbl: 'Diagnostic code(s), ICD-9', mono: 1, max: 60, cap: 'characters', title: dx.map(v => v + (dxDesc(v) ? ' ' + dxDesc(v) : '')).join('; ') })
+    const dxc = ed ? gInp('dx', dxVal, { lbl: 'Diagnostic code(s), ICD-9', mono: 1, max: CODE_MAX, cap: 'characters', title: dx.map(v => v + (dxDesc(v) ? ' ' + dxDesc(v) : '')).join('; ') })
       + `<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="Pick an ICD-9 code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="dx" data-at="${esc(dx[dx.length - 1])}" tabindex="-1" title="Open ${esc(dx[dx.length - 1])} in Fee Desk (pick another code there to add it)" aria-label="Open diagnostic code in Fee Desk">ⓘ</button>` : ''}` : '';
     const modc = n => ed ? gInp('mod' + n, modOf(e, n), { lbl: 'Modifier code(s) ' + n, mono: 1, max: MOD_MAX, cap: 'characters' }) : '';
     const wl = warnLvl(e);
@@ -392,10 +392,10 @@
       + `<td class="c-tin"><div class="cw">${gInp('tin', '', { lbl: 'Time in (new row)', mono: 1, max: 5, im: 'numeric', ph: first ? 'HH:MM' : '' })}<button type="button" class="cbtn now${first ? '' : ' hov'}" data-a="now" tabindex="-1" title="New row, start the clock now" aria-label="New row, start now">▶</button></div></td>`
       + `<td class="c-tout">${gInp('tout', '', { lbl: 'Time out (new row)', mono: 1, max: 5, im: 'numeric' })}</td>`
       + '<td class="num c-min"></td><td class="num c-u"></td>'
-      + `<td class="c-fee"><div class="cw">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="New row: pick a fee code in Fee Desk (it comes back to this cell)" aria-label="New row, pick fee code in Fee Desk">↗</button></div></td>`
+      + `<td class="c-fee"><div class="cw">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: CODE_MAX, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="New row: pick a fee code in Fee Desk (it comes back to this cell)" aria-label="New row, pick fee code in Fee Desk">↗</button></div></td>`
       + `<td class="c-mod1">${gInp('mod1', '', { lbl: 'Modifier code(s) 1 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</td>`
       + `<td class="c-mod2">${gInp('mod2', '', { lbl: 'Modifier code(s) 2 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</td>`
-      + `<td class="c-dx"><div class="cw">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="New row: pick an ICD-9 code in Fee Desk (it comes back to this cell)" aria-label="New row, pick diagnostic code in Fee Desk">↗</button></div></td>`
+      + `<td class="c-dx"><div class="cw">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: CODE_MAX, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="New row: pick an ICD-9 code in Fee Desk (it comes back to this cell)" aria-label="New row, pick diagnostic code in Fee Desk">↗</button></div></td>`
       + `<td class="c-note">${gInp('note', '', { lbl: 'Billing notes (new row)', max: 500 })}</td><td class="c-act"></td></tr>`;
   }
   function gTotals(list) {
@@ -518,16 +518,20 @@
       const parts = v.split(/[,;\s]+/).map(s => dxCode(s) || s.trim().toUpperCase()).filter(Boolean);
       if (parts.join(', ') === R.dxList(e).join(', ')) return null;
       await loadIcd().catch(() => null);
-      if (!(e.codes || []).length) { e.dx = parts[0] || ''; if (!e.dx) delete e.dx; if (parts.length > 1) toast('Without a fee code only the first diagnostic code is kept'); }
+      const uniq = parts.filter((x, i, a) => a.indexOf(x) === i);
+      // v9m: one Dx beside each fee code in order; more Dx than fee codes are kept too (e.dxx), never dropped
+      if (!(e.codes || []).length) { e.dx = uniq[0] || ''; if (!e.dx) delete e.dx; setDxx(e, uniq.slice(1)); }
       else {
-        e.codes = e.codes.map((c, i) => { const x = Object.assign({}, c); if (parts[i]) { x.dx = parts[i]; x.dxd = dxDesc(parts[i]); } else if (i >= parts.length) { delete x.dx; delete x.dxd; } return x; });
-        if (parts.length > e.codes.length) toast('Extra diagnostic codes need a fee code each (open ⋯ → Segments & photos for multi-code)');
+        e.codes = e.codes.map((c, i) => { const x = Object.assign({}, c); if (uniq[i]) { x.dx = uniq[i]; x.dxd = dxDesc(uniq[i]); } else if (i >= uniq.length) { delete x.dx; delete x.dxd; } return x; });
+        setDxx(e, uniq.slice(e.codes.length));
         delete e.dx;
       }
       return 'Diagnostic code(s) edited in spreadsheet';
     }
     return null;
   }
+  const dxxHtml = e => R.dxExtra(e).map(x => `<span class="sc"><span class="dxc">Dx ${esc(x)}</span></span>`).join('');   // v9m: more Dx than fee codes
+  function setDxx(e, list) { const l = (list || []).filter(Boolean); if (l.length) e.dxx = l; else delete e.dxx; }
   function applyTime(e, f, v, day) {
     const segs = clone(e.segs || []), now = Date.now(), stamp = () => { e.edits = (e.edits || []).concat(now); };
     if (!v) {
@@ -1059,6 +1063,7 @@
     const u = new URL(FD);
     u.searchParams.set('pick', col === 'dx' ? 'dx' : 'hsc'); u.searchParams.set('ctx', tok);
     u.searchParams.set('pv', '2');   // v9l: Logs takes several codes at once (pick protocol 2); older Fee Desk versions ignore it
+    u.searchParams.set('pmax', String(PICK_MAX));   // v9m: up to 10 per kind (Fee Desk v37+; v36 keeps 3, which is still accepted)
     u.searchParams.set('return', NATIVE ? 'mblogs://pick' : location.origin + location.pathname);
     const cs = e.codes || [], j = (cs[cs.length - 1] && cs[cs.length - 1].j) || (S && S.settings.prov) || 'AB';
     if (/^[A-Z]{2}$/.test(j)) u.searchParams.set('jur', j);
@@ -1087,16 +1092,16 @@
     $('#lockMsg').textContent = `Unlock to add ${code} to the spreadsheet.`;
     return 'held';
   }
-  // ---- v9l multi-code return (pick protocol 2). Logs asks for it with pv=2; Fee Desk may then send up to 3 fee codes, 3 ICD-9
-  // codes and 3 modifiers at once: ?pickv=2&ctx=<token>&fee=A,B&dx=X&dxfor=A&mod=M1,M2&modfor=A, (return link / mblogs://pick)
+  // ---- v9l multi-code return (pick protocol 2). Logs asks for it with pv=2 (v9m: and pmax=10); Fee Desk may then send up to 10
+  // fee codes, 10 ICD-9 codes and 10 modifiers at once (3 each from Fee Desk v36): ?pickv=2&ctx=<token>&fee=A,B&dx=X&dxfor=A&mod=M1,M2&modfor=A, (return link / mblogs://pick)
   // or {type:'pick', v:2, ctx, fee:[], dx:[], dxFor:[], mod:[], modFor:[]} (same-browser message). "dxfor"/"modfor" are
   // positional: the fee code (from the same send) each Dx / modifier belongs to, or empty. One code per pick (?picked=…&kind=…)
   // still works exactly as before. Same one-time token, same checks: codes only, never patient data.
-  const MODC_RE = /^[A-Z0-9]{1,8}$/;
+  const MODC_RE = /^[A-Z0-9]{1,8}$/, PICK_MAX = 10;
   function pickParse2(o) {
     const arr = v => (Array.isArray(v) ? v : v == null || v === '' ? [] : String(v).split(',')).map(x => String(x == null ? '' : x).trim().toUpperCase());
     const raw = { fee: arr(o.fee), dx: arr(o.dx), mod: arr(o.mod) };
-    if (raw.fee.length > 3 || raw.dx.length > 3 || raw.mod.length > 3) return null;
+    if (raw.fee.length > PICK_MAX || raw.dx.length > PICK_MAX || raw.mod.length > PICK_MAX) return null;
     if (!raw.fee.every(c => PICK_RE.test(c)) || !raw.dx.every(c => PICK_RE.test(c)) || !raw.mod.every(c => MODC_RE.test(c))) return null;
     const fee = raw.fee.filter((c, i, a) => a.indexOf(c) === i);
     const withFor = (list, fr) => { const f = arr(fr), out = [], forOut = [];
@@ -1117,8 +1122,8 @@
     return 'held';
   }
   const pickCodesTxt = v => { const all = [].concat(v.fee, v.dx, v.mod); return all.length <= 3 ? all.join(', ') : all.length + ' codes'; };
-  // merge the codes into the row (a clone): Fee code(s) append without duplicates; Dx one per fee code, beside the fee code it came
-  // with, else on fee codes that have none (new ones first), never replacing one; modifiers: Modifier code 1 for the row's first fee
+  // merge the codes into the row (a clone): Fee code(s) append without duplicates; Dx: beside the fee code it came with, else on fee
+  // codes that have none (new ones first), never replacing one; v9m: any more are appended after them (e.dxx), never refused; modifiers: Modifier code 1 for the row's first fee
   // code, Modifier code 2 for its second or later fee code; a modifier linked to (or sent with only) one fee code follows that fee
   // code, others go to Modifier code 1; never a duplicate across the two cells. Returns what happened, for the confirmation.
   async function pickMerge(e, v) {
@@ -1137,13 +1142,15 @@
       const dl = R.dxList(e);
       v.dx.forEach((d, i) => {
         if (dl.some(x => nc(x) === nc(d))) { out.have.push(d); return; }
-        if (!codes.length) { if (!e.dx) { e.dx = d; dl.push(d); out.dx.push(d); } else out.skipped.push(d); return; }
+        const extra = () => { e.dxx = (Array.isArray(e.dxx) ? e.dxx : []).concat(d); dl.push(d); out.dx.push(d); };
+        if (!codes.length) { if (!e.dx) { e.dx = d; dl.push(d); out.dx.push(d); } else extra(); return; }
         let at = posOf(v.dxFor[i]); if (at >= 0 && codes[at].dx) at = -1;
         if (at < 0) { const order = codes.map((c, j) => j).sort((a, b) => ((b >= list0.length) - (a >= list0.length)) || a - b); const f = order.find(j => !codes[j].dx); at = f == null ? -1 : f; }
-        if (at < 0) { out.skipped.push(d); return; }
+        if (at < 0) { extra(); return; }
         codes[at] = Object.assign({}, codes[at], { dx: d, dxd: dxDesc(d) }); dl.push(d); out.dx.push(d);
       });
       e.codes = codes; if (codes.length && e.dx && codes.some(c => c.dx && nc(c.dx) === nc(e.dx))) delete e.dx;
+      if (codes.length && e.dx) { e.dxx = [e.dx].concat(Array.isArray(e.dxx) ? e.dxx : []); delete e.dx; }   // an entry-level Dx stays, as an extra
     }
     if (v.mod.length) {
       const m = { 1: R.normMods(e.mod1).split(', ').filter(Boolean), 2: R.normMods(e.mod2).split(', ').filter(Boolean) };
@@ -1175,7 +1182,7 @@
     if (!r) return;
     const parts = [r.fee.length && 'Fee ' + r.fee.join(', '), r.dx.length && 'Dx ' + r.dx.join(', '), r.m1.length && 'Modifier 1 ' + r.m1.join(', '), r.m2.length && 'Modifier 2 ' + r.m2.join(', ')].filter(Boolean);
     const msg = (parts.length ? 'Added: ' + parts.join(' · ') : 'Nothing new added') + (r.have.length ? `. Already in this row: ${r.have.join(', ')}` : '') +
-      (r.skipped.length ? `. Not added: ${r.skipped.join(', ')} (${r.skipped.some(x => v.dx.includes(x)) ? (r.noFee ? 'one Dx without a fee code; add a fee code first' : 'one Dx per fee code, and each fee code here has one') : 'cell full'})` : '');
+      (r.skipped.length ? `. Not added: ${r.skipped.join(', ')} (cell full)` : '');
     pickConfirm(p, r);
     if (after) snack(msg, () => undoTo(before, after, 'Codes from Fee Desk removed'), 9000, true); else toast(msg, 4500);
   }
@@ -1628,7 +1635,7 @@
     rows.push(['Setting', esc([R.SET[e.setting], k === 'enc' && e.type, e.facility && e.facility.n].filter(Boolean).join(' · ')) || '<span class="muted">–</span>']);
     if (k !== 'shift') {
       const cs = e.codes || [];
-      rows.push(['Codes', cs.length ? cs.map(c => `<span class="sc"><b>${esc(c.c)}</b>${c.dx ? ` <span class="dxc">Dx ${esc(c.dx)}</span>` : ''}${c.d ? ` <span class="muted">${esc(c.d.length > 60 ? c.d.slice(0, 60) + '…' : c.d)}</span>` : ''}</span>`).join('') + (e.dx ? `<span class="sc"><span class="dxc">Dx ${esc(e.dx)}</span></span>` : '') : (e.dx ? `<span class="dxc">Dx ${esc(e.dx)}</span>` : '<span class="muted">None yet. Tap Edit to add fee and diagnostic codes.</span>')]);
+      rows.push(['Codes', cs.length ? cs.map(c => `<span class="sc"><b>${esc(c.c)}</b>${c.dx ? ` <span class="dxc">Dx ${esc(c.dx)}</span>` : ''}${c.d ? ` <span class="muted">${esc(c.d.length > 60 ? c.d.slice(0, 60) + '…' : c.d)}</span>` : ''}</span>`).join('') + (e.dx ? `<span class="sc"><span class="dxc">Dx ${esc(e.dx)}</span></span>` : '') + dxxHtml(e) : (e.dx || R.dxExtra(e).length ? (e.dx ? `<span class="dxc">Dx ${esc(e.dx)}</span>` : '') + dxxHtml(e) : '<span class="muted">None yet. Tap Edit to add fee and diagnostic codes.</span>')]);
       if (modOf(e, 1) || modOf(e, 2)) rows.push(['Modifiers', [1, 2].filter(n => modOf(e, n)).map(n => `<span class="sc"><span class="muted">${n}:</span> <b>${esc(modOf(e, n))}</b></span>`).join('')]);
       if (k === 'cb' && (e.links || []).length) rows.push(['Linked', (e.links || []).map(id => S.encs.find(x => x.id === id)).filter(Boolean).map(x => `<button type="button" class="linkbtn sm" data-open="${esc(x.id)}">${esc(x.label || 'Encounter')} ${R.hm(R.startOf(x))}</button>`).join(' ')]);
       const fl = [e.minor && ('Minor' + (Number.isFinite(e.minorAge) ? ` (age ${e.minorAge})` : '')), e.obstetric && 'Obstetric'].filter(Boolean);
@@ -1808,7 +1815,7 @@
     else { cur.setting = $('#eSetting2').value; }
     if (k === 'cb') { cur.cbType = $('#eCbType').value; cur.called = called; cur.links = $$('#eLinks input:checked').map(i => i.value); cur.label = cur.label || 'Call-back'; }
     if (k !== 'shift') for (const n of [1, 2]) { const v = R.normMods($('#eMod' + n).value).slice(0, MOD_MAX); if (v) cur['mod' + n] = v; else delete cur['mod' + n]; }   // v9k
-    if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; delete cur.mod1; delete cur.mod2; }
+    if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; delete cur.dxx; delete cur.mod1; delete cur.mod2; }
     else applyPendingDx(cur);
     const open = segs.length > 0 && segs[segs.length - 1].e == null;
     cur.status = !segs.length ? 'new' : open ? 'run' : (cur.status === 'run' ? 'pause' : (isNew || cur.status === 'new' ? 'done' : cur.status));

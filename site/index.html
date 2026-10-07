@@ -535,7 +535,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9l (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9m (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -648,10 +648,10 @@
       <h4 id="m-mod">Modifier codes and roomy code cells (v9k)</h4>
       <p>Two <b>Modifier code</b> columns sit between <b>Fee code(s)</b> and <b>Dx (ICD-9)</b>. Use them however suits your billing: for example, modifiers for the first fee code in <b>Modifier code 1</b> and for the second in <b>Modifier code 2</b>, or simply all of them in one cell.</p>
       <ul>
-        <li><b>Room for several codes:</b> Fee code(s), Modifier code 1, Modifier code 2 and Dx are wide enough for about 15 characters (three or four codes) before anything wraps, at every text size. When a cell holds more, the column widens up to a maximum and then the codes wrap onto more lines and the row grows taller; nothing is ever cut off. On a phone a code column stops at about 60 % of the screen and wraps from there.</li>
+        <li><b>Room for several codes:</b> Fee code(s), Modifier code 1, Modifier code 2 and Dx are wide enough for about 15 characters (three or four codes) before anything wraps, at every text size. When a cell holds more, the column widens up to a maximum and then the codes wrap onto more lines and the row grows taller; nothing is ever cut off. On a phone a code column stops at about 60 % of the screen and wraps from there. Each of these cells holds up to 200 characters (v9m), enough for 20 or more codes with their commas. In <b>Dx</b> each code sits beside a fee code in order; more Dx than fee codes are kept too, after the paired ones (v9m).</li>
         <li><b>A bigger cell while you type:</b> the code cell you are editing opens to at least two lines, and keeps growing as you add codes. Tab, Enter or the keyboard's <b>Next</b> moves Fee code(s) → Modifier code 1 → Modifier code 2 → Dx, like any other cell. On a phone, a code cell you tap that is partly off the edge slides fully into view.</li>
         <li>Modifiers are encrypted with the entry and appear in <b>History</b>, the entry details (a <b>Modifiers</b> line) and the edit form (<b>Modifier code(s) 1 / 2</b>), every report (PDF, Word, Excel, CSV columns <i>modifier_1</i> and <i>modifier_2</i>), encrypted backups and the audit log. Entries made before version 9k simply have empty Modifier cells, and totals are not affected.</li>
-        <li>Type modifiers, or bring them back from Fee Desk with fee and ICD-9 codes in one go (see <a href="#m-multi">Several codes at once</a>, v9l): Modifier code 1 gets the modifiers for the row's first fee code, Modifier code 2 those for its second or later fee code. Always confirm modifiers and their rules in the current Alberta Schedule of Medical Benefits.</li>
+        <li>Type modifiers, or bring them back from Fee Desk with fee and ICD-9 codes in one go (see <a href="#m-multi">Several codes at once</a>, v9l / v9m): Modifier code 1 gets the modifiers for the row's first fee code, Modifier code 2 those for its second or later fee code. Always confirm modifiers and their rules in the current Alberta Schedule of Medical Benefits.</li>
       </ul>
       <h4>Rows never run out</h4>
       <p>The grid is endless. Whenever the cell you are in is within 5 rows of the last row, 10 more blank rows are added below; it doesn't matter how you got there (Tab, Enter, ↓, the <b>Next</b> bar, or a tap), and you don't have to type anything. Scrolling to within 5 rows of the bottom adds 10 more as well. Row numbers simply continue (… 40, 41, 42 …), and your cursor, the text you're typing and the order of rows stay exactly where they were.</p>
@@ -768,32 +768,32 @@
       <h4 id="m-pick">Pick a code in Fee Desk (v9g)</h4>
       <ol>
         <li>Tap the <b>Fee code(s)</b> or <b>Dx (ICD-9)</b> cell of the row, then tap <b>↗</b> in that cell (or <b>ⓘ</b> beside a code that is already there, to start from that code). The row's <b>⋯</b> menu has the same two choices.</li>
-        <li>Fee Desk opens in <b>pick mode</b>. A slim bar says <i>Picking for MedBilling Logs: tap a code to send it, or ＋ to pick several (3 fee, 3 ICD-9, 3 modifiers) · Modifiers · Cancel</i> (outside Alberta, or with an older Fee Desk: <i>Picking a code for MedBilling Logs, tap a code to send it back · Cancel</i>).</li>
+        <li>Fee Desk opens in <b>pick mode</b>. A slim bar says <i>Picking for MedBilling Logs: tap a code to send it, or ＋ to pick several (up to 10 fee, 10 ICD-9, 10 modifiers) · Modifiers · Cancel</i> (Fee Desk v36 says 3 of each; outside Alberta, or with an older Fee Desk: <i>Picking a code for MedBilling Logs, tap a code to send it back · Cancel</i>).</li>
         <li>Tap a billing code: a search result, a favourite or recent code, a code in the price list, or the big code on its page (also <b>Use … in MedBilling Logs</b>). Tap <b>Details</b> on a result to read it first.</li>
         <li>Tap an ICD-9 code: in an ICD-9 search, in <b>Suggested ICD-9</b> on a billing code's page, or <b>Use</b>.</li>
         <li>You are back in MedBilling Logs with the code in the same cell of the same row, saved, with the cursor in that cell and a short message such as <i>03.03A added</i>.</li>
       </ol>
       <ul>
         <li><b>Several fee codes:</b> the code is added after the ones already in the cell (separated by a comma). A code already in the cell is not added twice.</li>
-        <li><b>Diagnostic codes:</b> same rule as typing them: one Dx per fee code (one without a fee code). If there is a free place it is added; if not, it replaces the last Dx, and the message offers <b>Undo</b>.</li>
+        <li><b>Diagnostic codes (one tapped code):</b> it goes beside the first fee code that has no Dx yet; if every fee code already has one, it replaces the last Dx, and the message offers <b>Undo</b>. To keep more Dx than fee codes, type them in the Dx cell or bring them back with <b>＋</b> (<a href="#m-multi">Several codes at once</a>).</li>
         <li>A billing code tapped while picking a Dx (or an ICD-9 code while picking a fee code) goes into the matching column of the same row.</li>
         <li><b>Cancel</b> in the bar goes back without changes. A pick that isn't finished expires after 30 minutes.</li>
         <li>If MedBilling Logs locked meanwhile, the code waits: unlock and it is added. MedBilling Logs stays unlocked for at most 10 minutes while Fee Desk is open for a pick, then locks as usual.</li>
         <li><b>Privacy:</b> only the code, its kind and a random one-time token travel between the two apps; no name, MRN or other patient information. Fee Desk only returns to MedBilling Logs itself.</li>
         <li><b>iPhone and iPad:</b> works in Safari and from the Home Screen icon. In the MedBilling Logs app, Fee Desk opens in an in-app browser and iOS may ask <i>Open in "MB Logs"?</i>: tap <b>Open</b>.</li>
       </ul>
-      <h4 id="m-multi">Several codes at once: fee codes, ICD-9 and modifiers (v9l)</h4>
-      <p>In Fee Desk's pick mode (Alberta) you can send up to <b>3 fee codes, 3 ICD-9 codes and 3 modifier codes</b> back to the same row in one go. A plain tap still sends one code straight away, as before.</p>
+      <h4 id="m-multi">Several codes at once: fee codes, ICD-9 and modifiers (v9l, up to 10 each from v9m)</h4>
+      <p>In Fee Desk's pick mode (Alberta) you can send up to <b>10 fee codes, 10 ICD-9 codes and 10 modifier codes</b> back to the same row in one go (Fee Desk v37 or later; Fee Desk v36 allows 3 of each). A plain tap still sends one code straight away, as before.</p>
       <ol>
         <li>Tap <b>＋</b> beside a code to select it instead of sending it. While something is selected, tapping other codes adds them too (tap again to remove). <b>Modifiers</b> in the pick bar opens Fee Desk's modifier search (explicit Alberta modifiers from the official SOMB list).</li>
         <li>Tap a <b>favourite that has linked codes</b> (its linked ICD-9 codes and modifiers, set up in Fee Desk) and the whole set is selected for you to check.</li>
-        <li>A tray above the pick bar shows the selection (Fee · ICD-9 · Modifiers, each up to 3). Remove any with <b>×</b>, then tap <b>Send to MedBilling Logs</b>.</li>
+        <li>A tray above the pick bar shows the selection (Fee · ICD-9 · Modifiers, with counters such as <i>1/10</i>; a long selection scrolls inside the tray). Remove any with <b>×</b>, then tap <b>Send to MedBilling Logs</b>.</li>
         <li>Back in MedBilling Logs the codes are in the row you started from, saved, and the filled cells flash briefly. A short message says what was added, for example <i>Added: Fee 03.03A · Dx 250.00 · Modifier 1 CMGP</i>, with <b>Undo</b>.</li>
       </ol>
       <ul>
         <li><b>Nothing is overwritten.</b> New codes are added after what is already in each cell; a code already in the row is not added twice (the message lists it as <i>Already in this row</i>).</li>
         <li><b>Fee code(s):</b> added after the existing ones.</li>
-        <li><b>Dx:</b> one Dx per fee code, as when typing. A Dx linked to a fee code goes beside that fee code; others go on fee codes that have no Dx yet, newly added ones first. An existing Dx is never replaced: a Dx with no free fee code is left out and the message says <i>Not added … (one Dx per fee code)</i>.</li>
+        <li><b>Dx:</b> every ICD-9 code sent is kept. A Dx linked to a fee code goes beside that fee code; others go on fee codes that have no Dx yet, newly added ones first; any more are added after them in the Dx cell (the row grows to show them all). An existing Dx is never replaced.</li>
         <li><b>Modifiers:</b> <b>Modifier code 1</b> is for the row's first fee code and <b>Modifier code 2</b> for its second or later fee code. A modifier linked to a fee code in Fee Desk (or sent with just one fee code) goes in the cell for that fee code's place in the row; other modifiers go in Modifier code 1. A modifier already in either cell is not added again.</li>
         <li>Only codes and the one-time token travel, as with single codes. Works in Safari, the Home Screen app and the MedBilling Logs iPhone app (Fee Desk returns with the app's own link). Older versions of Fee Desk keep sending one code at a time.</li>
       </ul>
@@ -982,7 +982,7 @@
         <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
         <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock. A code you picked in Fee Desk waits and is added right after you unlock.</dd>
         <dt>I tapped a code in Fee Desk but nothing came back.</dt><dd>Open Fee Desk with <b>↗</b> in the Fee code(s) or Dx cell (the slim yellow "Picking … for MedBilling Logs" bar must show). Plain Fee Desk links only look codes up. Picks expire after 30 minutes.</dd>
-        <dt>Can I bring back several codes at once, with modifiers?</dt><dd>Yes (Alberta, v9l). In Fee Desk's pick mode tap <b>＋</b> beside up to 3 fee codes, 3 ICD-9 codes and 3 modifiers (or tap a favourite with linked codes), check the tray and tap <b>Send to MedBilling Logs</b>. They are added to the row without overwriting anything: fee codes after the existing ones, one Dx per fee code, modifiers in Modifier code 1 (first fee code) or Modifier code 2 (second or later). See <a href="#m-multi">Several codes at once</a>.</dd>
+        <dt>Can I bring back several codes at once, with modifiers?</dt><dd>Yes (Alberta, v9l; up to 10 of each from v9m with Fee Desk v37). In Fee Desk's pick mode tap <b>＋</b> beside up to 10 fee codes, 10 ICD-9 codes and 10 modifiers (or tap a favourite with linked codes), check the tray and tap <b>Send to MedBilling Logs</b>. They are added to the row without overwriting anything: fee codes after the existing ones, Dx beside their fee codes and any extra Dx after them (none dropped), modifiers in Modifier code 1 (first fee code) or Modifier code 2 (second or later). See <a href="#m-multi">Several codes at once</a>.</dd>
         <dt>The rows used to stop at 40. Is there a limit?</dt><dd>No. Keep pressing Tab, Enter or Next (or scroll down): when you're within 5 rows of the end, 10 more rows appear. Empty rows aren't saved or counted, so they never change your totals or reports.</dd>
         <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
         <dt>How do I move to a new phone?</dt><dd>On the old phone, Export a backup. On the new phone, install the app, create a passcode, then Import the backup with the passcode it was made with.</dd>
