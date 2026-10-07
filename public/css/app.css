@@ -714,3 +714,15 @@ body.nedopen .gnav{display:none}
   .cbtn{height:max(26px,calc(var(--g-fs) * 1.9));min-width:max(26px,calc(var(--g-fs) * 1.9))}
   table.grid col.c-tin,table.grid col.c-tout{width:max(76px,calc(var(--g-fs) * 6.4))}   /* HH:MM + the bigger ▶ / ■ */
 }
+
+/* ---- v9k: Modifier code 1 / 2 columns; wider, taller code cells (Fee code(s), Modifiers, Dx). Widths come from fitCols
+   (explicit px, ~15 code characters before wrapping, scaling with Settings → Display); these are only the first-paint values. */
+table.grid col.c-mod1,table.grid col.c-mod2{width:max(120px,calc(var(--g-fs) * 10))}
+table.grid col.c-fee,table.grid col.c-dx{width:max(170px,calc(var(--g-fs) * 14))}
+table.grid td.c-mod1,table.grid td.c-mod2{white-space:normal}
+table.grid thead th.h-mod1,table.grid thead th.h-mod2{text-align:left;padding-left:8px}
+/* the code cell being edited opens to at least two lines (room to see several codes while typing); it keeps growing
+   with the text, and the row grows with it instead of clipping */
+table.grid td.c-fee textarea.gc:focus,table.grid td.c-dx textarea.gc:focus,table.grid td.c-mod1 textarea.gc:focus,table.grid td.c-mod2 textarea.gc:focus{min-height:calc(var(--g-h) - 1px + var(--g-lh))}
+table.grid td.c-fee textarea.gc,table.grid td.c-dx textarea.gc,table.grid td.c-mod1 textarea.gc,table.grid td.c-mod2 textarea.gc{overflow-wrap:break-word;word-break:normal}
+.modrow{margin-top:6px}

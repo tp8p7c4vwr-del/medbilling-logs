@@ -342,6 +342,10 @@
       </div>
       <div id="eCodeRes" class="codres"></div>
       <div id="eDxRes" class="codres dxres"></div>
+      <div class="two modrow">
+        <label class="fld">Modifier code(s) 1<input id="eMod1" maxlength="80" placeholder="e.g. CMGP, BMI" autocomplete="off" autocorrect="off" spellcheck="false" autocapitalize="characters"></label>
+        <label class="fld">Modifier code(s) 2<input id="eMod2" maxlength="80" placeholder="Separate with commas" autocomplete="off" autocorrect="off" spellcheck="false" autocapitalize="characters"></label>
+      </div>
       <p class="small muted fdhelp">For help with medical billing codes and diagnostic codes (ICD-9 / ICD-10), use <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></p>
       <p class="small muted credit" id="eCredit"></p>
     </div>
@@ -531,7 +535,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9j (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9k (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -632,14 +636,23 @@
 
     <section id="m-enc">
       <h3>4. Encounters: the spreadsheet</h3>
-      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, light zebra striping, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Fee code(s)</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
+      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, light zebra striping, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Fee code(s)</b> · <b>Modifier code 1</b> · <b>Modifier code 2</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
       <ol>
         <li><b>New patient:</b> type a name or MRN/PHN in the first blank row. That creates the encounter (not started yet).</li>
         <li><b>Start the clock:</b> type the time in <b>In</b> (24-hour: <i>0930</i>, <i>9:30</i>, <i>21h05</i>; type <i>n</i> for now), or tap <b>▶</b> in the In cell. The row's Min cell then counts up live.</li>
         <li><b>Stop:</b> type the time in <b>Out</b> (an Out earlier than In means after midnight), or tap <b>■</b> in the Out cell.</li>
         <li><b>H/C:</b> tap (or press Space, or type H or C) to switch between Hospital and Clinic.</li>
         <li><b>Codes:</b> type or paste fee and ICD-9 codes (several separated by commas). Select the cell and tap <b>↗</b> (or <b>ⓘ</b> beside a code) to pick in MedBilling Fee Desk: tap a code there and it comes straight back into that cell (see <a href="#m-codes" data-go="m-codes">section 8</a>).</li>
+        <li><b>Modifiers:</b> type modifier codes in <b>Modifier code 1</b> and <b>Modifier code 2</b> (right after Fee code(s)). Each cell takes several codes separated by commas or spaces; they are saved in capitals, separated by ", ", with duplicates removed (e.g. <i>cmgp bmi</i> → <i>CMGP, BMI</i>). See <i>Modifier codes</i> below.</li>
       </ol>
+      <h4 id="m-mod">Modifier codes and roomy code cells (v9k)</h4>
+      <p>Two <b>Modifier code</b> columns sit between <b>Fee code(s)</b> and <b>Dx (ICD-9)</b>. Use them however suits your billing: for example, modifiers for the first fee code in <b>Modifier code 1</b> and for the second in <b>Modifier code 2</b>, or simply all of them in one cell.</p>
+      <ul>
+        <li><b>Room for several codes:</b> Fee code(s), Modifier code 1, Modifier code 2 and Dx are wide enough for about 15 characters (three or four codes) before anything wraps, at every text size. When a cell holds more, the column widens up to a maximum and then the codes wrap onto more lines and the row grows taller; nothing is ever cut off. On a phone a code column stops at about 60 % of the screen and wraps from there.</li>
+        <li><b>A bigger cell while you type:</b> the code cell you are editing opens to at least two lines, and keeps growing as you add codes. Tab, Enter or the keyboard's <b>Next</b> moves Fee code(s) → Modifier code 1 → Modifier code 2 → Dx, like any other cell. On a phone, a code cell you tap that is partly off the edge slides fully into view.</li>
+        <li>Modifiers are encrypted with the entry and appear in <b>History</b>, the entry details (a <b>Modifiers</b> line) and the edit form (<b>Modifier code(s) 1 / 2</b>), every report (PDF, Word, Excel, CSV columns <i>modifier_1</i> and <i>modifier_2</i>), encrypted backups and the audit log. Entries made before version 9k simply have empty Modifier cells, and totals are not affected.</li>
+        <li>Modifiers are typed, not picked in Fee Desk. Always confirm modifiers and their rules in the current Alberta Schedule of Medical Benefits.</li>
+      </ul>
       <h4>Rows never run out</h4>
       <p>The grid is endless. Whenever the cell you are in is within 5 rows of the last row, 10 more blank rows are added below; it doesn't matter how you got there (Tab, Enter, ↓, the <b>Next</b> bar, or a tap), and you don't have to type anything. Scrolling to within 5 rows of the bottom adds 10 more as well. Row numbers simply continue (… 40, 41, 42 …), and your cursor, the text you're typing and the order of rows stay exactly where they were.</p>
       <ul>
@@ -648,7 +661,7 @@
         <li>The extra rows last until you lock the app or reload; after that the grid starts again with your entries plus the usual blank rows.</li>
       </ul>
       <h4>Columns fit what you type</h4>
-      <p>Each column widens to fit its longest entry (and narrows again when you shorten it). Past a sensible maximum, <b>Patient name</b>, <b>Fee code(s)</b>, <b>Dx</b> and <b>Billing notes</b> wrap onto more lines and the row grows taller, so nothing is cut off. Every column also has a minimum width wide enough for its usual content (about 10 digits for MRN/PHN, 6 characters for a fee code, 5 for Dx and times, 4 for minutes and units); these widths grow and shrink with the text size (see <i>Settings → Display</i> below).</p>
+      <p>Each column widens to fit its longest entry (and narrows again when you shorten it). Past a sensible maximum, <b>Patient name</b>, <b>Fee code(s)</b>, the two <b>Modifier code</b> columns, <b>Dx</b> and <b>Billing notes</b> wrap onto more lines and the row grows taller, so nothing is cut off. Every column also has a minimum width wide enough for its usual content (about 10 digits for MRN/PHN, about 15 characters (several codes) for Fee code(s), each Modifier column and Dx, 5 for times, 4 for minutes and units); these widths grow and shrink with the text size (see <i>Settings → Display</i> below).</p>
       <p><b>Nothing is pinned on the left.</b> When the grid is wider than the screen, it scrolls sideways as a whole: the row number and Patient name scroll away with the other columns, so the codes and times get the full width. Only the header row (top) and the totals row (bottom) stay in place. The active cell has a blue outline and its whole row is tinted, so you can always see where you are.</p>
       <h4>Moving between cells: only when you say so</h4>
       <p>The cursor never jumps to the next cell on its own, not after a full PHN, a 4-digit time or a fee code, and not when a save finishes. Rows also stay where they are while you work; they are put back in time order when you leave the grid. You move to another cell only with:</p>
@@ -709,9 +722,9 @@
       <ul>
         <li><b>+ Add time:</b> tap <b>+5</b>, <b>+15</b> or <b>+30 min</b>. On a finished or paused entry the end moves later (never past now; any remainder moves the start earlier). On a running timer the start moves earlier. The change is saved right away, marked "entered later" and kept in the audit log, and <b>Undo</b> appears beside it. <b>New segment (start / end)…</b> opens the editor with a new time segment to fill in.</li>
         <li><b>↔ Same patient, new encounter:</b> starts a new timer for the same patient. The room/label, initials, chart/MRN, setting, facility and the Minor/Obstetric flags are carried over. Fee codes, diagnostic codes, notes and photos are left blank. If the first encounter is still running, it stops first. The two entries are linked: each shows a <b>Same patient</b> line in its details (tap it to jump to the other), History rows show <b>↔</b>, and the CSV report has a <i>same_patient</i> column. This is different from <b>Track again</b>, which copies only the codes and never patient details.</li>
-        <li><b>✎ Edit:</b> opens the full editor. Every field can be changed: start and end times and segments, room/label, initials, chart/MRN, setting, type, facility, fee codes, diagnostic codes, Minor/Obstetric flags, call-back type and time called, linked encounters and photos. <b>Save</b> records the before and after in the audit log. <b>Cancel</b> returns to the details without changes.</li>
+        <li><b>✎ Edit:</b> opens the full editor. Every field can be changed: start and end times and segments, room/label, initials, chart/MRN, setting, type, facility, fee codes, modifier codes 1 and 2, diagnostic codes, Minor/Obstetric flags, call-back type and time called, linked encounters and photos. <b>Save</b> records the before and after in the audit log. <b>Cancel</b> returns to the details without changes.</li>
       </ul>
-      <p>Below the buttons is a summary of the entry: date and times, minutes, units and time periods, patient details, setting and facility, codes with diagnostic codes, retention, same-patient links and photos.</p>
+      <p>Below the buttons is a summary of the entry: date and times, minutes, units and time periods, patient details, setting and facility, codes with diagnostic codes, modifiers, retention, same-patient links and photos.</p>
       <p><b>Notes.</b> An entry can have several notes, each with its own date and time.</p>
       <ul>
         <li>Tap <b>+ Add note</b>, type up to 1000 characters, and tap <b>Save note</b>. Notes save straight away, encrypted with the entry.</li>
