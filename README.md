@@ -56,3 +56,6 @@ Records are kept for at least 10 years from the last entry. Minors: the longer o
 
 ## Deploy
 Bump `const V` in `public/sw.js`. Then run `bash redeploy.sh` and commit the printed line as `.deploy/bundle.txt` on `main`. `.github/workflows/pages.yml` verifies the sha256 and publishes `site/` to the `gh-pages` branch.
+
+## Spreadsheet Today (v9c)
+Today is now a full-width spreadsheet (`table.grid`, shared with History's per-day view): gridlines, grey header and row numbers, sticky header, pinned totals row, at least 15 blank rows, and inline editing with Sheets-style keyboard navigation. Typing a name/MRN into a blank row creates an encrypted not-started encounter (`status: 'new'`, `segs: []`); In starts the clock and Out stops it. Everything else on Today sits in one slim toolbar (date navigator, facility, Arrive/Depart, week totals, + Call-back, Report / share, ⋯ More). On phones the grid scrolls sideways with # and Patient name pinned. See `CHANGELOG-v9.md`.

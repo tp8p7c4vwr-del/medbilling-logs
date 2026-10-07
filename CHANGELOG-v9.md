@@ -1,3 +1,25 @@
+# MedBilling Logs v9c — Today is a real spreadsheet (2026-10-06)
+
+## Why
+Jose rejected v9/v9b twice: Today still read as an app screen with a grid inside it, not as a spreadsheet.
+
+## What changed (Logs v9c)
+- **The grid is the Today screen.** Full-width `table.grid` with gridlines on every cell, grey header row and grey row-number column, sticky header, ~30px rows (32px on touch), tabular monospace numbers, and a highlighted active cell, row and column header.
+- **Columns:** # · Patient name · MRN / PHN · H/C · In · Out · Min · Units · Fee code(s) · Dx (ICD-9) · Billing notes · ⋯.
+- **Blank rows:** always at least 15 (more to fill the screen). Typing a name or MRN in a blank row creates an encrypted encounter (status `new`, `segs: []`, not started). Typing **In** (24-hour, `930`, `09:30`, `21h05`, `n` = now) or tapping ▶ starts the clock; **Out** (or ■) stops it. An Out before In rolls over midnight. Running rows count up live in Min.
+- **Keyboard like Sheets:** Tab/Shift-Tab, Enter moves down, Esc cancels, arrows move when not editing, F2 edits in place, typing replaces the selected cell. Cells patch in place, so focus and the iPhone keyboard survive saves.
+- **Row menu (⋯, long-press or right-click the row number):** Start/Pause/Resume/Stop, Add time, Segments & photos, Add note, Same patient new encounter, Fee Desk pick for fee/dx, Full-screen timer, Open details, Delete (with Undo).
+- **One slim toolbar** replaces the on-site card, week strip, totals panel and button rows: date navigator (‹ date › Today), facility, Arrive/Depart, on-site time, week totals, + Call-back, Report / share, and ⋯ More (Add past entry, Timeline, Review day, Edit arrival, Track again chips, Help).
+- **Totals row** pinned to the bottom of the grid: encounters, minutes, units, H/C split and time periods.
+- **Other days in Today:** the date control shows any day in the same grid; rows typed on a past day anchor to that day (`e.at`) and are marked entered later.
+- **History** uses the same grid component per day (editable), with an "Open in Today" link. The week strip now lives only in History.
+- **iPhone (390px):** horizontal scroll with # and Patient name pinned left; toolbar wraps to two or three short lines; 16px inputs (no zoom).
+- Removed: "No encounters yet" panel, bottom quick-add/Start bar, Today week strip. Units footnote moved to the footer.
+- **Compatibility:** no data migration. Older entries render unchanged. `report.js` handles not-started rows (`startOf` falls back to `at`/`created`; CSV end shows "not started"). Review flags rows with no In time. Encryption, exports (patient_name, mrn_phn, billing note), Fee Desk handoff (`medbilling.handoff.v1`, no patient data in URLs), Settings, holidays and backups unchanged.
+- Service worker cache: **`bl-v9c-2026-10-06`**.
+
+---
+
 # MedBilling Logs v9b — Excel-like sheet polish (2026-10-06)
 
 ## Why
