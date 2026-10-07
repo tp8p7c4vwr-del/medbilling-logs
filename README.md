@@ -11,6 +11,8 @@ arrival/departure (time on site), call-backs, fee codes, photos and reports. Liv
 - No network calls with data, no analytics, no third-party scripts (CSP `default-src 'self'`). jsPDF 4.2.1 (MIT) and zip.js 2.23.0 (BSD-3-Clause, `zip.min.js`, no workers/wasm/eval; licence in `js/vendor/zip-LICENSE.txt`) are bundled in `public/js/vendor/`. The Word and Excel writers are our own (`public/js/docx.js`, `public/js/xlsx.js`).
 - Photos are resized and re-encoded (which strips EXIF/GPS) and kept only inside the encrypted store, never in the camera roll.
 - Encrypted backup export/import (`.mblbackup`), automatic backups (v8) and Delete all data (passcode + "DELETE ALL").
+- **Encrypted exports (v9d).** Every report/audit export is an AES-256 password-protected .zip (zip.js, WinZip AES, strength 3) with a user-chosen export password (policy in `public/js/pwpolicy.js`: 12+ chars and 3 of 4 types or a 16+ passphrase; no common, sequential, repeated or patient-identifying content; different from the app passcode; never stored, optional in-memory session memory cleared on lock). A privacy notice (HIA, custodian/AHS policies, provincial commissioner e.g. Alberta OIPC) must be acknowledged before each export. File names carry no identifiers (`MedBillingLogs_YYYY-MM-DD.zip`). Opening: iZip (iPhone/iPad; Files can't open AES zips), The Unarchiver/Keka (Mac; Archive Utility can't), 7-Zip (Windows; File Explorer can't).
+- **Login (v9d):** numeric passcode (6+ digits) or passphrase (12+ characters, spaces allowed), same KDF.
 
 ## User manual
 Built into the app (v4): a full-screen page reachable from the lock screen, Settings → Help and the footer. It is part of `index.html`, so it works offline and holds no patient data.

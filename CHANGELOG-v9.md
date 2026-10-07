@@ -1,3 +1,21 @@
+# MedBilling Logs v9d — Encrypted exports by default, privacy notice, passphrase login (2026-10-06)
+
+## Why
+Jose: "the export files from MedBilling Log should be encrypted, as it contains patient information. As a disclaimer, it should comply with laws of privacy and AHS or your Provincial privacy commissioner." Then: the export password must be user-chosen, strong, different from the app passcode and never stored; the login may be a numeric passcode or a passphrase.
+
+## What changed (Logs v9d)
+- **Every export is an AES-256 password-protected .zip** (zip.js 2.23.0, WinZip AE-2, `encryptionStrength: 3`): PDF, Word, **Excel (new in the report dialog)**, CSV and the audit-log export (PDF/CSV). There is no unencrypted export path. Backup readable copies are now always zipped (the "turn protection off" option was removed).
+- **Export password dialog** (`#xpDlg`): password + repeat, Show/Hide, live strength meter and plain reasons. Policy in `public/js/pwpolicy.js` (bundled list, no network): 12+ characters with 3 of 4 character types, or a 16+ character passphrase; rejects common/breached-style passwords (incl. light leetspeak and padded words), sequences (abcd, 1234), keyboard runs (qwer), repeated characters, and anything containing a patient name or MRN/PHN from the vault. **Must differ from the app passcode** (compared with the in-memory session copy and verified against the vault check record, in memory). Never stored; optional "Remember for this session" keeps it in memory only and `lockNow()` clears it.
+- **Privacy notice** before each export (checkbox, remembered until the app locks): health information; keep it encrypted; send the password separately; only as permitted by Alberta's HIA, custodian/AHS policies and the provincial/territorial privacy law and commissioner (e.g. Alberta OIPC); delete copies you no longer need.
+- **File names**: `MedBillingLogs_YYYY-MM-DD.zip` / `MedBillingLogs_audit-log_YYYY-MM-DD.zip`; inner names `billing-log-<dates>.<ext>`. No patient identifiers, no password in names or share text.
+- **Manual / Settings → Privacy**: section 12 rewritten (encrypted exports, password rules, how to open on iPhone/iPad (iZip), Mac (The Unarchiver, Keka, `tar --passphrase`), Windows (7-Zip)); section 16 "Privacy, the law and your responsibility" (custodian/affiliate responsibility; designed to support compliance; not certified or approved by AHS or any regulator; the app transmits nothing).
+- **Login: passcode or passphrase.** Setup and Settings → Change passcode / passphrase offer *Passcode (numbers, 6+ digits, no repeats/straight sequences)* or *Passphrase (12+ characters, words and spaces)*. Same PBKDF2-SHA-256 600k KDF. The type is a non-secret hint in the vault meta record (numeric keyboard + label on the lock screen). Existing vaults keep working (label "Passcode or passphrase").
+- Backup password (separate .zip password) now uses the same policy and must differ from the app passcode.
+- Test: `tests/encrypted-export.test.js` (+ `tests/inspect_zip.py`): 65 checks, all pass.
+- Service worker cache: **`bl-v9d-2026-10-06`**.
+
+---
+
 # MedBilling Logs v9c — Today is a real spreadsheet (2026-10-06)
 
 ## Why
