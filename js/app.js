@@ -953,9 +953,16 @@
       if (key === 'name') { const v = px + 'px'; if (t.style.getPropertyValue('--g-name-w') !== v) t.style.setProperty('--g-name-w', v); }
       sum += px;
     });
-    // Billing notes takes the rest of the screen (at least its own fitted width); the table never truncates a column
-    if (noteCol && noteCol.style.width) { noteCol.style.width = ''; changed = true; }
-    const minW = Math.ceil(sum + noteW) + 'px'; if (t.style.minWidth !== minW) { t.style.minWidth = minW; changed = true; }
+    // Billing notes takes the rest of the screen (at least its own fitted width); the table never truncates a column.
+    // v9j: explicit pixel widths for the notes column AND the table. iOS WebKit ignores min-width on a table-layout:fixed
+    // table, so with only min-width the table stayed 100 % of the phone and the auto-width Billing notes column got 0 px
+    // (the skinny "⋯" column Jose saw on build 5). Chromium hid the bug.
+    const total = Math.ceil(Math.max(ww, sum + noteW)), nPx = Math.max(noteW, total - Math.ceil(sum));
+    if (noteCol && noteCol.style.width !== nPx + 'px') { noteCol.style.width = nPx + 'px'; changed = true; }
+    const tw = (Math.ceil(sum) + nPx) + 'px';
+    if (t.style.minWidth !== tw) { t.style.minWidth = tw; changed = true; }
+    if (t.style.width !== tw) { t.style.width = tw; changed = true; }
+    memo.px.note = nPx;
     t._fit = memo;
     const wraps = l => l[3] || l[2] > widths[l[1]] + 1;
     // typing: no column changed → only the edited cell can need a new height
