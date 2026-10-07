@@ -273,7 +273,7 @@
   let viewDay = null;                       // null = follow today
   const curDay = () => viewDay || today();
   const blankSet = {};                      // H/C chosen on a still-empty row (row key -> 'H'|'C')
-  let gCell = null, gEdit = false, gMouse = null, histDirty = false, gQ = Promise.resolve();
+  let gCell = null, gEdit = false, gMouse = null, histDirty = false, gQ = Promise.resolve(), todayResort = false, gShiftEnter = false;
   const durTxt = (e, m) => kindOf(e) === 'shift' ? `${Math.floor(m / 60)}:${R.pad(m % 60)}` : String(m);
   const uerr = m => Object.assign(new Error(m), { user: true });
   const shiftDay = (k, n) => { const d = new Date(k + 'T12:00'); d.setDate(d.getDate() + n); return R.dayKey(d.getTime()); };
@@ -291,7 +291,12 @@
   }
   const gColgroup = '<colgroup>' + COLS.map(c => `<col class="c-${c[0]}">`).join('') + '</colgroup>';
   const gHead = '<thead><tr>' + COLS.map(c => `<th scope="col" class="h-${c[0]}" data-h="${c[0]}"${c[0] === 'act' ? ' aria-label="Row actions"' : ''}>${esc(c[1])}</th>`).join('') + '</tr></thead>';
-  const gInp = (c, val, o) => `<input class="gc${o.mono ? ' mono' : ''}" data-c="${c}" value="${esc(val)}" maxlength="${o.max || 80}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.lbl)}"${o.title ? ` title="${esc(o.title)}"` : ''} autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next"${o.im ? ` inputmode="${o.im}"` : ''}${o.cap ? ` autocapitalize="${o.cap}"` : ''}>`;
+  // v9f: name, fee, dx and notes wrap (auto-growing textarea, height set by autoH after the widths are fitted), the rest stay one line.
+  // Every editor has enterkeyhint="next": the phone's return key moves to the next cell, exactly like Tab / Enter.
+  const WRAP = { name: 1, fee: 1, dx: 1, note: 1 };
+  const gAttrs = (c, o) => `class="gc${o.mono ? ' mono' : ''}" data-c="${c}" maxlength="${o.max || 80}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.lbl)}"${o.title ? ` title="${esc(o.title)}"` : ''} autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next"${o.im ? ` inputmode="${o.im}"` : ''}${o.cap ? ` autocapitalize="${o.cap}"` : ''}`;
+  const gInp = (c, val, o) => WRAP[c] ? `<textarea rows="1" ${gAttrs(c, o)}>${esc(val)}</textarea>`
+    : `<input ${gAttrs(c, o)} value="${esc(val)}">`;
   const hcBtn = (v, lbl) => `<button type="button" class="gc hc" data-c="hc" aria-label="${esc(lbl)}: ${R.SET[v]}. Tap to switch" title="${R.SET[v]} (tap, or type H / C)">${v}</button>`;
   function gridRow(e, i) {
     const k = kindOf(e), st = e.status, ms = R.msOf(e), m = Math.floor(ms / 60000), cs = e.codes || [], dx = R.dxList(e);
@@ -321,14 +326,14 @@
       + `<td class="num c-u" data-ru="${id}">${started && ed ? R.units(m) : ''}</td>`
       + `<td class="c-fee"><div class="cw">${fee}</div></td>`
       + `<td class="c-dx"><div class="cw">${dxc}</div></td>`
-      + `<td class="c-note">${ed ? gInp('note', billingNoteOf(e), { lbl: 'Billing notes', max: 200 }) : ''}</td>`
+      + `<td class="c-note">${ed ? gInp('note', billingNoteOf(e), { lbl: 'Billing notes', max: 500 }) : ''}</td>`
       + `<td class="c-act"><button type="button" class="rmore" data-a="more" tabindex="-1" aria-label="Row actions" title="Timer, add time, segments and photos, same patient, delete">⋯</button></td></tr>`;
   }
   const perTxtOf = e => { const p = R.periodSplit(e).parts.filter(x => !R.PBY[x.id].regular); return p.length ? R.perTxt(p, true) : ''; };
   function blankRow(i, first) {
     const key = 'r' + i, set = blankSet[key] || quickSet;
     return `<tr class="gr blank" data-key="${key}" data-blank="1"><th scope="row" class="rn">${i}</th>`
-      + `<td class="c-name"><div class="cw">${gInp('name', '', { lbl: 'Patient name (new row)', ph: first ? 'Type a patient name…' : '' })}</div></td>`
+      + `<td class="c-name"><div class="cw">${gInp('name', '', { lbl: 'Patient name (new row)', ph: first ? 'Patient name…' : '' })}</div></td>`
       + `<td class="c-mrn">${gInp('mrn', '', { lbl: 'MRN or PHN (new row)', mono: 1, max: 24, ph: first ? 'MRN / PHN' : '' })}</td>`
       + `<td class="c-hc dim${blankSet[key] ? ' set' : ''}">${hcBtn(set, 'Hospital or clinic for a new row')}</td>`
       + `<td class="c-tin"><div class="cw">${gInp('tin', '', { lbl: 'Time in (new row)', mono: 1, max: 5, im: 'numeric', ph: first ? 'HH:MM' : '' })}<button type="button" class="cbtn now${first ? '' : ' hov'}" data-a="now" tabindex="-1" title="New row, start the clock now" aria-label="New row, start now">▶</button></div></td>`
@@ -336,7 +341,7 @@
       + '<td class="num c-min"></td><td class="num c-u"></td>'
       + `<td class="c-fee">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}</td>`
       + `<td class="c-dx">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}</td>`
-      + `<td class="c-note">${gInp('note', '', { lbl: 'Billing notes (new row)', max: 200 })}</td><td class="c-act"></td></tr>`;
+      + `<td class="c-note">${gInp('note', '', { lbl: 'Billing notes (new row)', max: 500 })}</td><td class="c-act"></td></tr>`;
   }
   function gTotals(list) {
     const enc = list.filter(e => kindOf(e) !== 'shift'), t = R.totals(enc), site = R.totals(list.filter(e => kindOf(e) === 'shift')).site;
@@ -347,8 +352,9 @@
     return `<tfoot><tr class="gt"><th scope="row" class="rn" aria-label="Totals">Σ</th><td class="c-name"><span class="gtxt" data-tn>${t.n} encounter${t.n === 1 ? '' : 's'}</span></td><td></td><td></td><td></td><td class="tl"><span class="gtxt">Total</span></td><td class="num" data-tm title="Total minutes">${t.m}</td><td class="num" data-tu title="Total units">${t.u}</td><td colspan="3" class="tdet"><span class="gtxt" data-td>${esc(t.det)}</span></td><td></td></tr></tfoot>`;
   }
   function sheetHtml(list, o) {
-    let rows = list.map((e, i) => gridRow(e, i + 1)).join('');
-    for (let j = 0; j < (o.blank || 0); j++) rows += blankRow(list.length + j + 1, j === 0);
+    let rows = '';
+    if (o.seq) { const fb = o.seq.indexOf(null); o.seq.forEach((e, i) => { rows += e ? gridRow(e, i + 1) : blankRow(i + 1, i === fb); }); }   // v9f: rows kept where they are while editing
+    else { rows = list.map((e, i) => gridRow(e, i + 1)).join(''); for (let j = 0; j < (o.blank || 0); j++) rows += blankRow(list.length + j + 1, j === 0); }
     return `<table class="grid${o.main ? ' main' : ''}" data-day="${esc(o.day)}" aria-label="${esc((o.main ? 'Spreadsheet for ' : '') + R.fmtDay(o.day))}">${gColgroup}${gHead}<tbody>${rows}</tbody>${gFoot(list)}</table>`;
   }
   // rows shown for a day: Today also keeps running / paused entries from earlier days at the top
@@ -363,19 +369,21 @@
     nc.forEach((x, i) => {
       const y = oc[i]; if (!y) return o.appendChild(x);
       if (y === act) { for (const a of [...x.attributes]) if (a.name !== 'value' && a.name !== 'class' && y.getAttribute(a.name) !== a.value) y.setAttribute(a.name, a.value);
-        const nv = x.getAttribute('value') || ''; if (act.value === act.defaultValue && nv !== act.defaultValue) { act.defaultValue = nv; act.value = nv; if (!gEdit && act.select) act.select(); } return; }
+        const nv = x.tagName === 'TEXTAREA' ? x.defaultValue : (x.getAttribute('value') || ''); if (act.value === act.defaultValue && nv !== act.defaultValue) { const s0 = act.selectionStart, e0 = act.selectionEnd, all = s0 === 0 && e0 === act.value.length; act.defaultValue = nv; act.value = nv; if (all && act.select) act.select(); else if (act.setSelectionRange) { const n = Math.min(nv.length, e0 || 0); act.setSelectionRange(n, n); } } return; }
       if (y.contains(act)) { syncKids(y, x, act); for (const a of [...x.attributes]) if (y.getAttribute(a.name) !== a.value) y.setAttribute(a.name, a.value); return; }
-      if (y.outerHTML !== x.outerHTML) y.replaceWith(x);
+      if (!sameEl(y, x)) y.replaceWith(x);
     });
     oc.slice(nc.length).forEach(y => { if (!y.contains(act)) y.remove(); });
   }
+  // rows are compared as HTML, ignoring the heights autoH() sets on wrapping cells (new HTML never has a style attribute)
+  const sameEl = (o, n) => o.outerHTML.replace(/ style="[^"]*"/g, '') === n.outerHTML;
   function patchGrid(table, html) {
     const tpl = document.createElement('template'); tpl.innerHTML = html; const nt = tpl.content.firstElementChild, act = document.activeElement;
     const otb = table.tBodies[0], ntb = nt.tBodies[0], old = new Map([...otb.rows].map(r => [r.dataset.key, r]));
     const want = [...ntb.rows].map(nr => {
       const o = old.get(nr.dataset.key); if (!o) return nr;
       if (o.contains(act)) { syncKids(o, nr, act); [...o.attributes].forEach(a => { if (!nr.hasAttribute(a.name)) o.removeAttribute(a.name); }); [...nr.attributes].forEach(a => o.setAttribute(a.name, a.value)); return o; }
-      return o.outerHTML === nr.outerHTML ? o : nr;
+      return sameEl(o, nr) ? o : nr;
     });
     [...otb.rows].forEach(r => { if (!want.includes(r)) r.remove(); });
     const keep = want.find(r => r.contains(act));
@@ -397,13 +405,21 @@
   function ensureVisible(el) {
     const w = el.closest('.gwrap'), td = el.closest('td'); if (!w || !td) return;
     const t = w.querySelector('table'), hh = (t.tHead && t.tHead.offsetHeight) || 0, fh = (t.tFoot && w.classList.contains('main') && t.tFoot.offsetHeight) || 0;
-    const rn = t.querySelector('tbody .rn'), nm = t.querySelector('tbody .c-name'), lw = (rn ? rn.offsetWidth : 0) + (nm && td !== nm && getComputedStyle(nm).position === 'sticky' ? nm.offsetWidth : 0);
+    const rn = t.querySelector('tbody .rn'), nm = t.querySelector('tbody .c-name'), lw = (rn ? rn.offsetWidth : 0) + (nm && !td.classList.contains('c-name') && getComputedStyle(nm).position === 'sticky' ? nm.offsetWidth : 0);
     const wr = w.getBoundingClientRect(), r = td.getBoundingClientRect();
     if (r.top < wr.top + hh) w.scrollTop -= wr.top + hh - r.top; else if (r.bottom > wr.bottom - fh) w.scrollTop += r.bottom - (wr.bottom - fh);
-    if (td !== nm) { if (r.left < wr.left + lw) w.scrollLeft -= wr.left + lw - r.left; else if (r.right > wr.right) w.scrollLeft += r.right - wr.right; }
+    const isName = td.classList.contains('c-name');
+    if (!isName) { if (r.left < wr.left + lw) w.scrollLeft -= wr.left + lw - r.left; else if (r.right > wr.right) w.scrollLeft += Math.min(r.right - wr.right, r.left - (wr.left + lw)); }
+    else if (w.scrollLeft) w.scrollLeft = 0;   // back to the patient name: show the start of the row again
     if (w.classList.contains('main')) { const pr = w.getBoundingClientRect(); if (pr.bottom > innerHeight) td.scrollIntoView({ block: 'nearest' }); }
   }
-  function focusCell(el) { if (!el) return; el.focus({ preventScroll: true }); gEdit = false; if (el.select) el.select(); ensureVisible(el); }
+  const COARSE = () => matchMedia('(pointer:coarse)').matches, FINE = () => matchMedia('(pointer:fine)').matches;
+  // keyboard / Next-button arrival: select the cell on a computer (type to replace, like Sheets); caret at the end on touch
+  function focusCell(el) {
+    if (!el) return; el.focus({ preventScroll: true }); gEdit = false;
+    if (el.select) { if (COARSE()) { const n = el.value.length; el.setSelectionRange(n, n); gEdit = true; } else el.select(); }
+    ensureVisible(el); kbSoon();
+  }
   function cellAt(tr, ci) {
     for (let d = 0; d < NAV.length; d++) for (const x of [ci + d, ci - d]) { if (x < 0 || x >= NAV.length) continue; const el = tr.querySelector(`.gc[data-c="${NAV[x]}"]`); if (el) return el; }
     return null;
@@ -507,7 +523,8 @@
     if (nb < MIN_BLANK) { const t = document.createElement('template'); let h = ''; for (let j = 0; j < MIN_BLANK - nb; j++) h += blankRow(tb.rows.length + j + 1, false); t.innerHTML = '<table><tbody>' + h + '</tbody></table>'; tb.append(...t.content.querySelector('tbody').rows); }
   }
   function commitCell(c) {
-    if (!c || c.tagName !== 'INPUT' || !S || c.value === c.defaultValue) return;
+    if (!c || (c.tagName !== 'INPUT' && c.tagName !== 'TEXTAREA') || !S || c.value === c.defaultValue) return;
+    if (c.dataset.c !== 'note' && /[\r\n]/.test(c.value)) c.value = c.value.replace(/[\r\n]+/g, ' ');
     const v = c.value, tr = c.closest('tr'); c.defaultValue = v;
     if (!tr) return; if (tr.dataset.blank) return createFromBlank(tr, c.dataset.c, v);
     gridSave(tr.dataset.id, c.dataset.c, v);
@@ -528,23 +545,43 @@
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => root.addEventListener(n, () => clearTimeout(lpT)));
     root.addEventListener('focusin', ev => {
       const c = ev.target.closest && ev.target.closest('.gc'); if (!c) return;
-      gCell = c; setActive(c);
-      if (gMouse === c) gEdit = true; else { gEdit = false; if (c.select) c.select(); }
-      gMouse = null;
+      gCell = c; setActive(c); gNavShow(true);
+      if (gMouse === c) gEdit = true;
+      else if (c.select && !COARSE()) { gEdit = false; if (document.activeElement === c && !(c.selectionStart === 0 && c.selectionEnd === c.value.length)) c.select(); }
+      else gEdit = true;
+      gMouse = null; kbSoon();
     });
     root.addEventListener('focusout', ev => {
       const c = ev.target.closest && ev.target.closest('.gc'); if (c) commitCell(c);
-      setTimeout(() => { if (!root.contains(document.activeElement)) { setActive(null); if (root.id === 'histList' && histDirty) { histDirty = false; renderHistory(); } } }, 0);
+      setTimeout(() => { if (!root.contains(document.activeElement)) { setActive(null); gNavShow(false); if (root.id === 'histList' && histDirty) { histDirty = false; renderHistory(); } if (root.id === 'todayList' && todayResort) { todayResort = false; render(true); } } }, 0);
     });
-    root.addEventListener('input', ev => { if (ev.target.closest('input.gc')) gEdit = true; });
+    root.addEventListener('input', ev => {
+      const c = ev.target.closest('.gc'); if (!c || c.tagName === 'BUTTON') return; gEdit = true;
+      if (c.tagName === 'TEXTAREA') {
+        if (c.dataset.c !== 'note' && /[\r\n]/.test(c.value)) { const p = c.selectionStart; c.value = c.value.replace(/[\r\n]+/g, ' '); c.setSelectionRange(p, p); }
+      }
+      fitSoon(c.closest('table.grid'));
+    });
+    // phone keyboards that send no usable Enter keydown (Android IMEs): a line break typed into a wrapping cell means "next cell"
+    root.addEventListener('beforeinput', ev => {
+      const c = ev.target.closest && ev.target.closest('textarea.gc'); if (!c) return;
+      if (ev.inputType !== 'insertLineBreak' && ev.inputType !== 'insertParagraph') return;
+      if (c.dataset.c === 'note' && FINE() && gShiftEnter) return;          // computer: Shift+Enter = new line in Billing notes
+      ev.preventDefault(); commitCell(c); gMove(c, 0, 1, true);
+    });
     root.addEventListener('keydown', ev => {
       const c = ev.target.closest && ev.target.closest('.gc'); if (!c || ev.isComposing) return;
-      const isIn = c.tagName === 'INPUT', k = ev.key;
+      const isIn = c.tagName === 'INPUT' || c.tagName === 'TEXTAREA', k = ev.key; gShiftEnter = k === 'Enter' && ev.shiftKey;
       if (k === 'Tab') { ev.preventDefault(); commitCell(c); return gMove(c, 0, ev.shiftKey ? -1 : 1, true); }
-      if (k === 'Enter') { ev.preventDefault(); commitCell(c); return gMove(c, ev.shiftKey ? -1 : 1, 0); }
-      if (k === 'Escape') { if (isIn && (c.value !== c.defaultValue || gEdit)) { ev.preventDefault(); ev.stopPropagation(); c.value = c.defaultValue; gEdit = false; c.select(); } return; }
-      if (k === 'ArrowUp' || k === 'ArrowDown') { ev.preventDefault(); commitCell(c); return gMove(c, k === 'ArrowUp' ? -1 : 1, 0); }
-      if ((k === 'ArrowLeft' || k === 'ArrowRight') && (!isIn || !gEdit)) { ev.preventDefault(); commitCell(c); return gMove(c, 0, k === 'ArrowLeft' ? -1 : 1, false); }
+      if (k === 'Enter') {
+        if (c.dataset.c === 'note' && ev.shiftKey && FINE()) { gEdit = true; return; }   // computer only: new line inside the note
+        ev.preventDefault(); commitCell(c); return gMove(c, 0, ev.shiftKey ? -1 : 1, true);   // Enter = next cell to the right (Shift+Enter = left)
+      }
+      if (k === 'Escape') { if (isIn && (c.value !== c.defaultValue || gEdit)) { ev.preventDefault(); ev.stopPropagation(); c.value = c.defaultValue; gEdit = false; c.select(); fitSoon(c.closest('table.grid')); } return; }
+      // ↑ ↓ change rows only before you start editing (just arrived with Tab / Enter); while editing they stay in the text
+      if ((k === 'ArrowUp' || k === 'ArrowDown') && (!isIn || !gEdit)) { ev.preventDefault(); commitCell(c); return gMove(c, k === 'ArrowUp' ? -1 : 1, 0); }
+      // ← → always move the cursor inside the text and never leave the cell (only the H/C button uses them to move)
+      if (k === 'ArrowLeft' || k === 'ArrowRight') { if (!isIn) { ev.preventDefault(); return gMove(c, 0, k === 'ArrowLeft' ? -1 : 1, false); } gEdit = true; return; }
       if (k === 'F2' && isIn) { ev.preventDefault(); gEdit = true; const n = c.value.length; c.setSelectionRange(n, n); return; }
       if (!isIn) { if (/^[hHcC]$/.test(k)) { ev.preventDefault(); hcToggle(c, k.toUpperCase()); } return; }
       if (k.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) gEdit = true;
@@ -552,6 +589,10 @@
     });
     root.addEventListener('click', ev => {
       const t = ev.target;
+      // touch: the browser's tap targeting can leave the text caret in the neighbouring cell while focus is in this one,
+      // so typing would go nowhere. Put the caret back inside the tapped cell (at the end).
+      const ed = t.closest && t.closest('input.gc, textarea.gc');
+      if (ed && document.activeElement === ed) { const s = getSelection(), td = ed.closest('td'); if (s && s.anchorNode && td && !td.contains(s.anchorNode)) { const n = ed.value.length; ed.setSelectionRange(n, n); } }
       const hc = t.closest('.gc.hc'); if (hc) return hcToggle(hc);
       const pk = t.closest('.pickfd'); if (pk) { const e = entryOf(pk); if (e) pickInFeeDesk(e, pk.dataset.kind); return; }
       const a = t.closest('[data-a]');
@@ -562,9 +603,9 @@
         if (a.dataset.a === 'more' && e) return openRowMenu(e);
         return;
       }
-      if (t.closest('a, input, button')) return;
+      if (t.closest('a, input, textarea, button')) return;
       const td = t.closest('td, th.rn'); if (!td) return;
-      const c = td.querySelector('.gc') || (td.classList.contains('rn') && td.parentNode.querySelector('.gc')); if (c) { gMouse = c.tagName === 'INPUT' && !td.classList.contains('rn') ? c : null; c.focus(); if (!gMouse && c.select) c.select(); }
+      const c = td.querySelector('.gc') || (td.classList.contains('rn') && td.parentNode.querySelector('.gc')); if (c) { gMouse = (c.tagName === 'INPUT' || c.tagName === 'TEXTAREA') && !td.classList.contains('rn') ? c : null; c.focus(); if (!gMouse && c.select) c.select(); }
     });
     root.addEventListener('dblclick', ev => { const rn = ev.target.closest('tbody .rn'); if (rn) { const e = entryOf(rn); if (e) openEdit(e); } });
     root.addEventListener('contextmenu', ev => { if (ev.target.closest('input')) return; const e = entryOf(ev.target); if (!e) return; ev.preventDefault(); openRowMenu(e); });
@@ -576,23 +617,101 @@
     const top = w.getBoundingClientRect().top + window.scrollY, h = Math.max(300, Math.floor(window.innerHeight - top - 8));
     if (w.style.height !== h + 'px') w.style.height = h + 'px';
   }
-  window.addEventListener('resize', () => { sizeGrid(); if (S && tab === 'today' && fillRows() !== fillRows.last) render(true); });
+  window.addEventListener('resize', () => { sizeGrid(); if (S && tab === 'today' && fillRows() !== fillRows.last) render(true); else if (S) fitAll(); });
   function fillRows() {
     const w = $('#todayList .gwrap'), r = w && w.querySelector('tbody tr'), rh = (r && r.offsetHeight) || 30;
     const h = w ? (parseFloat(w.style.height) || w.clientHeight) : window.innerHeight - 200;
     return Math.max(0, Math.floor((h - 2 * rh - 4) / rh));
   }
   function renderToday() {
-    const day = curDay(), list = dayList(day, true), box = $('#todayList');
+    const day = curDay(), box = $('#todayList'); let list = dayList(day, true);
     const fill = fillRows(); fillRows.last = fill;
-    const html = sheetHtml(list, { day, blank: Math.max(MIN_BLANK, fill - list.length), main: true });
     let w = box.querySelector('.gwrap');
-    const old = w && w.querySelector('table.grid');
-    if (old && old.contains(document.activeElement) && old.dataset.day === day) { patchGrid(old, html); setActive(gCell); }
+    const old = w && w.querySelector('table.grid'), editing = old && old.contains(document.activeElement) && old.dataset.day === day;
+    // v9f: while you are working in the grid, rows keep their place (a typed In time never moves the row under your cursor);
+    // they are re-sorted by time once focus leaves the grid
+    // (and a row typed into lower down stays on that line instead of jumping up past the empty rows above it)
+    let seq = null;
+    if (editing) {
+      const byId = new Map(list.map(e => [e.id, e])), used = new Set(); seq = [];
+      for (const r of old.tBodies[0].rows) { const k = r.dataset.key; if (byId.has(k)) { seq.push(byId.get(k)); used.add(k); } else if (r.dataset.blank) seq.push(null); }
+      const extra = list.filter(e => !used.has(e.id)), lastE = seq.reduce((m, x, i) => x ? i : m, -1); seq.splice(lastE + 1, 0, ...extra);
+      const lastE2 = seq.reduce((m, x, i) => x ? i : m, -1); seq.length = Math.min(seq.length, Math.max(lastE2 + 1, 0) + Math.max(MIN_BLANK, fill - list.length)) ;
+      while (seq.length - (lastE2 + 1) < Math.max(MIN_BLANK, fill - list.length)) seq.push(null);
+      const nat = list.map(e => e.id), now = seq.filter(Boolean).map(e => e.id);
+      if (now.some((id, i) => id !== nat[i]) || seq.slice(0, lastE2 + 1).includes(null)) todayResort = true;
+    }
+    const html = sheetHtml(list, { day, blank: Math.max(MIN_BLANK, fill - list.length), main: true, seq });
+    if (editing) { patchGrid(old, html); setActive(gCell); }
     else if (w) { const st = w.scrollTop, sl = w.scrollLeft, same = old && old.dataset.day === day; w.innerHTML = html; if (same) { w.scrollTop = st; w.scrollLeft = sl; } }
     else { box.innerHTML = `<div class="gwrap main">${html}</div>`; w = box.firstElementChild; }
+    fitCols(w.querySelector('table.grid'));
     sizeGrid();
   }
+  // ---- v9f dynamic column widths: each column fits its longest content (header and cells) between a minimum and a maximum;
+  // past the maximum, name / codes / notes wrap and the row grows. Measured with a canvas in the cells' own fonts.
+  const FIT = { name: [160, 120, 34], mrn: [92, 88, 26], fee: [100, 96, 28], dx: [96, 90, 24], note: [170, 150, 40] };   // min desktop, min touch, max (ch)
+  let fitCtx = null; const fitQ = new Set();
+  const fontOf = el => { const s = getComputedStyle(el); return `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`; };
+  function fitCols(t) {
+    if (!t || !t.isConnected || !t.offsetParent) return;
+    const ctx = fitCtx || (fitCtx = document.createElement('canvas').getContext('2d'));
+    const mw = (s, f) => { ctx.font = f; return ctx.measureText(s).width; };
+    const w = t.closest('.gwrap'), ww = (w && w.clientWidth) || innerWidth, touch = matchMedia('(max-width:767px),(pointer:coarse)').matches;
+    const sans = t.querySelector('tbody .gc[data-c="name"]'), mono = t.querySelector('tbody .gc.mono'), th = t.querySelector('thead th.h-name');
+    const fS = sans ? fontOf(sans) : '13px sans-serif', fM = mono ? fontOf(mono) : fS, fH = th ? fontOf(th) : fS;
+    let sum = 0, noteW = 0, noteCol = null; const longs = [], widths = {};
+    for (const col of t.querySelectorAll('colgroup col')) {
+      const key = col.className.replace(/^c-/, ''), cfg = FIT[key];
+      if (!cfg) { sum += parseFloat(getComputedStyle(col).width) || 0; continue; }
+      const h = t.querySelector(`thead [data-h="${key}"]`), isM = key !== 'name' && key !== 'note', f = isM ? fM : fS, ch = mw('0', f);
+      let need = h ? mw(h.textContent, fH) + 18 : 0;
+      for (const el of t.querySelectorAll(`tbody .gc[data-c="${key}"]`)) {
+        const txt = el.value || el.placeholder || ''; if (!txt) continue;
+        const line = txt.split('\n').reduce((m, s) => s.length > m.length ? s : m, '');
+        const cw = el.closest('.cw'), extra = cw ? cw.querySelectorAll('.cbtn, .tag').length * 25 : 0, tw = mw(line, f) + 18 + extra;
+        need = Math.max(need, tw); if (el.tagName === 'TEXTAREA' && el.value) longs.push([el, key, tw, line !== txt]);
+      }
+      let max = cfg[2] * ch; if (key === 'name' && ww < 700) max = Math.min(max, Math.max(cfg[1], ww * 0.42));
+      const px = Math.ceil(Math.min(Math.max(need, cfg[touch ? 1 : 0]), Math.max(max, cfg[touch ? 1 : 0])));
+      widths[key] = px;
+      if (key === 'note') { noteW = px; noteCol = col; continue; }
+      if (col.style.width !== px + 'px') col.style.width = px + 'px';
+      if (key === 'name') t.style.setProperty('--g-name-w', px + 'px');
+      sum += px;
+    }
+    // Billing notes takes the rest of the screen (at least its own fitted width); the table never truncates a column
+    if (noteCol) noteCol.style.width = '';
+    const minW = Math.ceil(sum + noteW) + 'px'; if (t.style.minWidth !== minW) t.style.minWidth = minW;
+    // wrapping cells: only those wider than their column (or with a line break) get a measured height; the rest go back to one line
+    for (const ta of t.querySelectorAll('tbody textarea.gc[style]')) if (!longs.some(l => l[0] === ta)) ta.style.height = '';
+    for (const [el, key, tw, multi] of longs) { if (multi || tw > widths[key] + 1) autoH(el); else if (el.style.height) el.style.height = ''; }
+  }
+  function autoH(ta) { ta.style.height = ''; const h = ta.scrollHeight; if (h > ta.clientHeight + 1) ta.style.height = h + 'px'; }
+  function fitSoon(t) { if (!t) return; fitQ.add(t); if (fitQ.size === 1) requestAnimationFrame(() => { const l = [...fitQ]; fitQ.clear(); l.forEach(fitCols); }); }
+  function fitAll(root) { (root || document).querySelectorAll('table.grid').forEach(fitCols); }
+  // ---- v9f touch helpers: keep the cell above the on-screen keyboard; a floating ← Next → bar while a cell is active
+  let kbT = null;
+  function kbSoon() { clearTimeout(kbT); kbT = setTimeout(kbKeep, 320); }
+  function kbKeep() {
+    const c = document.activeElement; if (!c || !c.closest || !c.closest('table.grid') || !c.classList.contains('gc')) return;
+    const vv = window.visualViewport, top = (vv ? vv.offsetTop : 0) + 34, bot = (vv ? vv.offsetTop + vv.height : innerHeight) - (COARSE() ? 58 : 6);
+    const fix = () => { const r = c.getBoundingClientRect(); return r.bottom > bot ? r.bottom - bot : r.top < top ? r.top - top : 0; };
+    let d = fix(); if (!d) return; const w = c.closest('.gwrap'); if (w) w.scrollTop += d; d = fix(); if (d) window.scrollBy(0, d);
+    gNavPos();
+  }
+  function gNavPos() { const n = $('#gNav'), vv = window.visualViewport; if (!n || n.hidden) return; n.style.top = Math.round((vv ? vv.offsetTop + vv.height : innerHeight) - n.offsetHeight - 8) + 'px'; }
+  function gNavShow(on) { const n = $('#gNav'); if (!n) return; n.hidden = !(on && COARSE()); gNavPos(); }
+  if (window.visualViewport) { visualViewport.addEventListener('resize', () => { gNavPos(); kbSoon(); }); visualViewport.addEventListener('scroll', gNavPos); }
+  // the explicit arrow buttons (toolbar ← → and the floating touch bar): same as Shift+Tab / Tab
+  function gStep(dir) {
+    const c = gCell && document.contains(gCell) ? gCell : null;
+    if (!c) { const f = $('#todayList tbody .gc[data-c="name"]'); if (f) focusCell(f); return; }
+    commitCell(c); gMove(c, 0, dir, true);
+  }
+  [['#gPrev', -1], ['#gNext', 1], ['#gPrevF', -1], ['#gNextF', 1]].forEach(([s, d]) => { const b = $(s); if (!b) return;
+    ['pointerdown', 'mousedown'].forEach(n => b.addEventListener(n, ev => ev.preventDefault()));   // keep focus (and the phone keyboard) in the cell
+    b.addEventListener('click', () => gStep(d)); });
   function renderToolbar() {
     const day = curDay(), td = today(), isT = day === td, d = new Date(day + 'T12:00');
     $('#dLbl').textContent = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) + (isT ? ' · Today' : '');
@@ -660,7 +779,7 @@
     const hl = $('#histList'), ae = document.activeElement;
     // editing a History cell: patch the day tables in place (focus and keyboard stay); full redraw when focus leaves
     if (hl.contains(ae) && ae.closest('table.grid')) {
-      for (const t of $$('#histList table.grid')) { const l = days.get(t.dataset.day); if (l) patchGrid(t, sheetHtml(histSort(l), { day: t.dataset.day })); }
+      for (const t of $$('#histList table.grid')) { const l = days.get(t.dataset.day); if (l) { patchGrid(t, sheetHtml(histSort(l), { day: t.dataset.day })); fitCols(t); } }
       histDirty = true; setActive(gCell); return;
     }
     if (!days.size) { hl.innerHTML = '<div class="empty">No history yet.</div>'; return; }
@@ -678,7 +797,7 @@
       }
       h += '</div>';
     }
-    hl.innerHTML = h;
+    hl.innerHTML = h; fitAll(hl);
     $$('#histList [data-rep]').forEach(b => b.addEventListener('click', () => openReport(b.dataset.rep, b.dataset.rep)));
     $$('#histList [data-rv]').forEach(b => b.addEventListener('click', () => openReview(b.dataset.rv, b.dataset.rv)));
     $$('#histList [data-rvw]').forEach(b => b.addEventListener('click', () => { const [f, t2] = b.dataset.rvw.split('|'); openReview(f, t2); }));
@@ -703,7 +822,7 @@
 
   // ------------------------------------------------------------ tabs
   function showTab() { $$('#tabs button').forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); }); $$('main .panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; }); document.body.dataset.tab = tab;
-    if (tab === 'today' && S) requestAnimationFrame(() => { sizeGrid(); if (fillRows() !== fillRows.last) renderToday(); }); }
+    if (S) requestAnimationFrame(() => { if (tab === 'today') { sizeGrid(); if (fillRows() !== fillRows.last) renderToday(); } fitAll($('#tab-' + tab) || document); }); }
   $$('#tabs button').forEach(b => b.addEventListener('click', () => { tab = b.dataset.tab; showTab(); if (tab === 'history' && !$('#rFrom').value) { $('#rTo').value = today(); const d = new Date(); d.setDate(d.getDate() - 6); $('#rFrom').value = R.dayKey(d.getTime()); } }));
   $('#homeLink').addEventListener('click', ev => { ev.preventDefault(); tab = 'today'; showTab(); window.scrollTo(0, 0); });
   // ---- v9c toolbar: date navigator, More menu
@@ -732,11 +851,15 @@
 
   // ------------------------------------------------------------ fee codes (Fee Desk data, bundled)
   async function loadProvs() { try { PROVS = (await (await fetch('data/codes-index.json')).json()).list; } catch (e) { PROVS = [{ id: 'AB', name: 'Alberta' }]; } }
-  function fillProv(sel, v) { sel.innerHTML = PROVS.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join(''); sel.value = PROVS.some(p => p.id === v) ? v : 'AB'; }
-  function renderCredits() { $('#credits').innerHTML = PROVS.map(p => `<p><b>${esc(p.name)}</b>: ${esc(p.title || '')}${p.eff ? ' (' + esc(p.eff) + ')' : ''}. ${esc(p.credit || '')}</p>`).join(''); }
+  const provLbl = p => p.held ? `${p.name} (approval pending)` : p.name;
+  const HELD_MSG = p => `${p.name} (approval pending): code lookup unavailable, type the code manually.`;
+  function fillProv(sel, v) { sel.innerHTML = PROVS.map(p => `<option value="${p.id}">${esc(provLbl(p))}</option>`).join(''); sel.value = PROVS.some(p => p.id === v) ? v : 'AB'; }
+  function renderCredits() { $('#credits').innerHTML = PROVS.map(p => p.held ? `<p><b>${esc(p.name)}</b>: approval pending. No code data is included; ${esc(p.credit || '')}</p>` : `<p><b>${esc(p.name)}</b>: ${esc(p.title || '')}${p.eff ? ' (' + esc(p.eff) + ')' : ''}. ${esc(p.credit || '')}</p>`).join(''); }
   async function codesFor(id) {
     if (!PROVS.some(p => p.id === id)) id = 'AB';
     if (codeCache[id]) return codeCache[id];
+    const pv = PROVS.find(p => p.id === id);
+    if (pv && pv.held) return (codeCache[id] = { meta: { id, name: pv.name, held: true }, codes: [], index: null, byNorm: new Map(), held: true });   // v9f: no data shipped for held jurisdictions
     const d = await (await fetch(`data/codes-${id}.json`)).json();
     const docs = d.codes.map(c => ({ id: c[3], c: { c: c[0], d: c[1], f: c[2], k: c[3] }, fields: { desc: c[1], code: c[0] } }));
     const o = { meta: d.meta, codes: docs, index: new MBSearch.Index(docs, { desc: 3, code: 0.5 }, { phraseField: 'desc' }), byNorm: new Map() };
@@ -768,7 +891,7 @@
     return o.index ? o.index.search(q, { limit: 8 }).hits.map(h => h.doc.c) : [];
   }
   async function searchCodes(q, prov) {
-    const o = await codesFor(prov); q = q.trim(); if (!q) return [];
+    const o = await codesFor(prov); q = q.trim(); if (!q || o.held) return [];
     const cq = norm(q);
     if (/\d/.test(cq) && /^[A-Z0-9.\-]{1,12}$/.test(cq) && !/^\d+(MIN|MINS|H)$/.test(cq)) {
       const pre = o.codes.filter(d => norm(d.c.c).startsWith(cq) || norm(d.c.k).startsWith(cq));
@@ -834,7 +957,7 @@
   }
   bindDx($('#eDxQ'));
   function syncCodeLink() { const a = $('#eCodeFD'), q = $('#eCodeQ').value.trim(), href = fdCodeHref(q, $('#eProv').value); a.href = href; a.setAttribute('aria-label', href === FD ? 'Open MedBilling Fee Desk (opens in a new tab)' : `Look up ${q.toUpperCase()} in MedBilling Fee Desk (opens in a new tab)`); }
-  async function showCredit() { const p = PROVS.find(x => x.id === $('#eProv').value) || PROVS[0]; $('#eCredit').textContent = p ? `${p.name} codes: ${p.title}${p.eff ? ' (' + p.eff + ')' : ''}. ${p.credit} Data from MedBilling Fee Desk; confirm in the official schedule.` : ''; }
+  async function showCredit() { const p = PROVS.find(x => x.id === $('#eProv').value) || PROVS[0]; $('#eCredit').textContent = p && p.held ? HELD_MSG(p) + ' Confirm codes in the official schedule.' : p ? `${p.name} codes: ${p.title}${p.eff ? ' (' + p.eff + ')' : ''}. ${p.credit} Data from MedBilling Fee Desk; confirm in the official schedule.` : ''; }
   let searchSeq = 0;
   async function runCodeSearch() {
     const q = $('#eCodeQ').value, seq = ++searchSeq, prov = $('#eProv').value;
@@ -842,8 +965,9 @@
     const hits = await searchCodes(q, prov); if (seq !== searchSeq) return;
     syncCodeLink();
     let h = hits.map((c, i) => `<button type="button" class="chit" data-i="${i}"><span class="cc">${esc(c.c)}</span><span class="cd">${esc(c.d)}</span><span class="cf">${esc(c.f)}</span></button>`).join('');
-    const typed = q.trim().toUpperCase();
-    if (/^[A-Z0-9.\-]{2,12}$/.test(typed) && !hits.some(c => c.c.toUpperCase() === typed)) h += `<button type="button" class="chit" data-typed="1"><span class="cc">${esc(typed)}</span><span class="cd">Add as typed (not found in the ${esc(prov)} list)</span><span class="cf"></span></button>`;
+    const typed = q.trim().toUpperCase(), pv = PROVS.find(p => p.id === prov);
+    if (/^[A-Z0-9.\-]{2,12}$/.test(typed) && !hits.some(c => c.c.toUpperCase() === typed)) h += `<button type="button" class="chit" data-typed="1"><span class="cc">${esc(typed)}</span><span class="cd">${pv && pv.held ? 'Add as typed' : `Add as typed (not found in the ${esc(prov)} list)`}</span><span class="cf"></span></button>`;
+    if (pv && pv.held) h = `<p class="small muted heldmsg">${esc(HELD_MSG(pv))}</p>` + h;
     if (!h) h = '<p class="small muted">No matching codes. Try other words or a code.</p>';
     $('#eCodeRes').innerHTML = h;
     $$('#eCodeRes .chit').forEach(b => b.onclick = () => {
@@ -1370,7 +1494,7 @@
   $('#repToday').onclick = () => openReport(curDay(), curDay());
   $('#repToday2').onclick = () => openReport(curDay(), curDay());
   $('#repRange').onclick = () => { const f = $('#rFrom').value, t = $('#rTo').value; if (!f || !t) return toast('Choose both dates'); openReport(f <= t ? f : t, f <= t ? t : f); };
-  const credits = list => { const ids = new Set(); list.forEach(e => (e.codes || []).forEach(c => ids.add(c.j || 'AB'))); return PROVS.filter(p => ids.has(p.id)).map(p => `Fee codes (${p.name}): ${p.title}${p.eff ? ', ' + p.eff : ''}. ${p.credit} Code data via MedBilling Fee Desk.`); };
+  const credits = list => { const ids = new Set(); list.forEach(e => (e.codes || []).forEach(c => ids.add(c.j || 'AB'))); return PROVS.filter(p => ids.has(p.id)).map(p => p.held ? `Fee codes (${p.name}): typed by the user; code lookup unavailable (approval pending).` : `Fee codes (${p.name}): ${p.title}${p.eff ? ', ' + p.eff : ''}. ${p.credit} Code data via MedBilling Fee Desk.`); };
   // v9d: every export is an AES-256 password-protected .zip (zip.js, WinZip AE-2, encryptionStrength 3). The export password is
   // typed by the user, checked by PwPolicy (12+ chars, 3 of 4 classes or a 16+ passphrase, no common/sequential/repeated
   // patterns, no patient names or MRN/PHN) and must differ from the app passcode. It is never stored: at most it stays in
