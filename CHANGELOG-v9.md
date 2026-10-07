@@ -1,3 +1,19 @@
+# MedBilling Logs v9k — Modifier code 1 / 2 columns; wider, taller code cells (2026-10-07)
+
+## Why
+Jose (Oct 7, 8:45 AM MT): "we need an extra two columns called modifier codes 1 and 2. The columns have to be a bit wider for the billing codes and the ICD-9 as well as the new columns for the modifier codes, as sometimes we have many of them to enter for one single patient and it gets tricky trying to add them when the column or the cell is narrow or shallow."
+
+## What changed (Logs v9k)
+- **Columns:** # · Patient name · MRN / PHN · H/C · In · Out · Min · Units · Fee code(s) · **Modifier code 1** · **Modifier code 2** · Dx (ICD-9) · Billing notes · ⋯ (Today, every History day, light/blank rows, totals row now spans 5 columns over Fee … Billing notes).
+- **Data:** new optional encrypted fields `mod1`, `mod2` on an entry (string, several codes; normalised on save to upper case, ", "-separated, no duplicates, max 80 chars; empty → field removed). No migration: older entries have no fields and show empty cells. Totals unaffected.
+- **Wider code cells** (`FIT`, characters of the cell font, scale with Settings → Display): Fee code(s) and Dx min 24.5 ch desktop / 25.5 ch touch (≈15–16 code characters next to ↗ ⓘ; was 13 / 12), max 46 ch; Modifier 1 / 2 min 18 ch (≈16 characters), max 38 ch; Billing notes min 30 / 28 ch (stays ≥ Dx). Measured at 13 px: Fee/Dx 184 px, Modifiers 136 px at 1280; 199 / 141 px at 390. Explicit px widths on every `<col>` and the table (iOS WebKit rule from v9j).
+- **Phones:** a code column stops at 62 % of the screen width (390 → 234 px) and wraps from there, so one column never fills the phone.
+- **Taller:** Fee, Modifier and Dx editors wrap (textarea, word-boundary wrapping) and the row grows; the cell being edited opens to at least two lines (`min-height: row + one line`) and keeps growing as you type. On touch, a tapped code cell that is partly off-screen scrolls fully into view.
+- **Navigation:** Tab / Enter / phone Next: … Fee code(s) → Modifier code 1 → Modifier code 2 → Dx → Billing notes.
+- **Everywhere else:** entry details "Modifiers" line; edit form fields "Modifier code(s) 1 / 2" (saved normalised; kept in the encrypted edit draft); CSV / Excel columns `modifier_1`, `modifier_2` right after `codes`; PDF / Word / Markdown tables "Mod 1 / Mod 2" (encounters and call-backs); audit diff "modifier N: a -> b" and summary; encrypted backups carry the fields (whole entry) and import restores them. Pick-and-return with Fee Desk unchanged (fee and Dx only).
+- Manual: section 4 column list, new "Modifier codes and roomy code cells (v9k)", column widths, section 5 edit form / summary; version 9k; PDF regenerated. Service-worker cache `bl-v9k-2026-10-07`.
+- Tests: new `tests/modifiers-v9k.test.js` (1280 + 390 touch: order and headers, old entries load, ≥15-character room at 13 and 20 px, explicit px widths, Tab / Next order, 2-line focused editor, normalisation, wrap + row growth without clipping, totals unchanged, lock/unlock persistence, History, details + edit form, audit diff, CSV/Excel/PDF/Word encrypted exports, encrypted backup export → import into a fresh vault with another passcode). grid-v9f (Tab order + long modifier values) and encrypted-export (modifier values typed) updated.
+
 # MedBilling Logs v9j — Billing notes column visible and tappable on iPhone (2026-10-06)
 
 ## Why
