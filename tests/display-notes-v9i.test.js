@@ -7,7 +7,7 @@
 const path = require('path');
 const { chromium } = require(require.resolve('playwright', { paths: ['/workspace/pwtest'] }));
 const URL = process.env.URL || 'http://127.0.0.1:18792/medbilling-logs/';
-const OUT = process.env.OUT || '/workspace/artifacts/mbl-v9i';
+const OUT = process.env.OUT || '/workspace/artifacts/mbl-v9i';  // v9j shots: OUT=/workspace/artifacts/mbl-v9j
 const PIN = '48203917';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1';
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
@@ -112,6 +112,17 @@ async function phone(browser) {
   ok(await p.inputValue('#dispSize') === '2' && await p.inputValue('#dispFont') === 'system' && await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--g-fs').trim()) === '13px', `${L}: Reset to default → 13 px, System default`);
   await today(p);
 
+  // ---- v9j: the Billing notes column must have explicit px widths (iOS WebKit ignores min-width on fixed tables → 0 px)
+  const nw = async () => p.evaluate(() => { const t = document.querySelector('#todayList table.grid'), col = t.querySelector('col.c-note'), td = t.querySelector('tbody tr:nth-child(1) td.c-note'), dx = t.querySelector('tbody tr:nth-child(1) td.c-dx'), c = document.createElement('canvas').getContext('2d'), s = getComputedStyle(t.querySelector('tbody .gc[data-c="name"]'));
+    c.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`; const ch = c.measureText('0').width;
+    const sum = [...t.querySelectorAll('colgroup col')].reduce((a, x) => a + (parseFloat(x.style.width) || parseFloat(getComputedStyle(x).width) || 0), 0);
+    return { col: col.style.width, tw: t.style.width, td: Math.round(td.getBoundingClientRect().width), dx: Math.round(dx.getBoundingClientRect().width), ch, sum: Math.round(sum), fs: getComputedStyle(document.documentElement).getPropertyValue('--g-fs').trim() }; });
+  for (const idx of [0, 6, 2]) {
+    await settings(p); await setSize(p, idx); await today(p); const n = await nw();
+    ok(/px$/.test(n.col) && /px$/.test(n.tw) && Math.abs(parseFloat(n.tw) - n.sum) <= 2 && n.td >= n.dx && n.td >= 22 * n.ch - 1, `${L} v9j: Billing notes has its own px width at ${n.fs} (col ${n.col}, table ${n.tw} = Σ ${n.sum}px; notes ${n.td}px ≥ Dx ${n.dx}px and ≥ 22 ch)`);
+  }
+  await p.locator(cell(1, 'note')).evaluate(el => el.scrollIntoView({ block: 'center', inline: 'center' })); await p.waitForTimeout(150);
+  await shot(p, 'v9j-notes-column-390.png');
   // ---- 3. notes editor (bottom sheet)
   await p.locator(cell(1, 'note')).evaluate(el => el.scrollIntoView({ block: 'center', inline: 'center' }));
   await p.locator(cell(1, 'note')).tap(); await p.waitForSelector('#noteEd:not([hidden])');
