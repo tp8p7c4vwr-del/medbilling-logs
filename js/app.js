@@ -49,7 +49,7 @@
   async function showLock(msg) {
     document.body.classList.add('locked');
     const has = await V.exists();
-    $('#setupForm').hidden = has; $('#unlockForm').hidden = !has;
+    $('#setupForm').hidden = has; $('#unlockForm').hidden = !has; if (has) unlockUi(); else kindUi();
     $('#lockMsg').textContent = msg || '';
     setTimeout(() => (has ? $('#uPass') : $('#sPass')).focus(), 50);
   }
@@ -58,7 +58,7 @@
     if (cur && $('#editDlg').open) { try { V.saveDraft(editSnapshot()).catch(() => {}); } catch (e) { /* locked already */ } }
     hideSnack(); flushPhotoDel(); stopWake();
     if (S && S.settings.abOn && abLocOk && abMode() !== 'manual' && V.unlocked()) { try { runBackup('lock', abSnapshot()); } catch (e) { /* never block locking */ } }
-    V.lock(); S = null; cur = null; sessPass = null; gCell = null; viewDay = null;
+    V.lock(); S = null; cur = null; sessPass = null; xpPw = null; xpAckSess = false; xpJob = null; gCell = null; viewDay = null;
     $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
     ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo', '#eNotes', '#eSummary', '#rmSub'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
@@ -67,16 +67,44 @@
     showLock(msg || 'Locked.');
   }
   $('#setupForm').addEventListener('submit', async ev => {
-    ev.preventDefault(); const a = $('#sPass').value, b = $('#sPass2').value, err = $('#sErr');
-    if (a.length < 6) return err.textContent = 'Use at least 6 characters.';
-    if (a !== b) return err.textContent = 'The passcodes do not match.';
+    ev.preventDefault(); const a = $('#sPass').value, b = $('#sPass2').value, err = $('#sErr'), kind = sKind();
+    const bad = loginCheck(kind, a); if (bad) return err.textContent = bad;
+    if (a !== b) return err.textContent = kind === 'pin' ? 'The passcodes do not match.' : 'The passphrases do not match.';
     if (!$('#sAck').checked) return err.textContent = 'Please confirm you understand the warning.';
     if (!$('#sResp').checked) return err.textContent = 'Please accept the records responsibility statement.';
     err.textContent = ''; $('#sBtn').disabled = true; $('#sBtn').textContent = 'Creating…';
-    try { await V.create(a); sessPass = a; $('#sPass').value = $('#sPass2').value = ''; await afterUnlock(true); }
+    try { await V.create(a, kind); sessPass = a; $('#sPass').value = $('#sPass2').value = ''; await afterUnlock(true); }
     catch (e) { err.textContent = 'Could not create the vault: ' + e.message; }
     $('#sBtn').disabled = false; $('#sBtn').textContent = 'Create passcode';
   });
+  // v9d: login secret is a numeric passcode (6+ digits) or a passphrase (12+ characters, words and spaces allowed); same KDF either way
+  const sKind = () => (($$('input[name=sKind]').find(r => r.checked) || {}).value) || 'pin';
+  function loginCheck(kind, v) {
+    if (kind === 'pin') {
+      if (!/^\d+$/.test(v)) return 'A passcode uses digits only. For letters or words, choose Passphrase.';
+      if (v.length < 6) return 'Use at least 6 digits.';
+      if (/^(\d)\1+$/.test(v)) return 'Don\u2019t use the same digit repeated.';
+      if ('01234567890123456789'.includes(v) || '98765432109876543210'.includes(v)) return 'Don\u2019t use a straight sequence like 123456.';
+      return '';
+    }
+    if ([...v].length < 12) return `Use at least 12 characters for a passphrase (${[...v].length} so far). Several words with spaces work well.`;
+    if (/^\s|\s$/.test(v)) return 'Remove the space at the start or end of the passphrase.';
+    if (new Set(v.toLowerCase().replace(/\s/g, '')).size < 5) return 'Too repetitive. Use a few different words.';
+    return '';
+  }
+  function kindUi() {
+    const k = sKind(), pin = k === 'pin';
+    $('#sLbl1').textContent = pin ? 'New passcode' : 'New passphrase'; $('#sLbl2').textContent = pin ? 'Repeat passcode' : 'Repeat passphrase';
+    ['#sPass', '#sPass2'].forEach(s => { const i = $(s); if (pin) i.setAttribute('inputmode', 'numeric'); else i.removeAttribute('inputmode'); i.removeAttribute('minlength'); });
+    $('#sKindHint').textContent = pin ? 'At least 6 digits. 8 or more is safer.' : 'At least 12 characters; words and spaces allowed (e.g. four unrelated words). Longer is safer and easier to remember.';
+    $('#sBtn').textContent = pin ? 'Create passcode' : 'Create passphrase';
+  }
+  $$('input[name=sKind]').forEach(r => r.addEventListener('change', kindUi));
+  async function unlockUi() {
+    const k = await V.kind().catch(() => ''), i = $('#uPass');
+    if (k === 'pin') i.setAttribute('inputmode', 'numeric'); else i.removeAttribute('inputmode');
+    $('#uLbl').textContent = k === 'pin' ? 'Passcode' : k === 'phrase' ? 'Passphrase' : 'Passcode or passphrase';
+  }
   $('#unlockForm').addEventListener('submit', async ev => {
     ev.preventDefault(); const err = $('#uErr'), f = fails();
     if (f.until > Date.now()) return err.textContent = `Too many attempts. Try again in ${Math.ceil((f.until - Date.now()) / 1000)} s.`;
@@ -86,7 +114,7 @@
     if (!ok) {
       f.n++; if (f.n >= 5) f.until = Date.now() + Math.min(15 * 60000, 30000 * Math.pow(2, f.n - 5));
       localStorage.setItem(failKey, JSON.stringify(f));
-      err.textContent = f.n >= 5 ? `Wrong passcode. Wait ${Math.round((f.until - Date.now()) / 1000)} s before trying again.` : 'Wrong passcode.';
+      err.textContent = f.n >= 5 ? `Wrong passcode or passphrase. Wait ${Math.round((f.until - Date.now()) / 1000)} s before trying again.` : 'Wrong passcode or passphrase.';
       $('#uPass').select(); return;
     }
     localStorage.removeItem(failKey); err.textContent = ''; sessPass = $('#uPass').value; $('#uPass').value = '';
@@ -1240,7 +1268,8 @@
   function ask(o) {
     return new Promise(res => {
       const d = $('#askDlg'); $('#askTitle').textContent = o.title; $('#askText').textContent = o.text || ''; $('#askErr').textContent = '';
-      $('#askFields').innerHTML = (o.fields || []).map(f => `<label class="fld">${esc(f.label)}<input id="ask_${f.id}" type="${f.type || 'password'}" ${f.type === 'password' || !f.type ? 'autocomplete="off"' : ''} maxlength="64"></label>`).join('');
+      $('#askFields').innerHTML = (o.fields || []).map(f => f.type === 'select' ? `<label class="fld">${esc(f.label)}<select id="ask_${f.id}">${f.options.map(([v, l]) => `<option value="${esc(v)}"${v === f.value ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`
+        : `<label class="fld">${esc(f.label)}<input id="ask_${f.id}" type="${f.type || 'password'}" ${f.type === 'password' || !f.type ? 'autocomplete="off" autocapitalize="off" spellcheck="false"' : ''} maxlength="128"></label>`).join('');
       const ok = $('#askOk'); ok.textContent = o.ok || 'OK'; ok.className = o.danger ? 'dangerbtn' : 'primary';
       const done = v => { d.close(); $('#askForm').onsubmit = null; $('#askCancel').onclick = null; d.oncancel = null; res(v); };
       $('#askForm').onsubmit = async ev => {
@@ -1258,17 +1287,17 @@
   function openReport(from, to, mode) {
     repMode = mode || 'log';
     $('#pTitle').textContent = repMode === 'audit' ? 'Export audit log' : 'Report';
-    $('#repForm .fmt [data-fmt=docx]').hidden = repMode === 'audit'; $('#pPhotosL').hidden = repMode === 'audit';
-    if (repMode === 'audit' && fmt === 'docx') fmt = 'pdf';
-    $('#pFrom').value = from; $('#pTo').value = to; $('#pReady').hidden = true; repFile = null; $('#pErr').textContent = ''; $('#pAck').checked = false; $('#pNotes').checked = false; $('#pNotesL').lastChild.textContent = repMode === 'audit' ? ' (off: note text is left out of the log export)' : ' (off by default for privacy)'; setFmt(fmt);
+    $('#repForm .fmt [data-fmt=docx]').hidden = $('#repForm .fmt [data-fmt=xlsx]').hidden = repMode === 'audit'; $('#pPhotosL').hidden = repMode === 'audit';
+    if (repMode === 'audit' && (fmt === 'docx' || fmt === 'xlsx')) fmt = 'pdf';
+    $('#pFrom').value = from; $('#pTo').value = to; $('#pReady').hidden = true; repFile = null; $('#pErr').textContent = ''; $('#pNotes').checked = false; $('#pNotesL').lastChild.textContent = repMode === 'audit' ? ' (off: note text is left out of the log export)' : ' (off by default for privacy)'; setFmt(fmt);
     $('#repDlg').showModal();
   }
-  function setFmt(f) { fmt = f; $$('#repForm .fmt button').forEach(b => { const on = b.dataset.fmt === f; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); $('#pPhotos').disabled = f === 'csv'; repInfo(); $('#pReady').hidden = true; repFile = null; }
+  function setFmt(f) { fmt = f; $$('#repForm .fmt button').forEach(b => { const on = b.dataset.fmt === f; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }); $('#pPhotos').disabled = f === 'csv' || f === 'xlsx'; repInfo(); $('#pReady').hidden = true; repFile = null; }
   async function repInfo() {
     if (!S) return; const f = $('#pFrom').value || '0', t = $('#pTo').value || '9';
     if (repMode === 'audit') { const n = (await V.loadAudit()).filter(r => { const k = R.dayKey(r.ts); return k >= f && k <= t; }).length; $('#pInfo').textContent = `${n} audit record${n === 1 ? '' : 's'} in this period. The export includes the integrity check result and each record's hashes.`; return; }
     const l = R.select(S.encs, f, t), np = l.reduce((a, e) => a + (e.photos || []).length, 0), nn = l.reduce((a, e) => a + R.notesOf(e).length, 0), n = k => l.filter(e => kindOf(e) === k).length;
-    $('#pInfo').textContent = `${n('enc')} encounter${n('enc') === 1 ? '' : 's'}, ${n('cb')} call-back${n('cb') === 1 ? '' : 's'}, ${n('shift')} on-site period${n('shift') === 1 ? '' : 's'}${np ? `, ${np} photo${np === 1 ? '' : 's'}` : ''} in this period.` + (fmt === 'csv' ? ' CSV has no photos.' : '') + (nn ? ` ${nn} note${nn === 1 ? '' : 's'}: ${$('#pNotes').checked ? 'included' : 'not included'}.` : '');
+    $('#pInfo').textContent = `${n('enc')} encounter${n('enc') === 1 ? '' : 's'}, ${n('cb')} call-back${n('cb') === 1 ? '' : 's'}, ${n('shift')} on-site period${n('shift') === 1 ? '' : 's'}${np ? `, ${np} photo${np === 1 ? '' : 's'}` : ''} in this period.` + (fmt === 'csv' || fmt === 'xlsx' ? ` ${fmt === 'csv' ? 'CSV' : 'Excel'} has no photos.` : '') + (nn ? ` ${nn} note${nn === 1 ? '' : 's'}: ${$('#pNotes').checked ? 'included' : 'not included'}.` : '');
   }
   $$('#repForm .fmt button').forEach(b => b.onclick = () => setFmt(b.dataset.fmt));
   ['#pFrom', '#pTo', '#pPhotos', '#pNotes'].forEach(s => $(s).addEventListener('change', () => { repInfo(); $('#pReady').hidden = true; repFile = null; }));
@@ -1277,29 +1306,80 @@
   $('#repToday2').onclick = () => openReport(curDay(), curDay());
   $('#repRange').onclick = () => { const f = $('#rFrom').value, t = $('#rTo').value; if (!f || !t) return toast('Choose both dates'); openReport(f <= t ? f : t, f <= t ? t : f); };
   const credits = list => { const ids = new Set(); list.forEach(e => (e.codes || []).forEach(c => ids.add(c.j || 'AB'))); return PROVS.filter(p => ids.has(p.id)).map(p => `Fee codes (${p.name}): ${p.title}${p.eff ? ', ' + p.eff : ''}. ${p.credit} Code data via MedBilling Fee Desk.`); };
-  $('#pMake').onclick = async () => {
+  // v9d: every export is an AES-256 password-protected .zip (zip.js, WinZip AE-2, encryptionStrength 3). The export password is
+  // typed by the user, checked by PwPolicy (12+ chars, 3 of 4 classes or a 16+ passphrase, no common/sequential/repeated
+  // patterns, no patient names or MRN/PHN) and must differ from the app passcode. It is never stored: at most it stays in
+  // memory for the session when "Remember" is ticked, and lockNow() clears it. File names carry no patient identifiers.
+  let xpPw = null, xpAckSess = false, xpJob = null;
+  const EXT = { pdf: 'pdf', docx: 'docx', xlsx: 'xlsx', csv: 'csv' };
+  const xpName = kind => `MedBillingLogs_${kind === 'audit' ? 'audit-log_' : ''}${today()}.zip`;
+  function xpPersonal() { const out = []; for (const e of (S && S.encs) || []) { const n = R.ptName(e), m = R.ptMrn(e); if (n) out.push(n); if (m) out.push(m); if (e.initials && e.initials.length >= 4) out.push(e.initials); } return out; }
+  function xpMeter() {
+    const v = $('#xp1').value, r = PwPolicy.check(v, { personal: xpPersonal() }), bar = $('#xpBar');
+    const same = v && sessPass && v === sessPass;
+    bar.style.width = (v ? [0, 22, 45, 75, 100][r.level] : 0) + '%'; bar.className = r.level >= 4 ? 'vs' : r.level === 3 ? 'g' : r.level === 2 ? 'f' : 'w';
+    $('#xpStr').textContent = v ? `Strength: ${same ? 'Not allowed' : r.label}` : 'At least 12 characters. A few unrelated words with a number or symbol work well.';
+    const why = (same ? ['Use a different password from your app passcode.'] : []).concat(v ? r.reasons : []);
+    $('#xpWhy').innerHTML = why.map(t => `<li>${esc(t)}</li>`).join('');
+    return r;
+  }
+  $('#xp1').addEventListener('input', () => { xpMeter(); $('#xpErr').textContent = ''; });
+  $('#xp2').addEventListener('input', () => { $('#xpErr').textContent = ''; });
+  $$('.pwshow').forEach(b => b.onclick = () => { const i = $('#' + b.dataset.for), on = i.type === 'password'; i.type = on ? 'text' : 'password'; b.textContent = on ? 'Hide' : 'Show'; b.setAttribute('aria-pressed', on); });
+  function xpReset() { ['#xp1', '#xp2'].forEach(s => { $(s).value = ''; $(s).type = 'password'; }); $$('.pwshow').forEach(b => { b.textContent = 'Show'; b.setAttribute('aria-pressed', 'false'); }); $('#xpKeep').checked = false; $('#xpErr').textContent = ''; }
+  function xpOpen(job) {
+    xpJob = job; xpReset(); $('#xpAck').checked = xpAckSess;
+    const rem = !!xpPw; $('#xpRemembered').hidden = !rem; $('#xpFields').hidden = rem; xpMeter();
+    $('#xpDlg').showModal(); setTimeout(() => (xpAckSess ? (rem ? $('#xpOk') : $('#xp1')) : $('#xpAck')).focus(), 50);
+  }
+  $('#xpNew').onclick = () => { xpPw = null; $('#xpRemembered').hidden = true; $('#xpFields').hidden = false; xpMeter(); $('#xp1').focus(); };
+  $('#xpCancel').onclick = () => { xpReset(); $('#xpDlg').close(); xpJob = null; };
+  $('#xpDlg').addEventListener('close', () => { $('#xp1').value = $('#xp2').value = ''; });
+  $('#xpForm').addEventListener('submit', async ev => {
+    ev.preventDefault(); const err = $('#xpErr'); err.textContent = '';
+    if (!S || !xpJob) return $('#xpDlg').close();
+    if (!$('#xpAck').checked) return err.textContent = 'Please read the privacy notice and tick the box to continue.';
+    let pw = xpPw;
+    if (!pw) {
+      pw = $('#xp1').value; const r = xpMeter();
+      if (!r.ok) return err.textContent = 'This password can\u2019t be used: ' + r.reasons[0];
+      if (pw !== $('#xp2').value) return err.textContent = 'The two passwords don\u2019t match.';
+    } else { const r = PwPolicy.check(pw, { personal: xpPersonal() }); if (!r.ok) { xpPw = null; $('#xpNew').click(); return err.textContent = 'Please choose a new password: ' + r.reasons[0]; } }
+    const ok = $('#xpOk'); ok.disabled = true; ok.textContent = 'Checking…';
+    // must differ from the app passcode: compare with the in-memory session copy, and verify against the vault check record (in memory only)
+    let same = !!(sessPass && pw === sessPass); if (!same) { try { same = !!(await V.verify(pw)); } catch (e) { same = false; } }
+    if (same) { ok.disabled = false; ok.textContent = 'Encrypt file'; if (xpPw) { xpPw = null; $('#xpNew').click(); } return err.textContent = 'Use a different password from your app passcode.'; }
+    ok.textContent = 'Encrypting…';
+    try {
+      const job = xpJob, doc = await job.make();
+      const zf = await zipFiles([doc], pw, xpName(job.kind));
+      xpAckSess = true; xpPw = $('#xpKeep').checked || xpPw ? pw : null;
+      repFile = zf; xpReset(); $('#xpDlg').close(); xpJob = null; job.done(zf);
+    } catch (e) { err.textContent = 'Could not create the encrypted file: ' + (e && e.message || e); }
+    pw = null; ok.disabled = false; ok.textContent = 'Encrypt file';
+  });
+  $('#pMake').onclick = () => {
     let from = $('#pFrom').value, to = $('#pTo').value; const err = $('#pErr'); err.textContent = '';
     if (!from || !to) return err.textContent = 'Choose both dates.'; if (from > to) [from, to] = [to, from];
-    const btn = $('#pMake'); btn.disabled = true; btn.textContent = 'Creating…';
-    try {
+    const f = fmt, mode = repMode, notes = $('#pNotes').checked, photos = $('#pPhotos').checked;
+    xpOpen({ kind: mode, make: async () => {
       let blob, name;
-      if (repMode === 'audit') {
+      if (mode === 'audit') {
         const recs = await V.loadAudit(), chk = await V.verifyAudit();
-        blob = fmt === 'csv' ? R.auditCsv(recs, from, to, { notes: $('#pNotes').checked }) : await R.auditPdf(recs, from, to, chk, { notes: $('#pNotes').checked });
-        name = (from === to ? `audit-log-${from}` : `audit-log-${from}_to_${to}`) + '.' + (fmt === 'csv' ? 'csv' : 'pdf');
+        blob = f === 'csv' ? R.auditCsv(recs, from, to, { notes }) : await R.auditPdf(recs, from, to, chk, { notes });
+        name = (from === to ? `audit-log-${from}` : `audit-log-${from}_to_${to}`) + '.' + (f === 'csv' ? 'csv' : 'pdf');
       } else {
-        const list = R.select(S.encs, from, to), o = { photos: $('#pPhotos').checked, notes: $('#pNotes').checked, loadPhoto: id => V.loadPhoto(id), credits: credits(list), now: Date.now() };
-        blob = fmt === 'csv' ? R.csv(S.encs, from, to, o.now, S.encs, o) : fmt === 'docx' ? await R.docx(S.encs, from, to, o) : await R.pdf(S.encs, from, to, o);
-        name = R.fname(from, to, fmt);
+        const list = R.select(S.encs, from, to), o = { photos, notes, loadPhoto: id => V.loadPhoto(id), credits: credits(list), now: Date.now() };
+        blob = f === 'csv' ? R.csv(S.encs, from, to, o.now, S.encs, o) : f === 'docx' ? await R.docx(S.encs, from, to, o) : f === 'xlsx' ? R.xlsx(S.encs, from, to, o) : await R.pdf(S.encs, from, to, o);
+        name = R.fname(from, to, EXT[f] || 'pdf');
       }
-      repFile = new File([blob], name, { type: blob.type });
-      $('#pName').textContent = repFile.name; $('#pSize').textContent = `(${Math.max(1, Math.round(repFile.size / 1024))} KB)`;
-      $('#pReady').hidden = false; $('#pAck').checked = false; $('#pShare').disabled = $('#pDown').disabled = true;
-      $('#pShare').hidden = !(navigator.canShare && navigator.canShare({ files: [repFile] }));
-    } catch (e) { err.textContent = 'Could not create the file: ' + e.message; }
-    btn.disabled = false; btn.textContent = 'Create file';
+      return { name, blob };
+    }, done: zf => {
+      $('#pName').textContent = zf.name; $('#pSize').textContent = `(${Math.max(1, Math.round(zf.size / 1024))} KB, encrypted)`;
+      $('#pReady').hidden = false; $('#pShare').hidden = !(navigator.canShare && navigator.canShare({ files: [zf] }));
+      toast('Encrypted file ready');
+    } });
   };
-  $('#pAck').onchange = () => { $('#pShare').disabled = $('#pDown').disabled = !$('#pAck').checked; };
   async function shareFile(file, title) {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       pickStart();
@@ -1310,8 +1390,11 @@
     download(file); return 'downloaded';
   }
   function download(file) { const u = URL.createObjectURL(file), a = document.createElement('a'); a.href = u; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 30000); }
-  $('#pShare').onclick = async () => { if (!repFile || !$('#pAck').checked) return; const r = await shareFile(repFile, repFile.name); if (r !== 'cancelled') toast(r === 'shared' ? 'Shared' : 'Downloaded'); };
-  $('#pDown').onclick = () => { if (!repFile || !$('#pAck').checked) return; download(repFile); toast('Downloaded'); };
+  // only encrypted .zip files reach the share sheet / downloads from the report dialog
+  const isZip = f => f && /\.zip$/.test(f.name) && f.type === 'application/zip';
+  $('#pShare').onclick = async () => { if (!isZip(repFile)) return; const r = await shareFile(repFile, 'MedBilling Logs export (encrypted)'); if (r !== 'cancelled') toast(r === 'shared' ? 'Shared' : 'Downloaded'); };
+  $('#pDown').onclick = () => { if (!isZip(repFile)) return; download(repFile); toast('Downloaded'); };
+  $$('[data-man]').forEach(b => b.addEventListener('click', () => { const m = $('#manDlg'); if (!m.open) m.showModal(); const t = document.getElementById(b.dataset.man); if (t) setTimeout(() => t.scrollIntoView({ block: 'start' }), 30); }));
 
   // ------------------------------------------------------------ settings / data
   $('#defSetting').onchange = () => { S.settings.defSetting = $('#defSetting').value; quickSet = S.settings.defSetting; setQuick(); saveSettings(); };
@@ -1320,10 +1403,11 @@
   $('#warnR').onchange = () => { S.settings.warnR = +$('#warnR').value; saveSettings(); render(); };
   $('#autolock').onchange = () => { S.settings.autolock = +$('#autolock').value; saveSettings(); toast(`Auto-lock after ${S.settings.autolock} min`); };
   $('#chPass').onclick = async () => {
-    const v = await ask({ title: 'Change passcode', text: 'All encounters and photos will be re-encrypted with the new passcode. A forgotten passcode means the data cannot be recovered.', ok: 'Change',
-      fields: [{ id: 'old', label: 'Current passcode' }, { id: 'n1', label: 'New passcode (at least 6 characters)' }, { id: 'n2', label: 'Repeat new passcode' }],
-      check: async v => { if (v.n1.length < 6) return 'Use at least 6 characters.'; if (v.n1 !== v.n2) return 'The new passcodes do not match.'; return (await V.rekey(v.old, v.n1)) ? ((sessPass = v.n1), '') : 'Current passcode is wrong.'; } });
-    if (v) toast('Passcode changed');
+    const cur0 = await V.kind().catch(() => '');
+    const v = await ask({ title: 'Change passcode / passphrase', text: 'All encounters and photos will be re-encrypted with the new one. A numeric passcode needs 6+ digits; a passphrase needs 12+ characters (words and spaces allowed). A forgotten passcode or passphrase means the data cannot be recovered. Face ID / Touch ID / passkey / quick PIN unlock is turned off and must be set up again.', ok: 'Change',
+      fields: [{ id: 'old', label: 'Current passcode or passphrase' }, { id: 'k', label: 'New type', type: 'select', value: cur0 || 'pin', options: [['pin', 'Passcode (numbers, 6+ digits)'], ['phrase', 'Passphrase (12+ characters, words and spaces)']] }, { id: 'n1', label: 'New passcode or passphrase' }, { id: 'n2', label: 'Repeat it' }],
+      check: async v => { const bad = loginCheck(v.k, v.n1); if (bad) return bad; if (v.n1 !== v.n2) return 'The new entries do not match.'; return (await V.rekey(v.old, v.n1, v.k)) ? ((sessPass = v.n1), '') : 'Current passcode or passphrase is wrong.'; } });
+    if (v) { if (window.EasyUnlock) await EasyUnlock.disableAll('passcode-change').catch(() => {}); toast(v.k === 'pin' ? 'Passcode changed' : 'Passphrase changed'); if (typeof euRender === 'function') euRender(); }
   };
   $('#expAll').onclick = async () => {
     const v = await ask({ title: 'Encrypted backup', text: 'Enter your passcode. The backup is encrypted with it; you will need the same passcode to import it. Keep the file somewhere safe.', ok: 'Create backup', fields: [{ id: 'p', label: 'Passcode' }],
@@ -1404,7 +1488,7 @@
   const readable = st => (st.abFmts || []).filter(f => FMTS[f]);
   // the always-visible lines under every backup button: encryption, which password, and that a lost password can't be recovered
   function bkExplain(kind) {
-    const st = (S && S.settings) || DEF, fm = readable(st), zipOn = st.abZip !== false, custom = st.abPwMode === 'custom';
+    const st = (S && S.settings) || DEF, fm = readable(st), zipOn = true, custom = st.abPwMode === 'custom';
     const L3 = 'If the password is lost, no one can open or recover the backup, including the developer.';
     if (kind === 'export') return `Encrypted with AES-256 (.mblbackup).<br>Password: your app passcode.<br>${L3}`;
     const l1 = 'Encrypted with AES-256 (.mblbackup)' + (fm.length ? (zipOn ? '; readable copies in an AES-256 password-protected .zip.' : '; <b>readable copies are NOT encrypted</b>.') : '.');
@@ -1453,10 +1537,10 @@
     const from = days[0] || td, to = days.length && days[days.length - 1] > td ? days[days.length - 1] : td, o = { photos: false, notes: !!st.abNotes, credits: snap.credits, now };
     const docs = [];
     for (const f of fm) docs.push({ name: `billing-log-${stamp}.${f}`, blob: f === 'pdf' ? await R.pdf(list, from, to, o) : f === 'docx' ? await R.docx(list, from, to, o) : f === 'md' ? R.md(list, from, to, o) : R.xlsx(list, from, to, o) });
-    if (st.abZip !== false) {
+    {   // v9d: readable copies are always inside the AES-256 .zip (the unencrypted option was removed)
       if (!snap.pw) throw abErr('password', st.abPwMode === 'custom' ? 'Set a backup password in Settings → Backups (needed for the protected copies).' : 'The protected copies need your app passcode: lock and unlock the app once.');
       files.push(await zipFiles(docs, snap.pw, `${prefix}${stamp}-readable.zip`));
-    } else docs.forEach(d => files.push(new File([d.blob], `${prefix}${stamp}.${d.name.split('.').pop()}`, { type: d.blob.type })));
+    }
     return files;
   }
   async function abRotate(tg, keep) {
@@ -1567,7 +1651,7 @@
     $('#abStat').textContent = stat; $('#abStat').classList.toggle('bad', bad);
     $$('#bkCard .abf').forEach(c => { c.checked = fm.includes(c.value); });
     $('#abReadBox').hidden = !fm.length;
-    const zipOn = st.abZip !== false; $('#abZip').checked = zipOn; $('#abPwBox').hidden = !zipOn;
+    const zipOn = true; $('#abZip').checked = true; $('#abPwBox').hidden = !zipOn;
     $('#abFmtWarn').classList.toggle('danger', !zipOn);
     $('#abFmtWarn').innerHTML = zipOn ? '<b>Readable copies contain patient details</b> (room, initials, chart/MRN, codes' + (st.abNotes ? ', notes' : '') + '). They are inside an AES-256 password-protected .zip, but once someone unzips them they are <b>not encrypted</b>. Save backups only to a secure location you control.'
       : '<b>Warning: readable copies are NOT encrypted.</b> PDF, Markdown, Word and Excel files contain patient details (room, initials, chart/MRN, codes' + (st.abNotes ? ', notes' : '') + ') that anyone with access to the folder can read. Only use this for a secure, private location, and turn password protection back on if you can.';
@@ -1594,12 +1678,7 @@
   $('#abKeep').onchange = () => abSet({ abKeep: +$('#abKeep').value }, `Keep the last ${$('#abKeep').value} automatic backups (older ones are rotated out)`);
   $$('#bkCard .abf').forEach(c => c.onchange = () => { const l = $$('#bkCard .abf').filter(x => x.checked).map(x => x.value); abSet({ abFmts: l }, l.length ? `Readable backup copies: ${l.map(f => FMTS[f]).join(', ')} (plus the encrypted .mblbackup)` : 'Readable backup copies: none (encrypted .mblbackup only)'); });
   $('#abNotes').onchange = () => abSet({ abNotes: $('#abNotes').checked }, $('#abNotes').checked ? 'Readable backup copies: notes included' : 'Readable backup copies: notes left out');
-  $('#abZip').onchange = async () => {
-    if ($('#abZip').checked) return abSet({ abZip: true }, 'Readable backup copies: AES-256 password-protected .zip turned on');
-    const ok = await ask({ title: 'Turn off password protection?', text: 'Readable copies (PDF, Markdown, Word, Excel) will be saved as plain files that are NOT encrypted. They contain patient details, and anyone who can open the backup folder can read them. Only do this if the folder is secure and private.', ok: 'Turn off protection', danger: true });
-    if (!ok || !S) { $('#abZip').checked = true; return; }
-    await abSet({ abZip: false }, 'Readable backup copies: password protection turned OFF (plain files, not encrypted)');
-  };
+  // v9d: no way to turn off the readable-copy encryption any more
   $$('input[name=abPwMode]').forEach(r => r.onchange = async () => { if (!r.checked) return; await abSet({ abPwMode: r.value }, r.value === 'custom' ? 'Readable-copy password: separate backup password' : 'Readable-copy password: app passcode'); if (r.value === 'custom' && !S.settings.abPw) openPwDlg(); });
   $('#abPick').onclick = async () => {
     if (!S) return; const m = abMode(); let name;
@@ -1622,14 +1701,15 @@
   $('#abWarnSet').onclick = () => { tab = 'data'; showTab(); setTimeout(() => $('#bkCard').scrollIntoView({ block: 'start' }), 50); };
   // ---- separate backup password (strength check; kept only inside the encrypted settings)
   function openPwDlg() { $('#bp1').value = $('#bp2').value = ''; $('#bpErr').textContent = ''; pwMeter(); $('#bpDlg').showModal(); setTimeout(() => $('#bp1').focus(), 50); }
-  function pwMeter() { const s = pwStrength($('#bp1').value), pct = Math.min(100, Math.round(s.bits / 90 * 100)); const bar = $('#bpBar'); bar.style.width = pct + '%'; bar.className = s.bits < 40 ? 'w' : s.bits < 60 ? 'f' : 'g'; $('#bpStr').textContent = $('#bp1').value ? `Strength: ${s.label}${s.ok ? '' : ' · use 12+ characters and mix words, numbers or symbols'}` : 'At least 12 characters.'; }
+  function pwMeter() { const v = $('#bp1').value, s = PwPolicy.check(v, { personal: xpPersonal() }), bar = $('#bpBar'); bar.style.width = (v ? [0, 22, 45, 75, 100][s.level] : 0) + '%'; bar.className = s.level >= 4 ? 'vs' : s.level === 3 ? 'g' : s.level === 2 ? 'f' : 'w'; $('#bpStr').textContent = v ? `Strength: ${s.label}${s.ok ? '' : ' · ' + s.reasons[0]}` : 'At least 12 characters, different from your app passcode.'; }
   $('#bp1').addEventListener('input', pwMeter);
   $('#abPwSet').onclick = openPwDlg;
   $('#bpCancel').onclick = () => $('#bpDlg').close();
   $('#bpForm').addEventListener('submit', async ev => {
-    ev.preventDefault(); const a = $('#bp1').value, b = $('#bp2').value, s = pwStrength(a);
-    if (!s.ok) return $('#bpErr').textContent = 'Too weak. Use at least 12 characters with a mix of words, numbers or symbols.';
+    ev.preventDefault(); const a = $('#bp1').value, b = $('#bp2').value, s = PwPolicy.check(a, { personal: xpPersonal() });
+    if (!s.ok) return $('#bpErr').textContent = 'This password can\u2019t be used: ' + s.reasons[0];
     if (a !== b) return $('#bpErr').textContent = 'The passwords do not match.';
+    if ((sessPass && a === sessPass) || await V.verify(a).catch(() => null)) return $('#bpErr').textContent = 'Use a different password from your app passcode.';
     const had = !!S.settings.abPw; $('#bp1').value = $('#bp2').value = ''; $('#bpDlg').close();
     await abSet({ abPw: a, abPwMode: 'custom' }, had ? 'Separate backup password changed' : 'Separate backup password set'); toast('Backup password saved');
   });

@@ -35,9 +35,10 @@
   const encJSON = (k, obj) => encBytes(k, te.encode(JSON.stringify(obj)));
   const decJSON = async (k, o) => JSON.parse(td.decode(await decBytes(k, o)));
   async function exists() { return !!(await get('meta', 'vault')); }
-  async function create(pass) {
+  // v9d: `kind` ('pin' = numeric passcode, 'phrase' = passphrase) is a non-secret UI hint (keyboard type on the lock screen)
+  async function create(pass, kind) {
     const salt = crypto.getRandomValues(new Uint8Array(16)), k = await derive(pass, salt, ITER);
-    await put('meta', { id: 'vault', salt, iter: ITER, check: await encBytes(k, te.encode(CHECK)), created: Date.now() });
+    await put('meta', { id: 'vault', salt, iter: ITER, check: await encBytes(k, te.encode(CHECK)), created: Date.now(), kind: kind || '' });
     key = k; return true;
   }
   async function verify(pass) {
@@ -111,7 +112,8 @@
     return n;
   }
   // change passcode: re-encrypt everything with a new salt/key
-  async function rekey(oldPass, newPass) {
+  async function kind() { const m = await get('meta', 'vault'); return (m && m.kind) || ''; }
+  async function rekey(oldPass, newPass, newKind) {
     const k0 = await verify(oldPass); if (!k0) return false;
     const encs = await all('enc'), photos = await all('photo'), st = await get('meta', 'settings'), aud = await all('audit'), ah = await get('meta', 'auditHead'), ab = await get('meta', 'auditBase');
     const salt = crypto.getRandomValues(new Uint8Array(16)), k1 = await derive(newPass, salt, ITER);
@@ -124,7 +126,7 @@
     await open();
     await new Promise((res, rej) => {
       const t = db.transaction(['meta', 'enc', 'photo', 'audit'], 'readwrite');
-      t.objectStore('meta').put({ id: 'vault', salt, iter: ITER, check: chk, created: Date.now() });
+      t.objectStore('meta').put({ id: 'vault', salt, iter: ITER, check: chk, created: Date.now(), kind: newKind || '' });
       t.oncomplete = res; t.onerror = () => rej(t.error);
       for (const r of nEnc) t.objectStore('enc').put(r);
       for (const r of nPh) t.objectStore('photo').put(r);
@@ -174,5 +176,5 @@
     key = null; if (db) { db.close(); db = null; }
     await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); });
   }
-  global.Vault = { saveDraft, loadDraft, clearDraft, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, autoBackup, headSeq, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
+  global.Vault = { kind, saveDraft, loadDraft, clearDraft, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, autoBackup, headSeq, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
 })(window);

@@ -24,9 +24,11 @@
     <img src="icons/icon-192.png" alt="" width="64" height="64">
     <h1>MedBilling Logs</h1>
     <form id="setupForm" hidden autocomplete="off">
-      <p class="small">Create a passcode to protect your logs. Everything you enter, including photos, is encrypted on this device with a key made from this passcode.</p>
-      <label class="fld">New passcode (at least 6 characters)<input id="sPass" type="password" minlength="6" maxlength="64" required autocomplete="new-password"></label>
-      <label class="fld">Repeat passcode<input id="sPass2" type="password" minlength="6" maxlength="64" required autocomplete="new-password"></label>
+      <p class="small">Create a passcode or passphrase to protect your logs. Everything you enter, including photos, is encrypted on this device with a key made from it.</p>
+      <div class="seg kindseg" role="radiogroup" aria-label="Type of login secret"><label><input type="radio" name="sKind" value="pin" checked> Passcode (numbers)</label><label><input type="radio" name="sKind" value="phrase"> Passphrase (words)</label></div>
+      <p class="small muted" id="sKindHint">At least 6 digits. 8 or more is safer.</p>
+      <label class="fld"><span id="sLbl1">New passcode</span><input id="sPass" type="password" inputmode="numeric" maxlength="128" required autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <label class="fld"><span id="sLbl2">Repeat passcode</span><input id="sPass2" type="password" inputmode="numeric" maxlength="128" required autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
       <p class="warnbox small"><b>Important:</b> the passcode is never stored. If you forget it, your data <b>cannot be recovered</b> by anyone. Keep encrypted backups.</p>
       <label class="chk small"><input type="checkbox" id="sAck" required> I understand a forgotten passcode means the data can't be recovered.</label>
       <p class="warnbox small" id="sStmt">Your records live only on this device. Keeping, backing up and retaining them (at least 10 years from the last entry, longer for minors and obstetric records, and any longer legal or College requirement) is your responsibility. The developer has no copy and cannot recover your data or your passcode.</p>
@@ -36,7 +38,7 @@
       <button type="submit" class="primary wide" id="sBtn">Create passcode</button>
     </form>
     <form id="unlockForm" hidden autocomplete="off">
-      <label class="fld">Passcode<input id="uPass" type="password" maxlength="64" required autocomplete="current-password"></label>
+      <label class="fld"><span id="uLbl">Passcode or passphrase</span><input id="uPass" type="password" maxlength="128" required autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
       <p class="err small" id="uErr" role="alert"></p>
       <button type="submit" class="primary wide" id="uBtn">Unlock</button>
       <button type="button" class="linkbtn" id="forgot">Forgot passcode?</button>
@@ -109,7 +111,7 @@
     <div class="card">
       <h3>Report a day or date range</h3>
       <div class="range"><label>From<input type="date" id="rFrom"></label><label>To<input type="date" id="rTo"></label></div>
-      <button type="button" class="primary" id="repRange">Create report (PDF, Word, CSV)</button>
+      <button type="button" class="primary" id="repRange">Create report (PDF, Word, Excel, CSV)</button>
     </div>
   </section>
 
@@ -155,7 +157,7 @@
       <label class="fld">Auto-lock after inactivity
         <select id="autolock"><option value="1">1 minute</option><option value="2">2 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option></select></label>
       <p class="small muted">The app also locks whenever it goes to the background. Timers keep counting while locked.</p>
-      <div class="rowbtns"><button type="button" class="ghost" id="lockNow2">Lock now</button><button type="button" class="ghost" id="chPass">Change passcode</button></div>
+      <div class="rowbtns"><button type="button" class="ghost" id="lockNow2">Lock now</button><button type="button" class="ghost" id="chPass">Change passcode / passphrase</button></div>
       <p class="warnbox small">A forgotten passcode means the data can't be recovered. Keep an encrypted backup.</p>
     </div>
     <div class="card" id="bkCard">
@@ -176,7 +178,7 @@
         <div class="fmtgrid"><label class="chk small"><input type="checkbox" class="abf" value="pdf"> PDF</label><label class="chk small"><input type="checkbox" class="abf" value="md"> Markdown (.md)</label><label class="chk small"><input type="checkbox" class="abf" value="docx"> Word (.docx)</label><label class="chk small"><input type="checkbox" class="abf" value="xlsx"> Excel (.xlsx)</label></div>
         <div id="abReadBox">
           <p class="warnbox small" id="abFmtWarn"></p>
-          <label class="chk small"><input type="checkbox" id="abZip" checked> <span><b>Password-protect readable copies</b> (AES-256 encrypted .zip). Recommended.</span></label>
+          <label class="chk small"><input type="checkbox" id="abZip" checked disabled> <span><b>Readable copies are always password-protected</b> (AES-256 encrypted .zip).</span></label>
           <div id="abPwBox" class="abpw">
             <label class="chk small"><input type="radio" name="abPwMode" value="passcode" checked> Use my app passcode</label>
             <label class="chk small"><input type="radio" name="abPwMode" value="custom"> Use a separate backup password</label>
@@ -200,7 +202,7 @@
     </div>
     <div class="card">
       <h3>Disclaimer <span class="draft">Draft, pending CMPA/legal review</span></h3>
-      <p class="small">MedBilling Logs is a personal time and billing log. It is not the patient&#39;s medical record and does not replace charting. Record every encounter, including call-backs and time-based visits, in the patient&#39;s chart (AMA). Keep records at least as long as your College and the law require: CPSA requires 10 years from the last entry (longer for minors), and CMPA recommends at least 10 years. Patient information in this app is encrypted on this device, but you remain responsible for safeguarding it under Alberta&#39;s Health Information Act. Send reports with identifiers only through secure, approved channels, never by unencrypted email or text. Move clinical photos into the official record, then delete them here. If a device is lost or data is exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away. Fee codes and rules: confirm in the official Alberta Schedule of Medical Benefits. This app is general information, not legal, billing or medico-legal advice. Contact the CMPA (1-800-267-6522), AMA billing support or the CPSA for advice about your situation.</p>
+      <p class="small">MedBilling Logs is a personal time and billing log. It is not the patient&#39;s medical record and does not replace charting. Record every encounter, including call-backs and time-based visits, in the patient&#39;s chart (AMA). Keep records at least as long as your College and the law require: CPSA requires 10 years from the last entry (longer for minors), and CMPA recommends at least 10 years. Patient information in this app is encrypted on this device, but you remain responsible for safeguarding it under Alberta&#39;s Health Information Act. Every export is an encrypted .zip; send it only through channels your custodian approves, with the password sent separately, never by unencrypted email or text. Move clinical photos into the official record, then delete them here. If a device is lost or data is exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away. Fee codes and rules: confirm in the official Alberta Schedule of Medical Benefits. This app is general information, not legal, billing or medico-legal advice. Contact the CMPA (1-800-267-6522), AMA billing support or the CPSA for advice about your situation.</p>
       <p class="small muted">Sources: CMPA and AMA guidance checked 2026-10-04; links are in Resources.</p>
     </div>
     <div class="card">
@@ -228,6 +230,8 @@
     <div class="card">
       <h3>Privacy</h3>
       <p class="small">Everything is stored only on this device, encrypted with AES-GCM using a key derived from your passcode (PBKDF2-SHA-256, 600,000 iterations). Photos are kept inside the app's encrypted store, never in your camera roll. There are no accounts, no analytics and no third-party scripts, and the app sends nothing anywhere. Files leave the device only when you share or download them.</p>
+      <p class="small"><b>Encrypted exports.</b> Every report and audit-log export is an AES-256 password-protected .zip, protected by an export password you choose (different from your passcode, never stored). Exports contain health information: send the password separately, never in the same email or message, and store and send the file only as permitted by Alberta&#39;s Health Information Act (HIA), your custodian&#39;s or AHS privacy and information-security policies, and the privacy law and privacy commissioner&#39;s guidance in your province or territory (e.g. Alberta OIPC). Delete copies you no longer need. <button type="button" class="linkbtn" data-man="m-open">How to open the .zip</button></p>
+      <p class="small"><b>Your responsibility.</b> As the custodian or an affiliate of a custodian, you are responsible for handling this information in a compliant way. The app is designed to support compliance and does not transmit exports anywhere by itself; it is not certified or approved by AHS or any regulator.</p>
     </div>
     <div class="card">
       <h3>Fee code sources</h3>
@@ -388,20 +392,43 @@
     <h3 id="pTitle">Report</h3>
     <div class="range"><label>From<input type="date" id="pFrom" required></label><label>To<input type="date" id="pTo" required></label></div>
     <div class="seg fmt" role="radiogroup" aria-label="Format">
-      <button type="button" data-fmt="pdf" role="radio" class="on">PDF</button><button type="button" data-fmt="docx" role="radio">Word</button><button type="button" data-fmt="csv" role="radio">CSV</button>
+      <button type="button" data-fmt="pdf" role="radio" class="on">PDF</button><button type="button" data-fmt="docx" role="radio">Word</button><button type="button" data-fmt="xlsx" role="radio">Excel</button><button type="button" data-fmt="csv" role="radio">CSV</button>
     </div>
     <label class="chk small" id="pPhotosL"><input type="checkbox" id="pPhotos"> Include photos</label>
     <label class="chk small" id="pNotesL"><input type="checkbox" id="pNotes"> Include notes <span class="muted">(off by default for privacy)</span></label>
     <p class="small muted" id="pInfo"></p>
-    <button type="button" class="primary wide" id="pMake">Create file</button>
+    <p class="small enchint">&#128274; Every export is encrypted: the file goes inside an AES-256 password-protected .zip.</p>
+    <button type="button" class="primary wide" id="pMake">Create encrypted file…</button>
     <div id="pReady" hidden>
       <p class="small"><b id="pName"></b> <span class="muted" id="pSize"></span></p>
-      <div class="warnbox small" id="pWarn"><b>Confidential.</b> This file can contain patient identifiers (initials, chart/MRN), photos and notes. Share it only with authorized recipients through secure, approved channels, following your health authority's privacy rules (e.g. Alberta HIA). Don't keep copies on shared devices.</div>
-      <label class="chk small"><input type="checkbox" id="pAck"> I understand and will share it securely.</label>
-      <div class="rowbtns"><button type="button" class="primary" id="pShare" disabled>Share…</button><button type="button" class="ghost" id="pDown" disabled>Download</button></div>
+      <div class="okbox small" id="pWarn"><b>Encrypted (AES-256 .zip).</b> It opens only with the export password you just chose. Send the password separately, never in the same email or message. <button type="button" class="linkbtn" data-man="m-exp">How to open it</button></div>
+      <div class="rowbtns"><button type="button" class="primary" id="pShare">Share…</button><button type="button" class="ghost" id="pDown">Download</button></div>
     </div>
     <p class="err small" id="pErr" role="alert"></p>
     <div class="dlgbtns"><span></span><button type="button" class="ghost" id="pClose">Close</button></div>
+  </form>
+</dialog>
+<dialog id="xpDlg" aria-labelledby="xpTitle">
+  <form method="dialog" class="dlg" id="xpForm" autocomplete="off">
+    <h3 id="xpTitle">Encrypted export</h3>
+    <div class="privnote small" id="xpNote" role="note">
+      <p><b>Privacy notice.</b> This file contains health information. Keep it encrypted and send the password separately, never in the same email or message. Store and send it only as permitted by Alberta&#39;s Health Information Act (HIA), your custodian&#39;s or AHS (Alberta Health Services) privacy and information-security policies, and the privacy law and privacy commissioner&#39;s guidance in your own province or territory (e.g. Alberta OIPC). Delete copies you no longer need.</p>
+    </div>
+    <label class="chk small"><input type="checkbox" id="xpAck"> I understand. I am responsible for handling this file as the law and my custodian require.</label>
+    <div id="xpRemembered" class="small" hidden><p>Using the export password you entered earlier in this session (kept in memory only; cleared when the app locks).</p><button type="button" class="linkbtn" id="xpNew">Use a different password</button></div>
+    <div id="xpFields">
+      <label class="fld">Export password (at least 12 characters)
+        <span class="pwrow"><input type="password" id="xp1" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="128" aria-describedby="xpWhy"><button type="button" class="ghost sm pwshow" data-for="xp1" aria-pressed="false">Show</button></span></label>
+      <div class="pwmeter" aria-hidden="true"><i id="xpBar"></i></div>
+      <p class="small" id="xpStr" aria-live="polite"></p>
+      <ul class="small pwwhy" id="xpWhy"></ul>
+      <label class="fld">Repeat the password
+        <span class="pwrow"><input type="password" id="xp2" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="128"><button type="button" class="ghost sm pwshow" data-for="xp2" aria-pressed="false">Show</button></span></label>
+      <p class="small muted">Use a password you choose, different from your app passcode: 12+ characters with 3 of lowercase, UPPERCASE, numbers and symbols, or a passphrase of 16+ characters (several unrelated words). It is never stored and never put in the file name or share text. If it is lost, no one can open the file, including the developer.</p>
+      <label class="chk small"><input type="checkbox" id="xpKeep"> Remember it for this session only (in memory; cleared when the app locks)</label>
+    </div>
+    <p class="err small" id="xpErr" role="alert"></p>
+    <div class="dlgbtns"><span></span><button type="button" class="ghost" id="xpCancel">Cancel</button><button type="submit" class="primary" id="xpOk">Encrypt file</button></div>
   </form>
 </dialog>
 <dialog id="askDlg">
@@ -476,7 +503,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode. This manual works offline. Version 8 (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9 (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -489,11 +516,11 @@
       <a href="#m-photo" data-go="m-photo">9. Photos and the lock</a>
       <a href="#m-hist" data-go="m-hist">10. History, week strip and timeline</a>
       <a href="#m-rev" data-go="m-rev">11. Review a day or week</a>
-      <a href="#m-exp" data-go="m-exp">12. Reports and sharing safely</a>
+      <a href="#m-exp" data-go="m-exp">12. Encrypted reports and sharing safely</a>
       <a href="#m-audit" data-go="m-audit">13. Audit log</a>
       <a href="#m-ret" data-go="m-ret">14. Retention and backups</a>
       <a href="#m-bk" data-go="m-bk">15. Automatic backups</a>
-      <a href="#m-priv" data-go="m-priv">16. Privacy tips</a>
+      <a href="#m-priv" data-go="m-priv">16. Privacy, the law and your responsibility</a>
       <a href="#m-faq" data-go="m-faq">17. FAQ and troubleshooting</a>
     </nav>
 
@@ -506,12 +533,12 @@
         <li><b>Android (Chrome):</b> open the web address, tap the <b>⋮</b> menu, then <b>Install app</b> or <b>Add to Home screen</b>.</li>
       </ul>
       <p class="mantip">On iPhone, the Home Screen app keeps its own storage, separate from Safari. Entries made in a Safari tab do not appear in the Home Screen app, so pick one and stick with it (the Home Screen app is best).</p>
-      <h4>First launch and your passcode</h4>
+      <h4>First launch: passcode or passphrase</h4>
       <ul>
-        <li>Create a passcode of at least 6 characters and type it twice.</li>
+        <li>Choose <b>Passcode (numbers)</b>, at least 6 digits (8 or more is safer), or <b>Passphrase (words)</b>, at least 12 characters, where words and spaces are allowed (for example four unrelated words). Type it twice. Both make the encryption key the same strong way (PBKDF2-SHA-256, 600,000 rounds); a longer passphrase is much harder to guess.</li>
         <li>Tick the two boxes: you understand a forgotten passcode can't be recovered, and you accept responsibility for keeping and backing up your records.</li>
         <li>Your passcode is never stored anywhere. It makes the key that encrypts your data.</li>
-        <li>To change it later: <b>Settings → Lock → Change passcode</b>. Everything is re-encrypted with the new one.</li>
+        <li>To change it later, or to switch between a passcode and a passphrase: <b>Settings → Lock → Change passcode / passphrase</b>. Everything is re-encrypted with the new one.</li>
       </ul>
       <h4>If you forget the passcode</h4>
       <p>No one can recover it or open your data, including the developer. The only way back in is <b>Forgot passcode?</b> on the lock screen: type DELETE to erase everything on this device and start again. If you have an encrypted backup and remember <i>that backup's</i> passcode, you can import it afterwards. This is why backups matter.</p>
@@ -690,14 +717,34 @@
     </section>
 
     <section id="m-exp">
-      <h3>12. Reports (CSV, PDF, Word) and sharing safely</h3>
+      <h3>12. Encrypted reports (PDF, Word, Excel, CSV) and sharing safely</h3>
+      <p><b>Every export is encrypted.</b> Reports and the audit log are always delivered inside an <b>AES-256 password-protected .zip</b> (WinZip AES format). There is no unencrypted export.</p>
       <ol>
-        <li>On Today tap <b>Report / share today</b>, or on History pick <b>From</b> and <b>To</b> dates and tap <b>Create report</b>.</li>
-        <li>Choose <b>PDF</b>, <b>Word</b> or <b>CSV</b> (for spreadsheets). For PDF and Word, tick <b>Include photos</b> only if you need them. <b>Include notes</b> is off by default; tick it only if the recipient needs your notes.</li>
-        <li>Tap <b>Create file</b>, read the confidentiality notice, tick <b>I understand</b>, then <b>Share…</b> or <b>Download</b>.</li>
+        <li>On Today tap <b>Report / share</b>, or on History pick <b>From</b> and <b>To</b> dates and tap <b>Create report</b>.</li>
+        <li>Choose <b>PDF</b>, <b>Word</b>, <b>Excel</b> or <b>CSV</b>. For PDF and Word, tick <b>Include photos</b> only if you need them. <b>Include notes</b> is off by default; tick it only if the recipient needs your notes.</li>
+        <li>Tap <b>Create encrypted file…</b>. Read the privacy notice and tick <b>I understand</b> (the tick is remembered until the app locks).</li>
+        <li>Type an <b>export password</b> twice. Tap <b>Show</b> to check what you typed. A live meter shows its strength and says plainly why a password is refused.</li>
+        <li>Tap <b>Encrypt file</b>, then <b>Share…</b> or <b>Download</b>. The file is named like <i>MedBillingLogs_2026-10-06.zip</i>. Neither the file name nor the share text ever includes patient details or the password.</li>
       </ol>
-      <p>Reports list each entry with times, minutes, units, facility, billing codes, a Diagnostic code column and a Time periods column (CSV also has minutes and units for each period). PDF and Word add daily and overall totals, including the period split, and a line linking same-patient encounters. With <b>Include notes</b> ticked, PDF and Word list each day's notes under its tables and CSV adds a <i>notes</i> column; otherwise the file says notes were left out. The audit log export follows the same option: without it, note text is replaced by "(note not exported)".</p>
-      <p class="mantip"><b>Sharing safely:</b> a report can contain initials, chart numbers, photos and (if you include them) notes. Send it only to authorized people through secure, approved channels (for example your clinic's secure system). Never use regular email or text. Delete downloaded copies from shared computers and from Downloads when you're done.</p>
+      <h4>Export password rules</h4>
+      <ul>
+        <li>You choose it, and it must be <b>different from your app passcode or passphrase</b>. The app checks this on the device, in memory only.</li>
+        <li>At least <b>12 characters</b> with 3 of these 4: lowercase, UPPERCASE, numbers, symbols. Or a <b>passphrase of 16+ characters</b> (several unrelated words).</li>
+        <li>Refused: common or leaked-style passwords (like <i>Password2026!</i> or a city or team name), sequences (<i>abcd</i>, <i>1234</i>), keyboard patterns (<i>qwerty</i>), repeated characters (<i>aaa</i>), and anything containing a patient's name or MRN/PHN.</li>
+        <li>It is <b>never stored</b>. You type it for each export. If you tick <b>Remember it for this session only</b>, it stays in memory until the app locks, then it is cleared. Face ID, Touch ID, passkeys and the quick PIN never unlock exports.</li>
+        <li>If it is lost, no one can open the file, including the developer. Zip encryption uses a weaker key-stretching step than the app itself, so a long password matters.</li>
+      </ul>
+      <h4>Sending it</h4>
+      <p class="mantip">Send the .zip and its password <b>separately</b>: never in the same email or message (for example, send the file through your clinic's secure system and give the password by phone). Use only channels your custodian approves, and delete copies (Downloads, email attachments, Files) you no longer need. The app itself never sends exports anywhere.</p>
+      <h4 id="m-open">Opening the encrypted .zip</h4>
+      <p>The recipient needs an app that supports <b>AES-256 zip</b>. The built-in tools on iPhone, Mac and Windows don't:</p>
+      <ul>
+        <li><b>iPhone / iPad:</b> the Files app can unzip ordinary zips but <b>can't open AES-256 encrypted zips</b>. Install the free <b>iZip</b> app (App Store; it says it opens "password protected and AES encrypted ZIP files"; the free version shows ads). In Files, touch and hold the .zip, tap <b>Share</b>, choose <b>iZip</b>, then type the password.</li>
+        <li><b>Mac:</b> double-clicking (Archive Utility) <b>can't open AES-256 zips</b>. Use the free <b>The Unarchiver</b> (Mac App Store or theunarchiver.com) or <b>Keka</b> (keka.io): open the .zip with it and type the password. In Terminal: <i>tar -xf FILE.zip --passphrase 'PASSWORD'</i>.</li>
+        <li><b>Windows:</b> File Explorer's built-in zip support <b>doesn't open encrypted archives</b> (Microsoft recommends a tool like 7-Zip). Install the free <b>7-Zip</b> (7-zip.org), right-click the .zip, choose <b>7-Zip → Extract Here</b> and type the password.</li>
+        <li><b>Android:</b> use an archive app that supports AES zip.</li>
+      </ul>
+      <p>Inside is the report (PDF, Word, Excel or CSV) with its usual contents: each entry with times, minutes, units, facility, patient name and MRN/PHN, billing and diagnostic codes and time periods, plus daily and overall totals in PDF, Word and Excel. Once unzipped, the report itself is <b>not encrypted</b>: open it on a secure device and delete the unzipped copy when you're done. The names of the files inside the zip are visible without the password, so they never contain patient details.</p>
     </section>
 
     <section id="m-audit">
@@ -753,19 +800,19 @@
         <li><b>Encrypted backup (.mblbackup)</b>, always included: every entry, note, photo and setting, encrypted with AES-256 (AES-GCM, key from your passcode with PBKDF2, 600,000 rounds). It opens only with the app passcode you had when it was made, through <b>Import</b>. It's the only file the app can restore.</li>
         <li><b>Readable copies</b> (off by default): tick <b>PDF</b>, <b>Markdown (.md)</b>, <b>Word (.docx)</b> and/or <b>Excel (.xlsx)</b>. They list your entries like a report (all dates). Notes are left out unless you tick <b>Include notes in readable copies</b>.</li>
       </ul>
-      <p class="mantip"><b>Readable copies contain patient details</b> (room, initials, chart/MRN, codes and, if ticked, notes). By default they are put inside an <b>AES-256 password-protected .zip</b>. Once someone unzips them they are not encrypted, so save backups only to a secure location you control.</p>
+      <p class="mantip"><b>Readable copies contain patient details</b> (room, initials, chart/MRN, codes and, if ticked, notes). They are always put inside an <b>AES-256 password-protected .zip</b>. Once someone unzips them they are not encrypted, so save backups only to a secure location you control.</p>
       <h4>The .zip password</h4>
       <ul>
         <li><b>Use my app passcode</b> (default), or <b>Use a separate backup password</b>. A separate password needs at least 12 characters and passes a strength check. It is kept only inside the app's encrypted storage, never in plain text, and never in the audit log or the backup files.</li>
         <li>A .zip password can be guessed much faster than your passcode can be attacked in a .mblbackup (zip files use a weaker key-stretching step). Use a long password, such as several words with numbers, especially if your passcode is short. The app warns you when it is.</li>
-        <li><b>Turning protection off</b> is possible but not recommended: readable copies are then saved as plain PDF, Markdown, Word and Excel files that anyone with access to the folder can read. The app asks you to confirm, and the line under Back up now says the readable copies are NOT encrypted.</li>
+        <li>Readable copies are <b>always</b> inside the AES-256 .zip; since version 9 there is no option to save them unencrypted.</li>
         <li><b>Why not a password-protected PDF?</b> The PDF library in the app can only make the older RC4 PDF encryption, not AES-256, so PDF copies go inside the AES-256 .zip instead.</li>
       </ul>
       <h4>Opening the password-protected .zip</h4>
       <ul>
         <li><b>Windows:</b> 7-Zip (free) or WinRAR. File Explorer's built-in zip support can't open AES-256 zips.</li>
-        <li><b>Mac:</b> Keka, The Unarchiver or BetterZip, or Terminal: <i>tar -xf FILE.zip --passphrase PASSWORD</i> (or <i>7zz x FILE.zip</i> if 7-Zip is installed). Double-clicking in Finder (Archive Utility) and the <i>unzip</i> command can't open AES-256 zips.</li>
-        <li><b>iPhone / iPad:</b> the Files app can't open them; use an app such as iZip or Documents by Readdle. <b>Android:</b> use an app such as ZArchiver or RAR.</li>
+        <li><b>Mac:</b> The Unarchiver or Keka (both free), or Terminal: <i>tar -xf FILE.zip --passphrase PASSWORD</i> (or <i>7zz x FILE.zip</i> if 7-Zip is installed). Double-clicking in Finder (Archive Utility) and the <i>unzip</i> command can't open AES-256 zips.</li>
+        <li><b>iPhone / iPad:</b> the Files app can't open AES-256 zips; use the free iZip app. <b>Android:</b> use an archive app that supports AES zip. Details in section 12.</li>
         <li>The .mblbackup is opened only by this app (<b>Settings → Encrypted backup → Import</b>).</li>
       </ul>
       <h4>How it works on each device</h4>
@@ -780,14 +827,19 @@
     </section>
 
     <section id="m-priv">
-      <h3>16. Privacy tips</h3>
+      <h3>16. Privacy, the law and your responsibility</h3>
+      <h4>Exports contain health information</h4>
+      <p class="mantip">An export contains health information. Keep it encrypted, and send the password separately, never in the same email or message. Store and send it only as permitted by Alberta's <b>Health Information Act (HIA)</b>, your custodian's or <b>AHS (Alberta Health Services)</b> privacy and information-security policies, and the privacy law and privacy commissioner's guidance in your own province or territory (e.g. the <b>Alberta OIPC</b>). Delete copies you no longer need.</p>
+      <h4>Your responsibility</h4>
+      <p>You, as the custodian or as an affiliate of a custodian (for example AHS or your clinic), are responsible for collecting, using, storing, sending and disposing of this information in a compliant way. MedBilling Logs is designed to support compliance: data is encrypted on the device, every export is encrypted, and the app does not transmit exports or any data anywhere by itself. It is not certified or approved by AHS, the OIPC or any government body, and it is not legal advice. Check your custodian's policies, and contact your privacy officer, the CMPA or the OIPC if you are unsure.</p>
+      <h4>Tips</h4>
       <ul>
-        <li>Use room/bed labels and initials, not full names. Add a chart number only if you need it.</li>
-        <li>Keep your phone's own screen lock on, and use a passcode you don't use anywhere else.</li>
+        <li>Record only what you need for billing. Add a name or MRN/PHN only if you need it.</li>
+        <li>Keep your phone's own screen lock on, and use a passcode or passphrase you don't use anywhere else.</li>
         <li>Keep the auto-lock short, and tap <b>Lock</b> before handing your phone to anyone. The full-screen timer shows only the time, so it is safe for others to see.</li>
         <li>Share reports only through secure, approved channels. Don't leave copies in Downloads or email.</li>
         <li>This is a personal billing log, not the medical record. Chart every encounter in the patient's chart.</li>
-        <li>If your phone is lost or data may be exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away.</li>
+        <li>If your phone is lost or data may be exposed, tell the custodian (e.g. AHS or your clinic) and contact the CMPA right away. A breach may have to be reported under the HIA.</li>
         <li>The app has no accounts, analytics or trackers, and it sends nothing anywhere. Files leave the device only when you share or download them.</li>
       </ul>
     </section>
@@ -795,7 +847,7 @@
     <section id="m-faq">
       <h3>17. FAQ and troubleshooting</h3>
       <dl class="manfaq">
-        <dt>I forgot my passcode.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
+        <dt>I forgot my passcode or passphrase.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
         <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
         <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock.</dd>
         <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
@@ -813,7 +865,9 @@
         <dt>Can I use it on a computer or tablet?</dt><dd>Yes. Open the same web address in Chrome, Edge, Safari or Firefox. On a tablet or computer, Today shows your controls on the left and the day's entries on the right. History becomes a table with end time, units, setting and facility, and time periods. Settings and Resources show in columns. Data stays in that browser on that device, encrypted. To move data between devices, use an encrypted backup (Settings → Encrypted backup).</dd>
         <dt>Can I add time to an entry, or start another encounter for the same patient?</dt><dd>Yes. Open the entry (or tap ⋯ on its History row) and use <b>+ Add time</b> or <b>Same patient, new encounter</b>. See section 5.</dd>
         <dt>Where did my old note go?</dt><dd>It is now the first note in the entry's <b>Notes</b> list, with the time the entry was created.</dd>
-        <dt>Why aren't my notes in the report?</dt><dd>For privacy, notes are only included when you tick <b>Include notes</b> before tapping Create file.</dd>
+        <dt>Why aren't my notes in the report?</dt><dd>For privacy, notes are only included when you tick <b>Include notes</b> before tapping Create encrypted file.</dd>
+        <dt>Why is my report a .zip?</dt><dd>Every export is encrypted with AES-256 to protect patient information. Open it with iZip (iPhone/iPad), The Unarchiver or Keka (Mac) or 7-Zip (Windows) and the export password. See section 12.</dd>
+        <dt>Why was my export password refused?</dt><dd>The message under the password says why: too short, too predictable (common words, sequences, repeats), contains a patient's name or MRN/PHN, or is the same as your app passcode.</dd>
         <dt>How do I set up automatic backups?</dt><dd><b>Settings → Backups</b>: turn on <b>Automatic backups</b>, pick how often and how many to keep, then <b>Choose backup location</b>. In Safari you get an hourly reminder instead. See section 15.</dd>
         <dt>I can't open the backup .zip on my Mac or PC.</dt><dd>It's AES-256 encrypted, which Finder and Windows File Explorer can't open. Use 7-Zip on Windows, or Keka / The Unarchiver on a Mac (or <i>tar -xf FILE.zip --passphrase PASSWORD</i> in Terminal), with the backup password shown under Back up now.</dd>
         <dt>I lost my backup password.</dt><dd>No one can open those backups, including the developer. Set a new separate password (or switch back to the app passcode) and tap <b>Back up now</b> so new backups use it.</dd>
@@ -827,6 +881,7 @@
 <!-- manual:end -->
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script src="js/vault.js"></script>
+<script src="js/pwpolicy.js"></script>
 <script src="js/search.js"></script>
 <script src="js/docx.js"></script>
 <script src="js/xlsx.js"></script>
