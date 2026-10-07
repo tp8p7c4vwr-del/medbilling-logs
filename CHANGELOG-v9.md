@@ -1,3 +1,26 @@
+# MedBilling Logs v9l — several codes from Fee Desk in one pick: fee codes, ICD-9 and modifiers (2026-10-07)
+
+## Why
+Jose (Oct 7, 9:58 AM MT): "We can have them click up to three billing codes, ICD-9 codes and/or complex modifier codes to link." Fee Desk v36 lets the user collect up to 3 fee codes, 3 ICD-9 codes and 3 modifiers in pick mode and send them together; Logs fills the row the pick started from.
+
+## Hand-off format (version 2, backward compatible)
+- **Out (Logs → Fee Desk):** same as v9g plus `pv=2` (`?pick=hsc|dx&ctx=<128-bit one-time token>&return=&jur=&pv=2`). Fee Desk v35 or older ignores `pv` and behaves as before; Fee Desk v36 turns on the ＋/tray only when `pv=2` and the province is Alberta.
+- **Back (Fee Desk → Logs), multi:** `?pickv=2&ctx=<token>&fee=03.03A,03.04A&dx=650,V22.2&dxfor=03.04A,&mod=CMGP,CMXV20&modfor=03.03A,03.04A` (same origin `/medbilling-logs/` or `mblogs://pick?pickv=2&…` in the app). `fee`, `dx`, `mod`: comma-separated, at most 3 each, at least one code in total; `dxfor` / `modfor` (optional, positional): the fee code from the same send that each ICD-9 / modifier is linked to, or empty. Open Logs tab: BroadcastChannel / localStorage message `{type:'pick', v:2, ctx, fee:[], dx:[], dxFor:[], mod:[], modFor:[], t}`.
+- **Back, single (unchanged):** `?picked=<code>&kind=hsc|dx&ctx=`; a single tap in Fee Desk without ＋ still sends this, and Logs keeps accepting it exactly as in v9g.
+- **Validation:** token must match the pending pick (one-time, 30-minute expiry); fee and ICD-9 codes use the v9g code pattern, modifiers `^[A-Z0-9]{1,8}$`; more than 3 of a kind, a `for` value not in `fee`, separators or unknown fields → the whole link is ignored. Only codes travel (no patient data).
+
+## Filling the row (no silent overwrite, no duplicates)
+- **Fee code(s):** appended with ", " after the codes already there, skipping duplicates.
+- **Dx (ICD-9):** one Dx per fee code, in fee-code order (the v9g rule). An ICD-9 linked to a fee code goes beside that fee code if it has no Dx yet; the others fill fee codes that have no Dx, newly added ones first. Existing Dx are never replaced; an ICD-9 that has no free fee code is listed as "Not added" (one Dx per fee code, and each fee code here has one). A row without fee codes takes one Dx only if its Dx cell is empty.
+- **Modifier code 1 / 2 split:** Modifier code 1 = modifiers for the row's **first** fee code; Modifier code 2 = modifiers for its **second (or later)** fee code (the v9k convention in the manual). A modifier linked to a fee code in Fee Desk, or sent with exactly one fee code, follows that fee code's position in the row (first → 1, otherwise → 2); a modifier with no fee code goes to Modifier code 1. A modifier already in either cell is not added again; a cell that would pass 80 characters is skipped and reported.
+- **Confirmation:** a snack "Added: Fee 03.04A · Dx 650 · Modifier 2 CMXV20. Already in this row: 03.03A" with **Undo** (9 s; restores all cells at once), the filled cells flash, the cursor returns to the cell the pick started from; "Nothing new added…" when everything was already there. Saved encrypted at once, audit entry "Codes picked in Fee Desk: fee +…; Dx +…; modifier 1 +…". Locked vault: the pick waits and the unlock screen says "Unlock to add 03.03A, 650, CMGP to the spreadsheet."
+- Phones: the snack wraps to several lines and sits above the Next bar, so Undo stays reachable.
+
+## Also
+- Native app (iOS / Android): no native change; `native.js` already hands every `mblogs://pick…` link to the page; `scripts/pick-native-smoke.js` covers `pv=2`, the v2 link and a replayed v2 link.
+- Manual: new "Several codes at once: fee codes, ICD-9 and modifiers (v9l)", pick banner text, modifier bullet, FAQ "Can I bring back several codes at once, with modifiers?"; version 9l; PDF regenerated. Service-worker cache `bl-v9l-2026-10-07`.
+- Tests: new `tests/multipick-v9l.test.js` (end to end with the real Fee Desk v36 at 1280 + 390 touch: `pv=2` sent, ＋ from search / ICD-9 / modifiers → one Send fills Fee / Dx / Mod 1, a linked favourite's set (Dx beside its fee code, Modifier code 2 for the 2nd fee code), merge without duplicates, Dx never overwritten and reported, Undo, single tap still one code, modifier-only send, locked vault → applied after unlock, forged / replayed / malformed v2 links ignored, old single-code link still works, persistence after lock/unlock); `scripts/pick-native-smoke.js` in the mobile project for the app path; `tests/pick-return-v9g.test.js` updated for the new banner and `pv=2`.
+
 # MedBilling Logs v9k — Modifier code 1 / 2 columns; wider, taller code cells (2026-10-07)
 
 ## Why
