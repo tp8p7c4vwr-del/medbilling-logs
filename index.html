@@ -137,6 +137,17 @@
 
   <section id="tab-data" class="panel" hidden>
     <div class="card helpcard"><h3>Help</h3><button type="button" class="linkbtn manlink">Help / User manual</button><span class="small muted"> How to use the app, step by step. Works offline.</span></div>
+    <div class="card dispcard" id="dispCard">
+      <h3>Display</h3>
+      <div class="tsize" role="group" aria-labelledby="tsLbl">
+        <div class="tshead"><span id="tsLbl">Text size</span><span class="tsval" id="tsVal">13 px</span></div>
+        <p class="tsprev" id="tsPrev" aria-hidden="true">Jane Sample · 09:30 · 03.03A · 650 · Follow-up in clinic</p>
+        <div class="tsrow"><span class="tsA sm" aria-hidden="true">A</span><input type="range" id="dispSize" min="0" max="6" step="1" value="2" aria-labelledby="tsLbl" aria-valuetext="13 px"><span class="tsA lg" aria-hidden="true">A</span></div>
+      </div>
+      <label class="fld">Font style
+        <select id="dispFont"><option value="system">System default</option><option value="rounded">Rounded</option><option value="serif">Serif</option><option value="mono">Monospace</option></select></label>
+      <p class="small muted">Text size and font apply to the spreadsheet (rows and columns grow with the text) and the rest of the app. Built-in fonts only, nothing is downloaded. Saved on this device only; no patient data. <button type="button" class="linkbtn sm" id="dispReset">Reset to default</button></p>
+    </div>
     <div class="card">
       <h3>Defaults</h3>
       <div class="two">
@@ -520,12 +531,12 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9h (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9i (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
       <a href="#m-site" data-go="m-site">3. Arrival, departure and call-backs</a>
-      <a href="#m-enc" data-go="m-enc">4. Encounters: the spreadsheet</a>
+      <a href="#m-enc" data-go="m-enc">4. Encounters: the spreadsheet, notes editor, text size</a>
       <a href="#m-det" data-go="m-det">5. Entry details: add time, same patient, notes</a>
       <a href="#m-quick" data-go="m-quick">6. Track again and code sets</a>
       <a href="#m-late" data-go="m-late">7. Past entries and "Entered later"</a>
@@ -579,7 +590,7 @@
         <li><b>Today:</b> one slim toolbar (date, facility, Arrive/Depart, week totals, + Call-back, Report / share and <b>⋯ More</b>) above the encounter <b>spreadsheet</b>. Running rows count up live in the Min column; a totals row is pinned at the bottom.</li>
         <li><b>History:</b> the same spreadsheet grouped by day, with week totals, timeline, review and reports.</li>
         <li><b>Resources:</b> official billing, privacy and regulatory websites, including MedBilling Fee Desk.</li>
-        <li><b>Settings:</b> defaults, timer warnings, time periods and holidays, lock, backups, retention, audit log, this manual and Delete all data.</li>
+        <li><b>Settings:</b> display (text size and font), defaults, timer warnings, time periods and holidays, lock, backups, retention, audit log, this manual and Delete all data.</li>
       </ul>
     </section>
 
@@ -621,7 +632,7 @@
 
     <section id="m-enc">
       <h3>4. Encounters: the spreadsheet</h3>
-      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Fee code(s)</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
+      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, light zebra striping, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Fee code(s)</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
       <ol>
         <li><b>New patient:</b> type a name or MRN/PHN in the first blank row. That creates the encounter (not started yet).</li>
         <li><b>Start the clock:</b> type the time in <b>In</b> (24-hour: <i>0930</i>, <i>9:30</i>, <i>21h05</i>; type <i>n</i> for now), or tap <b>▶</b> in the In cell. The row's Min cell then counts up live.</li>
@@ -637,7 +648,8 @@
         <li>The extra rows last until you lock the app or reload; after that the grid starts again with your entries plus the usual blank rows.</li>
       </ul>
       <h4>Columns fit what you type</h4>
-      <p>Each column widens to fit its longest entry (and narrows again when you shorten it). Past a sensible maximum, <b>Patient name</b>, <b>Fee code(s)</b>, <b>Dx</b> and <b>Billing notes</b> wrap onto more lines and the row grows taller, so nothing is cut off. On a narrow screen the grid scrolls sideways; # and Patient name stay pinned on the left.</p>
+      <p>Each column widens to fit its longest entry (and narrows again when you shorten it). Past a sensible maximum, <b>Patient name</b>, <b>Fee code(s)</b>, <b>Dx</b> and <b>Billing notes</b> wrap onto more lines and the row grows taller, so nothing is cut off. Every column also has a minimum width wide enough for its usual content (about 10 digits for MRN/PHN, 6 characters for a fee code, 5 for Dx and times, 4 for minutes and units); these widths grow and shrink with the text size (see <i>Settings → Display</i> below).</p>
+      <p><b>Nothing is pinned on the left.</b> When the grid is wider than the screen, it scrolls sideways as a whole: the row number and Patient name scroll away with the other columns, so the codes and times get the full width. Only the header row (top) and the totals row (bottom) stay in place. The active cell has a blue outline and its whole row is tinted, so you can always see where you are.</p>
       <h4>Moving between cells: only when you say so</h4>
       <p>The cursor never jumps to the next cell on its own, not after a full PHN, a 4-digit time or a fee code, and not when a save finishes. Rows also stay where they are while you work; they are put back in time order when you leave the grid. You move to another cell only with:</p>
       <ul>
@@ -646,13 +658,30 @@
         <li>Clicking or tapping a cell.</li>
         <li><b>↑</b> <b>↓</b> move up or down a row only right after you arrive in a cell (before you start typing). <b>← →</b> arrow keys always move the cursor inside the text and never leave the cell.</li>
         <li><b>Esc</b> cancels the edit. Typing over a selected cell replaces it; click, or press F2, to edit inside it.</li>
-        <li>On a computer, <b>Shift-Enter</b> inside Billing notes starts a new line.</li>
+        <li>On <b>Billing notes</b>, Enter and Tab move on as usual; click it, or press F2 or Space, to open the notes editor (below).</li>
       </ul>
       <h4>On a phone or tablet</h4>
       <ul>
         <li>Tap a cell to type in it; tap another cell to move there. Nothing moves while you type.</li>
         <li>The keyboard's <b>Next</b> / return key moves to the next cell, in every column (including Billing notes, where return never adds a new line on the phone).</li>
-        <li>While a cell is active, a small <b>← Next →</b> bar floats above the keyboard; the cell you are in is scrolled into view above the keyboard. Text is 16 px, so iPhone doesn't zoom in.</li>
+        <li>While a cell is active, a small <b>← Next →</b> bar floats above the keyboard; the cell you are in is scrolled into view above the keyboard. The screen never zooms in when you tap a cell, whatever the text size (you can still pinch to zoom).</li>
+        <li>On a phone the <b>Patient name</b> column is narrower (about a third of the screen) and long names end in "…". Tap the name to see it in full in a small bubble above the cell; you can edit it there as usual.</li>
+        <li>Rows are at least 40 px tall, so each cell is easy to tap.</li>
+      </ul>
+      <h4 id="m-ned">Billing notes editor</h4>
+      <p>The <b>Billing notes</b> cell shows a short preview (a line break shows as ↵). Tap the cell (or click it, or press F2 / Space when it's selected) to open a larger editor: a <b>sheet</b> that slides up from the bottom on a phone, or a <b>pop-up box</b> next to the cell on a computer. The editor grows as you type, can hold several lines (up to 500 characters) and uses 16 px or larger text, so iPhone doesn't zoom.</p>
+      <ul>
+        <li><b>Done</b> saves the note (encrypted, like every other cell); <b>Cancel</b> or <b>Esc</b> closes it without changes. Tapping outside the editor counts as Done.</li>
+        <li>In the editor, <b>Enter</b> (return) starts a new line. On a computer, <b>Ctrl-Enter</b> (⌘-Enter on a Mac) is Done, and <b>Tab</b> is Done and moves to the next cell.</li>
+        <li>Typing a letter while the Billing notes cell is selected opens the editor with that letter, replacing the old note; Cancel brings the old note back.</li>
+        <li>If the app locks while the editor is open, the unfinished note is kept encrypted and comes back when you unlock. Tap Done to save it.</li>
+      </ul>
+      <h4 id="m-disp">Settings → Display: text size and font</h4>
+      <p>Open <b>Settings → Display</b> to make the spreadsheet easier to read.</p>
+      <ul>
+        <li><b>Text size:</b> a slider like the iPhone's Text Size setting, with a small <b>A</b> on the left and a large <b>A</b> on the right. It has 7 steps (11, 12, 13, 14, 16, 18 and 20 px); the default is 13 px. The preview line above the slider changes as you drag. Row height and column widths grow and shrink with it, and the rest of the app scales slightly too.</li>
+        <li><b>Font style:</b> <b>System default</b>, <b>Rounded</b>, <b>Serif</b> or <b>Monospace</b>. These use the fonts already on your device; nothing is downloaded.</li>
+        <li>Both settings apply straight away and are remembered on this device and browser only (they are not part of your encrypted data, backups or reports, and they contain no patient information). <b>Reset to default</b> goes back to 13 px, System default.</li>
       </ul>
       <h4>The ⋯ row menu</h4>
       <p>Tap <b>⋯</b> at the end of a row (or press and hold the row number; right-click on a computer) for: Start now, Pause, Resume, Stop, Add time, Segments &amp; photos, Add note, Same patient (new encounter), pick fee or dx in Fee Desk, Full-screen timer, Open details and Delete. Double-click a row number to open the details.</p>
@@ -669,7 +698,7 @@
         <li>If times overlap another entry, you'll see a warning. Check the times, or tap <b>Save anyway</b> if it's correct (for example, two patients seen together).</li>
         <li>Timers use clock times, so they keep counting when the app is locked, in the background, or the phone is off.</li>
         <li>Units are shown as a guide: full 15-minute blocks, plus 1 if the remainder is 8 minutes or more (38 min = 3 units). Always confirm time-based billing rules in the Alberta SOMB.</li>
-        <li>On a phone the grid scrolls sideways; the row number and patient name stay pinned on the left.</li>
+        <li>On a phone the grid scrolls sideways when it is wider than the screen; nothing is pinned, so the patient name scrolls with the other columns.</li>
       </ul>
     </section>
 
@@ -686,7 +715,7 @@
       <ul>
         <li>Tap <b>+ Add note</b>, type up to 1000 characters, and tap <b>Save note</b>. Notes save straight away, encrypted with the entry.</li>
         <li>Each note has <b>Edit</b> and <b>Delete</b>. Edited notes show "(edited HH:MM)". A delete asks first. Every add, edit and delete is kept in the audit log, so a deleted note can still be found in the entry's history.</li>
-        <li>The <b>Billing notes</b> column is a separate one-line note that goes into reports. A ✎ on a row means the entry also has dated notes.</li>
+        <li>The <b>Billing notes</b> column is a separate short note (up to 500 characters, edited in the notes editor, section 4) that goes into reports. A ✎ on a row means the entry also has dated notes.</li>
         <li>Notes from earlier versions (the single short note) were moved into the first note automatically.</li>
         <li>Notes are left out of reports unless you tick <b>Include notes</b> when you create the report (section 12).</li>
       </ul>
@@ -964,6 +993,8 @@
 <script src="js/vendor/zip.min.js"></script>
 <script src="js/vendor/jspdf.umd.min.js"></script>
 <script src="js/report.js"></script>
+<div class="ned" id="noteEd" hidden><div class="nedbg" id="nedBg"></div><div class="nedbox" id="nedBox" role="dialog" aria-modal="true" aria-labelledby="nedT"><div class="nedhead"><b id="nedT">Billing notes</b><span class="nedsub" id="nedSub"></span></div><textarea id="nedTa" maxlength="500" rows="3" autocomplete="off" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter" aria-labelledby="nedT"></textarea><div class="nedfoot"><span class="nedcnt" id="nedCnt" aria-live="off"></span><span class="nedsp"></span><button type="button" class="ghost" id="nedCancel">Cancel</button><button type="button" class="primary" id="nedDone">Done</button></div></div></div>
+<div class="ntip" id="nTip" hidden aria-hidden="true"></div>
 <div class="gnav" id="gNav" hidden role="group" aria-label="Move between cells"><button type="button" id="gPrevF" aria-label="Previous cell">←</button><button type="button" id="gNextF" aria-label="Next cell">Next →</button></div>
 <script src="js/app.js"></script>
 </body>
