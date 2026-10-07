@@ -1,3 +1,15 @@
+# MedBilling Logs v9h — Endless rows (2026-10-06)
+
+## Why
+Jose: "the rows end on 40, I need that to be endless and will add another 10 rows as you are 5 rows away from the end".
+
+## What changed (Logs v9h)
+- **Endless grid:** in Today (and any day shown in the grid), whenever the focused cell's row is within 5 rows of the last row, 10 blank rows are appended — however focus got there (Tab, Enter, ↑↓, the Next bar, a tap), with or without typing. Scrolling to within 5 rows of the bottom (grid or page) appends 10 more. Focus, caret, typed text and row order are untouched; row numbers continue. The grown size is kept per day across redraws (saves, ticks) until lock/reload.
+- Blank rows stay HTML only: never saved, never in totals, reports or exports (entries are still created only when you type or pick into a row).
+- **Performance:** rows far below the entries are drawn "light" (cells without editors) and get their editors when you move into, tap or hover over them, so hundreds of blank rows cost almost nothing. Measured (Chromium headless) with 150 entries + 305 blank rows (455 rows): typing p50 22 ms / p95 34 ms at 1280, p50 28 ms / p95 36 ms at 390 touch; scroll frames p95 28 / 19 ms; save 176 / 131 ms.
+- Manual: section 4 "Rows never run out", FAQ; version 9h. PDF regenerated. Service-worker cache `bl-v9h-2026-10-06`.
+- Tests: new `tests/endless-v9h.test.js` (1280 + 390 touch: Tab/Enter past row 36 → 50 rows, on past 100 and 150, Next bar, taps, scrolling grows, totals and entry count unchanged, typing in row 60 saves in place); `tests/perf-v9g.test.js` extended with the 455-row case. grid-v9f, encrypted-export, easy-unlock and pick-return-v9g still pass.
+
 # MedBilling Logs v9g — Pick a code in Fee Desk and it comes back to the cell; fast with 150 rows; calmer tabs (2026-10-06)
 
 ## What changed (Logs v9g)
