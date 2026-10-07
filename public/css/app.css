@@ -613,3 +613,20 @@ table.grid tfoot .tdet .gtxt{font-weight:500;color:#5f6368;font-size:12px}
 .euor{margin:8px 0 0;text-align:center}
 .easybox{border-top:1px solid var(--line);margin-top:8px;padding-top:6px}
 .easybox h4{font-size:.9rem;margin:2px 0}
+/* ---- v9f: dynamic column widths, wrapping cells, explicit cell navigation */
+:root{--g-lh:16px}
+table.grid{min-width:0}
+table.grid td.c-name,table.grid td.c-fee,table.grid td.c-dx,table.grid td.c-note{white-space:normal}
+table.grid .cw{height:auto;min-height:calc(var(--g-h) - 1px)}
+table.grid textarea.gc{display:block;height:calc(var(--g-h) - 1px);box-sizing:border-box;min-height:calc(var(--g-h) - 1px);resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;line-height:var(--g-lh);padding:calc((var(--g-h) - 1px - var(--g-lh)) / 2) 7px;text-overflow:clip}
+table.grid td.c-name,table.grid thead th.h-name{max-width:none}
+.tgrp.cnav{display:inline-flex;gap:2px}
+.tgrp.cnav .tb.ic{min-width:30px;font-weight:700}
+.gnav{position:fixed;right:8px;top:auto;z-index:60;display:flex;gap:6px;padding:4px;border-radius:22px;background:rgba(32,33,36,.86);box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.gnav[hidden]{display:none}
+.gnav button{min-height:36px;min-width:44px;padding:0 14px;border:0;border-radius:18px;background:#fff;color:#0b57d0;font:700 15px/1 system-ui,-apple-system,sans-serif;touch-action:manipulation}
+.gnav button:active{background:#d3e3fd}
+@media (max-width:767px),(pointer:coarse){
+  :root{--g-lh:20px}
+  table.grid .gc.mono,table.grid td.num{font-size:16px}  /* 16px+ in every editor: iOS Safari never zooms */
+}
