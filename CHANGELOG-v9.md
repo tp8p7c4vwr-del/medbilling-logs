@@ -1,3 +1,15 @@
+# MedBilling Logs v9g — Pick a code in Fee Desk and it comes back to the cell; fast with 150 rows; calmer tabs (2026-10-06)
+
+## What changed (Logs v9g)
+- **Pick and return:** ↗ / ⓘ in a Fee code(s) or Dx cell (also on an empty row, and in the row ⋯ menu) opens MedBilling Fee Desk in pick mode. Tapping a code there (search result, code page, price list, suggested ICD-9, ICD-9 search) returns to MedBilling Logs, writes it into the same row and column, saves, puts the cursor back in the cell and shows a toast ("03.03A added"). Fee codes are appended with ", " and never duplicated; Dx follows the one-Dx-per-fee-code rule (replaces the last Dx with Undo when there is no free place). Cancel returns without changes.
+- Replaces the v9f "shared local handoff" (it failed between Safari and the Home Screen app and in the native in-app browser).
+- Security: random 128-bit one-time token; code format checked; Fee Desk returns only to MedBilling Logs (same origin `/medbilling-logs/`) or `mblogs://pick`; parameters removed from the address bar; picks expire after 30 minutes; locked vault → code waits and is applied after unlock. Only the code and its kind travel, never patient data.
+- Native app (not uploaded): `mblogs://pick` URL scheme + appUrlOpen/getLaunchUrl in `native/native.js`; Fee Desk opens in the in-app browser.
+- **Performance:** typing latency with 150 rows went from ~100 ms to ~16 ms per key (Chromium, headless): compositing layer for the focused cell, cached/incremental column fitting, batched wrap heights; saving no longer redraws the hidden History; History draws the latest ~300 rows at once and older days as you scroll.
+- **Tabs:** Today / History / Resources / Settings restyled (light bar with divider and shadow, icons, pill + underline for the active tab, 44 px+ targets, AA contrast).
+- Manual: section 4 (Codes), section 8 (Pick a code in Fee Desk), FAQ; version 9g. PDF regenerated.
+- Tests: `tests/pick-return-v9g.test.js` (1280 + 390 touch), `tests/perf-v9g.test.js`; grid-v9f, encrypted-export and easy-unlock still pass.
+
 # MedBilling Logs v9f — Spreadsheet moves only when you say so; columns fit their content; Nova Scotia codes withheld (2026-10-06)
 
 ## Why
