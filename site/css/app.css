@@ -726,3 +726,10 @@ table.grid thead th.h-mod1,table.grid thead th.h-mod2{text-align:left;padding-le
 table.grid td.c-fee textarea.gc:focus,table.grid td.c-dx textarea.gc:focus,table.grid td.c-mod1 textarea.gc:focus,table.grid td.c-mod2 textarea.gc:focus{min-height:calc(var(--g-h) - 1px + var(--g-lh))}
 table.grid td.c-fee textarea.gc,table.grid td.c-dx textarea.gc,table.grid td.c-mod1 textarea.gc,table.grid td.c-mod2 textarea.gc{overflow-wrap:break-word;word-break:normal}
 .modrow{margin-top:6px}
+/* v9l: cells filled by a multi-code pick from Fee Desk flash briefly, so it is clear where the codes went */
+@keyframes pickfill{0%{background-color:#fde68a}100%{background-color:transparent}}
+td.pickfill{animation:pickfill 2.4s ease-out}
+@media (prefers-reduced-motion:reduce){td.pickfill{animation:none;outline:2px solid #f59e0b;outline-offset:-2px}}
+/* v9l: the multi-code confirmation may need two or three lines (never cut off) */
+.snack.wrap{width:max-content;max-width:min(560px,calc(100vw - 20px));align-items:center}
+.snack.wrap span{white-space:normal;overflow:visible;line-height:1.35;padding:4px 0}
