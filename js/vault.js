@@ -46,6 +46,23 @@
     const k = await derive(pass, m.salt, m.iter);
     try { const t = td.decode(await decBytes(k, m.check)); return t === CHECK ? k : null; } catch (e) { return null; }
   }
+  // v9e easy unlock: the vault key bytes are PBKDF2 deriveBits(256) with the same salt/iterations, i.e. exactly the key
+  // deriveKey() makes. They exist only transiently in memory while easy unlock is being turned on (after the passcode is
+  // re-entered) or used; callers wipe them. The stored copies are always wrapped (passkey PRF, Keychain/Keystore, PIN+pepper).
+  async function rawKey(pass) {
+    const m = await get('meta', 'vault'); if (!m) return null;
+    const base = await crypto.subtle.importKey('raw', te.encode(pass), 'PBKDF2', false, ['deriveBits']);
+    const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: m.salt, iterations: m.iter, hash: 'SHA-256' }, base, 256));
+    if (!(await checkRaw(bits, m))) { bits.fill(0); return null; }
+    return bits;
+  }
+  async function keyFromRaw(bits) { return crypto.subtle.importKey('raw', bits, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']); }
+  async function checkRaw(bits, m) { try { const k = await keyFromRaw(bits); return td.decode(await decBytes(k, m.check)) === CHECK ? k : null; } catch (e) { return null; } }
+  async function unlockRaw(bits) { const m = await get('meta', 'vault'); if (!m || !bits || bits.length !== 32) return false; const k = await checkRaw(bits, m); if (!k) return false; key = k; return true; }
+  // wrapped easy-unlock records (ciphertext + public parameters only); removed on passcode change and Delete all data
+  const getEasy = async () => (await get('meta', 'easy')) || { id: 'easy' };
+  const putEasy = r => put('meta', Object.assign({}, r, { id: 'easy' }));
+  const delEasy = () => del('meta', 'easy');
   async function unlock(pass) { const k = await verify(pass); if (!k) return false; key = k; return true; }
   function lock() { key = null; }
   const unlocked = () => !!key;
@@ -135,6 +152,7 @@
       if (nAh) t.objectStore('meta').put({ id: 'auditHead', iv: nAh.iv, ct: nAh.ct });
       if (nAb) t.objectStore('meta').put({ id: 'auditBase', iv: nAb.iv, ct: nAb.ct });
       t.objectStore('meta').delete('draft');
+      t.objectStore('meta').delete('easy');   // v9e: easy unlock wraps the old key; it must be turned on again
     });
     key = k1; return true;
   }
@@ -176,5 +194,5 @@
     key = null; if (db) { db.close(); db = null; }
     await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); });
   }
-  global.Vault = { kind, saveDraft, loadDraft, clearDraft, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, autoBackup, headSeq, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
+  global.Vault = { kind, rawKey, unlockRaw, getEasy, putEasy, delEasy, saveDraft, loadDraft, clearDraft, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, autoBackup, headSeq, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
 })(window);
