@@ -41,7 +41,9 @@ async function openPick(p, sel, touch, cellSel) {
 const toastTxt = p => p.evaluate(() => { const t = document.querySelector('#toast'), s = document.querySelector('#snack'); return (t && t.classList.contains('show') ? t.textContent : '') + (s && !s.hidden ? ' | ' + document.querySelector('#snackTxt').textContent : ''); });
 const focusOn = p => p.evaluate(() => { const a = document.activeElement, tr = a && a.closest && a.closest('tr'); return a && a.dataset && a.dataset.c ? `${a.dataset.c}@${[...tr.parentNode.rows].indexOf(tr) + 1}` : (a ? a.tagName : ''); });
 async function waitVal(p, sel, re, ms) { const t = Date.now(); let v = ''; while (Date.now() - t < (ms || 8000)) { v = await p.inputValue(sel).catch(() => ''); if (re.test(v)) return v; await p.waitForTimeout(100); } return v; }
-async function fdSearch(fd, q) { await fd.fill('#q', q); await fd.press('#q', 'Enter'); await fd.waitForSelector('#results .hit[data-code], #results .hit[data-icd]', { timeout: 10000 }); }
+// Fee Desk binds its search form once its data has loaded (~1 s on GitHub Pages); the pick banner shows before that
+const fdReady = fd => fd.waitForFunction(() => document.querySelector('#results .savedh, #results .hit, #detail .codebig'), null, { timeout: 20000 });
+async function fdSearch(fd, q) { await fdReady(fd); await fd.fill('#q', q); await fd.press('#q', 'Enter'); await fd.waitForSelector('#results .hit[data-code], #results .hit[data-icd]', { timeout: 10000 }); }
 
 async function suite(browser, o, label, touch) {
   const { ctx, p } = await setup(browser, o, label);
@@ -93,7 +95,7 @@ async function suite(browser, o, label, touch) {
   // 4. ICD-9 from an ICD-9 search
   fd = await openPick(p, pickBtn(1, 'dx'), touch, cell(1, 'dx'));
   ok(/#\/icd9/.test(fd.url()), `${label}: Dx ↗ opens the ICD-9 search (${fd.url().replace(BASE, '/')})`);
-  await fd.fill('#iq', 'V22'); await fd.press('#iq', 'Enter'); await fd.waitForSelector('#icdresults .icdrow[data-icd="V22.2"]', { timeout: 8000 });
+  await fdReady(fd); await fd.fill('#iq', 'V22'); await fd.press('#iq', 'Enter'); await fd.waitForSelector('#icdresults .icdrow[data-icd="V22.2"]', { timeout: 8000 });
   const closed4 = fd.waitForEvent('close', { timeout: 8000 }).then(() => true).catch(() => false);
   await tapOrClick(fd, '#icdresults .icdrow[data-icd="V22.2"] .code', touch); await closed4;
   v = await waitVal(p, cell(1, 'dx'), /V22\.2/);
@@ -123,7 +125,7 @@ async function suite(browser, o, label, touch) {
 
   // 8. invalid return URLs: no pick mode, parameters dropped
   const tok = 'a'.repeat(32);
-  for (const bad of ['https://evil.example/medbilling-logs/', BASE + 'other-app/', LOGS + '?x=1', 'javascript:alert(1)', 'mblogs://evil', LOGS.replace('http://', 'http://user:pw@')]) {
+  for (const bad of ['https://evil.example/medbilling-logs/', BASE + 'other-app/', LOGS + '?x=1', 'javascript:alert(1)', 'mblogs://evil', LOGS.replace(/^(https?:\/\/)/, '$1user:pw@')]) {
     await plain.goto(FD + `?pick=hsc&ctx=${tok}&return=${encodeURIComponent(bad)}`); await plain.waitForTimeout(300);
     ok(!(await plain.$('#pickbar')) && !/return=/.test(plain.url()), `${label}: return "${bad}" rejected (no banner)`);
   }
@@ -162,7 +164,7 @@ async function suite(browser, o, label, touch) {
   await p.fill('#uPass', PIN); await p.click('#uBtn'); await p.waitForFunction(() => !document.body.classList.contains('locked')); await p.waitForTimeout(500);
   const r3 = await p.evaluate(() => document.querySelectorAll('#todayList tbody tr[data-id]').length + 1);
   fd = await openPick(p, pickBtn(r3, 'dx'), touch, cell(r3, 'dx'));
-  await fd.fill('#iq', '650'); await fd.press('#iq', 'Enter'); await fd.waitForSelector('#icdresults .icdrow[data-icd="650"]', { timeout: 8000 });
+  await fdReady(fd); await fd.fill('#iq', '650'); await fd.press('#iq', 'Enter'); await fd.waitForSelector('#icdresults .icdrow[data-icd="650"]', { timeout: 8000 });
   const closed10 = fd.waitForEvent('close', { timeout: 8000 }).then(() => true).catch(() => false);
   await tapOrClick(fd, '#icdresults .icdrow[data-icd="650"] .code', touch); await closed10;
   v = await waitVal(p, cell(r3, 'dx'), /650/);
