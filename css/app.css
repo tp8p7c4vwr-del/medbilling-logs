@@ -12,9 +12,17 @@ a{color:var(--teal-d)}
 .brand img{border-radius:6px;background:#fff;width:24px;height:24px}
 .title{font-weight:700;font-size:.95rem;white-space:nowrap}
 .clock{font-variant-numeric:tabular-nums;font-size:.82rem;color:#062b27}
-.tabs{position:sticky;top:calc(74px + env(safe-area-inset-top));z-index:18;display:flex;gap:2px;background:#80aaa7;padding:3px 6px;border-bottom:1px solid #79a2a2}
-.tabs button{flex:1 1 0;border:0;background:transparent;color:var(--on);padding:3px 6px;border-radius:999px;font-size:.85rem;min-height:30px;cursor:pointer}
-.tabs button.on{background:#fff;color:var(--teal-d);font-weight:600;box-shadow:0 0 0 1px var(--teal-m)}
+/* v9g: the tab row is a calm, light strip, clearly separate from the teal top bar (divider + soft shadow); active tab = tinted pill
+   with a teal underline. 44px touch targets, icons with labels. Contrast: labels #34504b on #fbfdfc 8.6:1, active #17605a on #e2f1ee 6.2:1. */
+.tabs{position:sticky;top:calc(74px + env(safe-area-inset-top));z-index:18;display:flex;gap:4px;background:#fbfdfc;padding:3px 6px;border-top:1px solid #c9dedb;border-bottom:1px solid #d3e0de;box-shadow:0 2px 6px rgba(11,61,56,.08)}
+.tabs button{flex:1 1 0;position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;background:transparent;color:#34504b;padding:4px 6px;border-radius:10px;font-size:.92rem;font-weight:500;min-height:44px;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background-color .15s,color .15s}
+.tabs button .ti{width:18px;height:18px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.tabs button:hover{background:#eef6f4;color:#1f3f3a}
+.tabs button:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
+.tabs button.on{background:#e2f1ee;color:var(--teal-d);font-weight:700}
+.tabs button.on .ti{opacity:1}
+.tabs button.on::after{content:"";position:absolute;left:18%;right:18%;bottom:2px;height:3px;border-radius:3px;background:var(--teal-d)}
+@media (max-width:420px){.tabs{gap:2px;padding:2px 4px}.tabs button{flex-direction:column;gap:1px;font-size:.78rem;padding:3px 2px;min-height:46px}.tabs button .ti{width:19px;height:19px}.tabs button.on::after{bottom:1px;left:26%;right:26%}}
 main{max-width:760px;margin:0 auto;padding:6px 8px 0}
 .panel{display:block}
 h3{margin:0 0 5px;font-size:.92rem;color:#24443f}
@@ -425,7 +433,7 @@ dialog.sheet .dlg>p{margin:0 0 6px}
   main{max-width:var(--maxw);padding:10px 16px 0}
   .top,.pbar,.tabs{padding-left:max(16px,calc(50vw - var(--maxw)/2 + 16px));padding-right:max(16px,calc(50vw - var(--maxw)/2 + 16px))}
   .tabs{justify-content:flex-start;gap:6px}
-  .tabs button{flex:0 1 150px;font-size:.9rem}
+  .tabs button{flex:0 1 160px;font-size:.95rem}
   .title{font-size:1.02rem}
   .brand img{width:28px;height:28px}
   .pbar{font-size:.78rem}.pbr{font-size:.74rem}
@@ -630,3 +638,8 @@ table.grid td.c-name,table.grid thead th.h-name{max-width:none}
   :root{--g-lh:20px}
   table.grid .gc.mono,table.grid td.num{font-size:16px}  /* 16px+ in every editor: iOS Safari never zooms */
 }
+/* v9g perf: the cell being typed in gets its own compositing layer, so a keystroke repaints that cell only, not the whole
+   150-row grid (Paint per key ~20 ms → ~2 ms in Chromium; same idea in WebKit) */
+table.grid .gc:focus{will-change:transform}
+/* v9g: an older History day that is drawn when it scrolls near (placeholder rows keep the page length) */
+.gwrap.hlazy{background:repeating-linear-gradient(#fff 0 30px,#eef2f1 30px 31px);border-color:#e3eae8}

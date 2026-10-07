@@ -27,8 +27,10 @@
   const codeCache = {};    // prov -> {meta, codes, index, byNorm}
   // MedBilling Fee Desk (companion app). Deep links carry only a code that exists in the bundled lists (never free text,
   // so no patient identifier can end up in a URL): #/code/<fee code> and #/medres/<ICD-9 code> are Fee Desk's own routes.
-  const FD = 'https://tp8p7c4vwr-del.github.io/delara-medbilling/';
-  const HO_KEY = 'medbilling.handoff.v1';   // shared with Fee Desk (same origin on gh-pages)
+  const FD_ABS = 'https://tp8p7c4vwr-del.github.io/delara-medbilling/';
+  const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  // the web app and Fee Desk share one origin (GitHub Pages): resolve Fee Desk next to this app, so a local copy pairs with a local Fee Desk
+  const FD = !NATIVE && /^https?:$/.test(location.protocol) && /\/medbilling-logs\//.test(location.pathname) ? new URL('../delara-medbilling/', location.origin + location.pathname.replace(/[^/]*$/, '')).href : FD_ABS;
   let ICD = null;          // {meta, list, by, index} (Alberta Health ICD-9 list from Fee Desk, bundled)
   // v9 patient fields (encrypted with the entry). Never put name/MRN in URLs or console logs.
   const ptName = e => R.ptName(e);
@@ -36,9 +38,6 @@
   const billingNoteOf = e => R.billingNoteOf(e);
   const displayWho = e => { const k = kindOf(e); if (k === 'shift') return (e.facility && e.facility.n) || 'On site'; return R.ptWho(e) || (k === 'cb' ? 'Call-back' : 'Encounter'); };
   const setMrn = (e, v) => { e.mrn = (v || '').trim(); e.chart = e.mrn; };   // keep chart mapped for older backups/exports
-  function hoRead() { try { return JSON.parse(localStorage.getItem(HO_KEY) || 'null'); } catch (e) { return null; } }
-  function hoWrite(o) { try { localStorage.setItem(HO_KEY, JSON.stringify(o)); } catch (e) { /* storage full/blocked */ } }
-  function hoClear() { try { localStorage.removeItem(HO_KEY); } catch (e) { /* ignore */ } }
   function toast(msg, ms) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms || 2200); }
   const fmtDur = ms => { const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return `${h}:${R.pad(m)}:${R.pad(s % 60)}`; };
   const today = () => R.dayKey(Date.now());
@@ -206,7 +205,7 @@
     renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings(); abInit().catch(() => {});
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
     else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else checkLongTimers(); }
-    await applyHandoffResponse();
+    await pickApply();
   }
   // v7: the single 280-character note of older versions becomes the first timestamped note (audit-logged, stays encrypted)
   async function migrateNotes() {
@@ -220,13 +219,16 @@
   }
   // inactivity + background auto-lock
   ['pointerdown', 'keydown', 'input', 'wheel', 'touchstart'].forEach(t => document.addEventListener(t, () => { lastAct = Date.now(); }, { passive: true, capture: true }));
-  setInterval(() => { if (S && !picking && Date.now() - lastAct > (S.settings.autolock || 2) * 60000) lockNow('Locked after inactivity.'); }, 5000);
+  setInterval(() => {
+    if (S && fdSince && picking && Date.now() - fdSince > FD_GRACE) { picking = 0; fdSince = 0; lockNow('Locked after 10 minutes in Fee Desk.'); return; }   // v9g: the pick grace has a limit
+    if (S && !picking && Date.now() - lastAct > (S.settings.autolock || 2) * 60000) lockNow('Locked after inactivity.');
+  }, 5000);
   document.addEventListener('visibilitychange', () => { if (document.hidden && S && !picking) lockNow('Locked because the app went to the background.'); });
   window.addEventListener('pagehide', () => { if (S && !picking) lockNow(); });
   // file pickers / share sheets briefly hide the page; don't lock for those
   function pickStart() { picking++; }
   function pickEnd() { setTimeout(() => { picking = Math.max(0, picking - 1); lastAct = Date.now(); }, 800); }
-  window.addEventListener('focus', () => { if (picking) pickEnd(); });
+  window.addEventListener('focus', () => { if (picking) pickEnd(); if (fdSince) fdBack(); });
   $('#lockNow').addEventListener('click', () => lockNow());
   $('#lockNow2').addEventListener('click', () => lockNow());
 
@@ -273,7 +275,7 @@
   let viewDay = null;                       // null = follow today
   const curDay = () => viewDay || today();
   const blankSet = {};                      // H/C chosen on a still-empty row (row key -> 'H'|'C')
-  let gCell = null, gEdit = false, gMouse = null, histDirty = false, gQ = Promise.resolve(), todayResort = false, gShiftEnter = false;
+  let gCell = null, gEdit = false, gMouse = null, histDirty = false, histStale = false, gQ = Promise.resolve(), todayResort = false, gShiftEnter = false;
   const durTxt = (e, m) => kindOf(e) === 'shift' ? `${Math.floor(m / 60)}:${R.pad(m % 60)}` : String(m);
   const uerr = m => Object.assign(new Error(m), { user: true });
   const shiftDay = (k, n) => { const d = new Date(k + 'T12:00'); d.setDate(d.getDate() + n); return R.dayKey(d.getTime()); };
@@ -311,9 +313,9 @@
     const tout = open ? gInp('tout', '', { lbl: 'Time out (24-hour HH:MM). Running', mono: 1, max: 5, im: 'numeric', title: 'Running. Type the end time, or tap ■ to stop now' }) + '<button type="button" class="cbtn stop" data-a="stop" tabindex="-1" title="Stop now" aria-label="Stop now">■</button>'
       : gInp('tout', started ? R.hm(en) : '', { lbl: 'Time out (24-hour HH:MM)', mono: 1, max: 5, im: 'numeric', title: st === 'pause' ? 'Paused (⋯ to resume)' : 'Out' + multi });
     const fee = ed ? gInp('fee', feeVal, { lbl: 'Fee code(s)', mono: 1, max: 60, cap: 'characters', title: cs.map(c => c.c + (c.d ? ' ' + c.d : '')).join('; ') })
-      + `<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="Pick in Fee Desk" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<a class="cbtn hov fdmini" tabindex="-1" href="${esc(fdCodeHref(cs[0] && (cs[0].k || cs[0].c), cs[0] && cs[0].j || S.settings.prov))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk" aria-label="Open fee code in Fee Desk">ⓘ</a>` : ''}` : '';
+      + `<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="Pick a fee code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="fee" data-at="${esc((cs[cs.length - 1] && (cs[cs.length - 1].k || cs[cs.length - 1].c)) || '')}" tabindex="-1" title="Open ${esc(cs[cs.length - 1] && cs[cs.length - 1].c)} in Fee Desk (pick another code there to add it)" aria-label="Open fee code in Fee Desk">ⓘ</button>` : ''}` : '';
     const dxc = ed ? gInp('dx', dxVal, { lbl: 'Diagnostic code(s), ICD-9', mono: 1, max: 60, cap: 'characters', title: dx.map(v => v + (dxDesc(v) ? ' ' + dxDesc(v) : '')).join('; ') })
-      + `<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="Pick in Fee Desk" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<a class="cbtn hov fdmini" tabindex="-1" href="${esc(fdDxHref(dx[0]))}" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer" title="Open in Fee Desk" aria-label="Open diagnostic code in Fee Desk">ⓘ</a>` : ''}` : '';
+      + `<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="Pick an ICD-9 code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="dx" data-at="${esc(dx[dx.length - 1])}" tabindex="-1" title="Open ${esc(dx[dx.length - 1])} in Fee Desk (pick another code there to add it)" aria-label="Open diagnostic code in Fee Desk">ⓘ</button>` : ''}` : '';
     const wl = warnLvl(e);
     return `<tr class="gr ${st} k-${k}${wl ? ' w' + wl : ''}" data-key="${id}" data-id="${id}">`
       + `<th scope="row" class="rn" title="Row ${i}. Right-click or press and hold for actions">${st === 'run' || st === 'pause' ? `<i class="dot ${st}" aria-label="${st === 'run' ? 'Running' : 'Paused'}"></i>` : ''}${i}</th>`
@@ -339,8 +341,8 @@
       + `<td class="c-tin"><div class="cw">${gInp('tin', '', { lbl: 'Time in (new row)', mono: 1, max: 5, im: 'numeric', ph: first ? 'HH:MM' : '' })}<button type="button" class="cbtn now${first ? '' : ' hov'}" data-a="now" tabindex="-1" title="New row, start the clock now" aria-label="New row, start now">▶</button></div></td>`
       + `<td class="c-tout">${gInp('tout', '', { lbl: 'Time out (new row)', mono: 1, max: 5, im: 'numeric' })}</td>`
       + '<td class="num c-min"></td><td class="num c-u"></td>'
-      + `<td class="c-fee">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}</td>`
-      + `<td class="c-dx">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}</td>`
+      + `<td class="c-fee"><div class="cw">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="New row: pick a fee code in Fee Desk (it comes back to this cell)" aria-label="New row, pick fee code in Fee Desk">↗</button></div></td>`
+      + `<td class="c-dx"><div class="cw">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: 60, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="New row: pick an ICD-9 code in Fee Desk (it comes back to this cell)" aria-label="New row, pick diagnostic code in Fee Desk">↗</button></div></td>`
       + `<td class="c-note">${gInp('note', '', { lbl: 'Billing notes (new row)', max: 500 })}</td><td class="c-act"></td></tr>`;
   }
   function gTotals(list) {
@@ -522,6 +524,24 @@
     const tb = tr.parentNode, nb = tb.querySelectorAll('tr[data-blank]').length;
     if (nb < MIN_BLANK) { const t = document.createElement('template'); let h = ''; for (let j = 0; j < MIN_BLANK - nb; j++) h += blankRow(tb.rows.length + j + 1, false); t.innerHTML = '<table><tbody>' + h + '</tbody></table>'; tb.append(...t.content.querySelector('tbody').rows); }
   }
+  // ↗ on an empty row: the row becomes an encounter first (as if something was typed), so the picked code has a home
+  function blankForPick(tr) {
+    if (!S) return null;
+    const key = tr.dataset.key, day = tr.closest('table').dataset.day, id = uid(), set = blankSet[key] || quickSet;
+    const act = document.activeElement; if (act && act.classList && act.classList.contains('gc') && !tr.contains(act)) commitCell(act);
+    const vals = {}; tr.querySelectorAll('.gc[data-c]').forEach(c => { if ((c.tagName === 'INPUT' || c.tagName === 'TEXTAREA') && c.value.trim()) { vals[c.dataset.c] = c.value; c.defaultValue = c.value; } });
+    delete tr.dataset.blank; tr.dataset.id = id; tr.dataset.key = id; tr.classList.remove('blank');
+    for (const k of Object.keys(blankSet)) delete blankSet[k];
+    const now = Date.now(), sh = activeShift(), n = S.encs.filter(x => R.encDay(x) === day && kindOf(x) === 'enc').length + 1;
+    const e = { id, kind: 'enc', name: '', mrn: '', chart: '', label: '', initials: '', billingNote: '', setting: set, facility: (sh ? sh.facility : S.settings.curFac) || null, type: '', codes: [], notes: [], segs: [], status: 'new', photos: [], links: [], created: now, updated: now };
+    if (day !== today()) { e.at = edmAt(day, 12, 0); e.late = true; }
+    gEnq(async () => {
+      for (const [f, v] of Object.entries(vals)) { try { await applyCell(e, f, v, day); } catch (er) { if (!er.user) throw er; } }
+      if (!ptName(e) && !ptMrn(e)) e.label = `Encounter ${n}`;
+      await saveEnc(e, 'create', 'Created in the spreadsheet to pick a code in Fee Desk');
+    });
+    return e;
+  }
   function commitCell(c) {
     if (!c || (c.tagName !== 'INPUT' && c.tagName !== 'TEXTAREA') || !S || c.value === c.defaultValue) return;
     if (c.dataset.c !== 'note' && /[\r\n]/.test(c.value)) c.value = c.value.replace(/[\r\n]+/g, ' ');
@@ -560,7 +580,7 @@
       if (c.tagName === 'TEXTAREA') {
         if (c.dataset.c !== 'note' && /[\r\n]/.test(c.value)) { const p = c.selectionStart; c.value = c.value.replace(/[\r\n]+/g, ' '); c.setSelectionRange(p, p); }
       }
-      fitSoon(c.closest('table.grid'));
+      fitSoon(c.closest('table.grid'), c);
     });
     // phone keyboards that send no usable Enter keydown (Android IMEs): a line break typed into a wrapping cell means "next cell"
     root.addEventListener('beforeinput', ev => {
@@ -594,7 +614,7 @@
       const ed = t.closest && t.closest('input.gc, textarea.gc');
       if (ed && document.activeElement === ed) { const s = getSelection(), td = ed.closest('td'); if (s && s.anchorNode && td && !td.contains(s.anchorNode)) { const n = ed.value.length; ed.setSelectionRange(n, n); } }
       const hc = t.closest('.gc.hc'); if (hc) return hcToggle(hc);
-      const pk = t.closest('.pickfd'); if (pk) { const e = entryOf(pk); if (e) pickInFeeDesk(e, pk.dataset.kind); return; }
+      const pk = t.closest('.pickfd'); if (pk) { const tr = pk.closest('tr'), e = tr && tr.dataset.blank ? blankForPick(tr) : entryOf(pk); if (e) pickInFeeDesk(e, pk.dataset.kind, pk.dataset.at); return; }
       const a = t.closest('[data-a]');
       if (a) {
         const tr = a.closest('tr'), e = entryOf(a);
@@ -651,44 +671,104 @@
   // ---- v9f dynamic column widths: each column fits its longest content (header and cells) between a minimum and a maximum;
   // past the maximum, name / codes / notes wrap and the row grows. Measured with a canvas in the cells' own fonts.
   const FIT = { name: [160, 120, 34], mrn: [92, 88, 26], fee: [100, 96, 28], dx: [96, 90, 24], note: [170, 150, 40] };   // min desktop, min touch, max (ch)
-  let fitCtx = null; const fitQ = new Set();
+  // v9g perf (100–150 rows a day): measurements are cached (per text+font, and per cell), all layout reads happen before
+  // the writes, wrapping heights are set in one batch, and while you type only the edited cell is re-measured: the whole
+  // table is refitted only when that cell actually changes a column's width.
+  let fitCtx = null, fitFont = ''; const fitQ = new Map(), fitMC = new Map(), fitEC = new WeakMap();
   const fontOf = el => { const s = getComputedStyle(el); return `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`; };
-  function fitCols(t) {
+  function fitMw(s, f) {
+    const k = f + '\u0001' + s; let v = fitMC.get(k);
+    if (v === undefined) { if (fitMC.size > 6000) fitMC.clear(); if (fitFont !== f) { fitCtx.font = f; fitFont = f; } v = fitCtx.measureText(s).width; fitMC.set(k, v); }
+    return v;
+  }
+  // one cell's text width (cached on the element until its text, font or buttons change)
+  function fitRec(el, f, txt) {
+    const cw = el.parentNode && el.parentNode.classList && el.parentNode.classList.contains('cw') ? el.parentNode : el.closest('.cw');
+    const ck = f + '\u0001' + (cw ? cw.childElementCount : 0) + '\u0001' + txt;
+    let rec = fitEC.get(el);
+    if (!rec || rec.k !== ck) {
+      const line = txt.split('\n').reduce((m, x) => x.length > m.length ? x : m, '');
+      const extra = cw ? cw.querySelectorAll('.cbtn, .tag').length * 25 : 0;
+      rec = { k: ck, tw: fitMw(line, f) + 18 + extra, multi: line !== txt }; fitEC.set(el, rec);
+    }
+    return rec;
+  }
+  // typing: grow the cell while the text grows; shrink (a full re-measure) only when text was removed
+  function autoHType(ta) {
+    const n = ta.value.length, grew = n >= (ta._fitLen || 0); ta._fitLen = n;
+    if (grew && ta.scrollHeight <= ta.clientHeight + 1) return;
+    if (grew) { ta.style.height = ta.scrollHeight + 'px'; return; }
+    autoH(ta);
+  }
+  function fitCols(t, only) {
     if (!t || !t.isConnected || !t.offsetParent) return;
-    const ctx = fitCtx || (fitCtx = document.createElement('canvas').getContext('2d'));
-    const mw = (s, f) => { ctx.font = f; return ctx.measureText(s).width; };
+    if (!fitCtx) fitCtx = document.createElement('canvas').getContext('2d');
     const w = t.closest('.gwrap'), ww = (w && w.clientWidth) || innerWidth, touch = matchMedia('(max-width:767px),(pointer:coarse)').matches;
+    // fast path while typing: re-measure only the edited column; if its width stays the same, nothing else can change
+    const st = t._fit, okey = only && only.dataset && only.dataset.c;
+    if (only && st && st.ww === ww && st.touch === touch && FIT[okey] && st.px[okey] != null) {
+      const cfg = FIT[okey], f = okey !== 'name' && okey !== 'note' ? st.fM : st.fS;
+      let need = st.head[okey] || 0;
+      for (const el of t.querySelectorAll(`tbody .gc[data-c="${okey}"]`)) { const txt = el.value || el.placeholder || ''; if (txt) need = Math.max(need, fitRec(el, f, txt).tw); }
+      let max = cfg[2] * st.ch[okey]; if (okey === 'name' && ww < 700) max = Math.min(max, Math.max(cfg[1], ww * 0.42));
+      const px = Math.ceil(Math.min(Math.max(need, cfg[touch ? 1 : 0]), Math.max(max, cfg[touch ? 1 : 0])));
+      if (px === st.px[okey]) {
+        if (only.tagName === 'TEXTAREA') { const txt = only.value; const r = txt ? fitRec(only, f, txt) : null;
+          if (r && (r.multi || r.tw > px + 1)) autoHType(only); else if (only.style.height) only.style.height = ''; }
+        return;
+      }
+    }
     const sans = t.querySelector('tbody .gc[data-c="name"]'), mono = t.querySelector('tbody .gc.mono'), th = t.querySelector('thead th.h-name');
     const fS = sans ? fontOf(sans) : '13px sans-serif', fM = mono ? fontOf(mono) : fS, fH = th ? fontOf(th) : fS;
-    let sum = 0, noteW = 0, noteCol = null; const longs = [], widths = {};
-    for (const col of t.querySelectorAll('colgroup col')) {
-      const key = col.className.replace(/^c-/, ''), cfg = FIT[key];
-      if (!cfg) { sum += parseFloat(getComputedStyle(col).width) || 0; continue; }
-      const h = t.querySelector(`thead [data-h="${key}"]`), isM = key !== 'name' && key !== 'note', f = isM ? fM : fS, ch = mw('0', f);
-      let need = h ? mw(h.textContent, fH) + 18 : 0;
+    const memo = { ww, touch, fS, fM, px: {}, head: {}, ch: {} };
+    const cols = [...t.querySelectorAll('colgroup col')], keys = cols.map(c => c.className.replace(/^c-/, ''));
+    const fixed = cols.map((c, i) => FIT[keys[i]] ? 0 : (parseFloat(getComputedStyle(c).width) || 0));   // reads first
+    let sum = 0, noteW = 0, noteCol = null, changed = false, onlyRec = null; const longs = [], widths = {};
+    cols.forEach((col, i) => {
+      const key = keys[i], cfg = FIT[key];
+      if (!cfg) { sum += fixed[i]; return; }
+      const h = t.querySelector(`thead [data-h="${key}"]`), isM = key !== 'name' && key !== 'note', f = isM ? fM : fS, ch = fitMw('0', f);
+      let need = h ? fitMw(h.textContent, fH) + 18 : 0; memo.head[key] = need; memo.ch[key] = ch;
       for (const el of t.querySelectorAll(`tbody .gc[data-c="${key}"]`)) {
         const txt = el.value || el.placeholder || ''; if (!txt) continue;
-        const line = txt.split('\n').reduce((m, s) => s.length > m.length ? s : m, '');
-        const cw = el.closest('.cw'), extra = cw ? cw.querySelectorAll('.cbtn, .tag').length * 25 : 0, tw = mw(line, f) + 18 + extra;
-        need = Math.max(need, tw); if (el.tagName === 'TEXTAREA' && el.value) longs.push([el, key, tw, line !== txt]);
+        const rec = fitRec(el, f, txt);
+        need = Math.max(need, rec.tw);
+        if (el.tagName === 'TEXTAREA' && el.value) longs.push([el, key, rec.tw, rec.multi]);
+        if (el === only) onlyRec = [el, key, rec.tw, rec.multi];
       }
       let max = cfg[2] * ch; if (key === 'name' && ww < 700) max = Math.min(max, Math.max(cfg[1], ww * 0.42));
       const px = Math.ceil(Math.min(Math.max(need, cfg[touch ? 1 : 0]), Math.max(max, cfg[touch ? 1 : 0])));
-      widths[key] = px;
-      if (key === 'note') { noteW = px; noteCol = col; continue; }
-      if (col.style.width !== px + 'px') col.style.width = px + 'px';
-      if (key === 'name') t.style.setProperty('--g-name-w', px + 'px');
+      widths[key] = px; memo.px[key] = px;
+      if (key === 'note') { noteW = px; noteCol = col; return; }
+      if (col.style.width !== px + 'px') { col.style.width = px + 'px'; changed = true; }
+      if (key === 'name') { const v = px + 'px'; if (t.style.getPropertyValue('--g-name-w') !== v) t.style.setProperty('--g-name-w', v); }
       sum += px;
-    }
+    });
     // Billing notes takes the rest of the screen (at least its own fitted width); the table never truncates a column
-    if (noteCol) noteCol.style.width = '';
-    const minW = Math.ceil(sum + noteW) + 'px'; if (t.style.minWidth !== minW) t.style.minWidth = minW;
+    if (noteCol && noteCol.style.width) { noteCol.style.width = ''; changed = true; }
+    const minW = Math.ceil(sum + noteW) + 'px'; if (t.style.minWidth !== minW) { t.style.minWidth = minW; changed = true; }
+    t._fit = memo;
+    const wraps = l => l[3] || l[2] > widths[l[1]] + 1;
+    // typing: no column changed → only the edited cell can need a new height
+    if (only && !changed) {
+      if (onlyRec && only.tagName === 'TEXTAREA') { if (wraps(onlyRec)) autoHType(only); else if (only.style.height) only.style.height = ''; }
+      else if (only.tagName === 'TEXTAREA' && only.style.height && !only.value) only.style.height = '';
+      return;
+    }
     // wrapping cells: only those wider than their column (or with a line break) get a measured height; the rest go back to one line
-    for (const ta of t.querySelectorAll('tbody textarea.gc[style]')) if (!longs.some(l => l[0] === ta)) ta.style.height = '';
-    for (const [el, key, tw, multi] of longs) { if (multi || tw > widths[key] + 1) autoH(el); else if (el.style.height) el.style.height = ''; }
+    const tall = longs.filter(wraps).map(l => l[0]), tallSet = new Set(tall);
+    for (const ta of t.querySelectorAll('tbody textarea.gc[style]')) if (!tallSet.has(ta) && ta.style.height) ta.style.height = '';
+    for (const ta of tall) ta.style.height = '';                                       // writes
+    const hs = tall.map(ta => [ta.scrollHeight, ta.clientHeight]);                     // one layout
+    tall.forEach((ta, i) => { if (hs[i][0] > hs[i][1] + 1) ta.style.height = hs[i][0] + 'px'; });   // writes
   }
   function autoH(ta) { ta.style.height = ''; const h = ta.scrollHeight; if (h > ta.clientHeight + 1) ta.style.height = h + 'px'; }
-  function fitSoon(t) { if (!t) return; fitQ.add(t); if (fitQ.size === 1) requestAnimationFrame(() => { const l = [...fitQ]; fitQ.clear(); l.forEach(fitCols); }); }
+  // one refit per frame per table; `only` = the cell being typed in (a full refit wins if one was asked for)
+  function fitSoon(t, only) {
+    if (!t) return; const had = fitQ.has(t), prev = fitQ.get(t);
+    fitQ.set(t, !had ? (only || null) : (prev && prev === only ? prev : null));
+    if (fitQ.size === 1 && !had) requestAnimationFrame(() => { const l = [...fitQ]; fitQ.clear(); l.forEach(([tb, o]) => fitCols(tb, o)); });
+  }
   function fitAll(root) { (root || document).querySelectorAll('table.grid').forEach(fitCols); }
   // ---- v9f touch helpers: keep the cell above the on-screen keyboard; a floating ← Next → bar while a cell is active
   let kbT = null;
@@ -721,71 +801,177 @@
     $('#wkTot').innerHTML = `Week <b>${wt.H.m + wt.C.m + wt.cb.m}</b> min · <b>${wt.H.u + wt.C.u + wt.cb.u}</b> u`;
     $('#wkTot').title = `Week of ${R.fmtDay(ws)} (Mon–Sun): ${wl.length} entr${wl.length === 1 ? 'y' : 'ies'}. Hospital ${wt.H.m} min / ${wt.H.u} u, Clinic ${wt.C.m} min / ${wt.C.u} u${wt.cb.n ? `, call-backs ${wt.cb.m} min` : ''}`;
   }
-  function pickInFeeDesk(e, kind) {
+  // ============================================================ v9g pick-and-return with MedBilling Fee Desk
+  // ↗ / ⓘ in a Fee code(s) or Dx cell opens Fee Desk in "pick mode". Tapping a code there sends it straight back into the
+  // same cell. Only the code, its kind and a random one-time token travel (URL / same-origin messages); never patient data.
+  // The pending pick (entry id, column, token, time: no patient data) lives in localStorage because the vault is encrypted
+  // and may be locked when the code comes back: then the code waits and is applied right after unlock.
+  const PICK_KEY = 'bl.pick.v1', PICK_MSG = 'medbilling.pick.v1', PICK_TTL = 30 * 60000, FD_GRACE = 10 * 60000;
+  const PICK_RE = /^[A-Z0-9][A-Z0-9.\-]{0,11}$/, TOK_RE = /^[a-f0-9]{32}$/;
+  let fdSince = 0, pickBusy = false;
+  const pickBC = (() => { try { return 'BroadcastChannel' in window ? new BroadcastChannel('medbilling-pick') : null; } catch (e) { return null; } })();
+  function pickLoad() {
+    try { const p = JSON.parse(localStorage.getItem(PICK_KEY) || 'null'); if (!p || !TOK_RE.test(p.tok || '') || typeof p.id !== 'string') return null;
+      if (Date.now() - (p.pt || p.t) > PICK_TTL) { localStorage.removeItem(PICK_KEY); return null; } return p; } catch (e) { return null; }
+  }
+  function pickSave(p) { try { localStorage.setItem(PICK_KEY, JSON.stringify(p)); } catch (e) { /* storage blocked */ } }
+  function pickClear() { try { localStorage.removeItem(PICK_KEY); } catch (e) { /* ignore */ } }
+  const pickTok = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  function fdBack() { fdSince = 0; }
+  function pickInFeeDesk(e, kind, at) {
     if (!e || !kind) return;
-    // Deep link carries only fee/dx route — never patient identifiers
-    hoWrite({ v: 1, op: 'request', kind, code: '', desc: '', encounterId: e.id, field: kind === 'fee' ? 'fee' : 'dx', from: 'logs', ts: Date.now() });
-    const href = kind === 'dx' ? FD + '#/icd9' : FD;
-    pickStart();
-    window.open(href, '_blank', 'noopener,noreferrer');
-    toast(kind === 'dx' ? 'Pick a diagnostic code in Fee Desk, then return here' : 'Pick a fee code in Fee Desk, then return here', 3500);
+    const col = kind === 'dx' ? 'dx' : 'fee', tok = pickTok();
+    const act = document.activeElement; if (act && act.classList && act.classList.contains('gc')) commitCell(act);   // save what was typed first
+    pickSave({ tok, id: e.id, col, day: R.encDay(e), tab, t: Date.now() });
+    const u = new URL(FD);
+    u.searchParams.set('pick', col === 'dx' ? 'dx' : 'hsc'); u.searchParams.set('ctx', tok);
+    u.searchParams.set('return', NATIVE ? 'mblogs://pick' : location.origin + location.pathname);
+    const cs = e.codes || [], j = (cs[cs.length - 1] && cs[cs.length - 1].j) || (S && S.settings.prov) || 'AB';
+    if (/^[A-Z]{2}$/.test(j)) u.searchParams.set('jur', j);
+    // deep link only to a code that is in the bundled lists (never free text)
+    if (at) { const h = col === 'dx' ? fdDxHref(at) : fdCodeHref(at, j); u.hash = h.includes('#') ? h.slice(h.indexOf('#')) : ''; }
+    else if (col === 'dx') u.hash = '#/icd9';
+    fdSince = Date.now(); pickStart();
+    if (NATIVE) { window.open(u.href, '_blank'); toast(col === 'dx' ? 'Tap an ICD-9 code in Fee Desk to bring it back' : 'Tap a fee code in Fee Desk to bring it back', 3000); return; }
+    // a named window keeps the opener, so Fee Desk can hand the code back to this tab and close itself
+    let w = null; try { w = window.open(u.href, 'mbfeedesk'); } catch (er) { w = null; }
+    if (w) { toast(col === 'dx' ? 'Tap an ICD-9 code in Fee Desk to bring it back' : 'Tap a fee code in Fee Desk to bring it back', 3000); return; }
+    // pop-up blocked: go there in this tab once the save is done (the code comes back in the return link)
+    picking = Math.max(0, picking - 1); fdSince = 0;
+    gQ.then(() => location.assign(u.href));
   }
-  async function applyHandoffResponse() {
-    if (!S) return;
-    const h = hoRead();
-    if (!h || h.v !== 1 || h.op !== 'response' || h.from !== 'feedesk') return;
-    const e0 = S.encs.find(x => x.id === h.encounterId);
-    if (!e0 || !h.code) { hoClear(); return; }
-    const e = clone(e0), code = String(h.code).trim(), desc = String(h.desc || '').trim();
-    if (h.kind === 'fee') {
-      const prov = S.settings.prov || 'AB';
-      await codesFor(prov).catch(() => null);
-      const o = codeCache[prov], hit = o && o.byNorm.get(norm(code));
-      const row = hit ? { c: hit.c || hit.k || code, k: hit.k || code, d: hit.d || desc, j: prov, f: hit.f || '' }
-        : { c: code, k: code, d: desc, j: prov, f: '' };
-      e.codes = e.codes || [];
-      if (e.codes[0]) { const dx = e.codes[0].dx, dxd = e.codes[0].dxd; e.codes[0] = Object.assign({}, e.codes[0], row); if (dx) { e.codes[0].dx = dx; e.codes[0].dxd = dxd; } }
-      else e.codes.push(row);
-      await saveEnc(e, 'edit', 'Fee code from Fee Desk');
-      toast('Fee code applied');
-    } else if (h.kind === 'dx') {
-      await loadIcd().catch(() => null);
-      const v = dxCode(code) || code.toUpperCase();
-      e.codes = e.codes || [];
-      if (e.codes[0]) { e.codes[0] = Object.assign({}, e.codes[0], { dx: v, dxd: desc || dxDesc(v) }); delete e.dx; }
-      else { e.dx = v; }
-      await saveEnc(e, 'edit', 'Diagnostic code from Fee Desk');
-      toast('Diagnostic code applied');
-    } else { hoClear(); return; }
-    hoClear(); render();
+  // a code arrived (return link, BroadcastChannel, storage event or a message left in localStorage)
+  function pickInbound(code, kind, tok) {
+    code = String(code || '').trim().toUpperCase(); kind = kind === 'dx' ? 'dx' : kind === 'hsc' ? 'hsc' : '';
+    if (!TOK_RE.test(tok || '') || !kind || !PICK_RE.test(code)) return 'bad';
+    const p = pickLoad(); if (!p || p.tok !== tok) return 'stale';
+    if (p.picked) return 'held';
+    p.picked = { code, kind }; p.pt = Date.now(); pickSave(p);
+    picking = 0; fdSince = 0;
+    if (S) { pickApply(); return 'applied'; }
+    $('#lockMsg').textContent = `Unlock to add ${code} to the spreadsheet.`;
+    return 'held';
   }
-  window.addEventListener('focus', () => { if (S) applyHandoffResponse(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && S) applyHandoffResponse(); });
+  function pickCancelled(tok) { const p = pickLoad(); if (p && p.tok === tok && !p.picked) { pickClear(); picking = 0; fdSince = 0; if (S) pickFocus(p, null); } }
+  function pickReadMsg() {
+    let m = null; try { m = JSON.parse(localStorage.getItem(PICK_MSG) || 'null'); } catch (e) { m = null; }
+    if (!m || typeof m !== 'object') return;
+    try { localStorage.removeItem(PICK_MSG); } catch (e) { /* ignore */ }
+    if (Date.now() - (m.t || 0) > PICK_TTL) return;
+    if (m.type === 'cancel') pickCancelled(m.ctx); else pickInbound(m.code, m.kind, m.ctx);
+  }
+  if (pickBC) pickBC.onmessage = ev => {
+    const m = ev.data || {}; if (typeof m !== 'object') return;
+    if (m.type === 'pick') { const st = pickInbound(m.code, m.kind, m.ctx); if (st !== 'bad' && st !== 'stale') { pickBC.postMessage({ type: 'ack', ctx: m.ctx, status: st }); try { localStorage.removeItem(PICK_MSG); } catch (e) { /* ignore */ } } }
+    else if (m.type === 'cancel') { const p = pickLoad(); if (p && p.tok === m.ctx) { pickCancelled(m.ctx); pickBC.postMessage({ type: 'ack', ctx: m.ctx, status: 'cancelled' }); } }
+  };
+  window.addEventListener('storage', ev => { if (ev.key === PICK_MSG && ev.newValue) pickReadMsg(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { pickReadMsg(); if (fdSince) fdBack(); } });
+  // the return link: ?picked=<code>&kind=hsc|dx&ctx=<token> (or ?pickcancel=1&ctx=<token>); read once, then removed from the address bar
+  function pickFromUrl(href) {
+    let u; try { u = new URL(href); } catch (e) { return; }
+    const sp = u.searchParams; if (!sp.has('picked') && !sp.has('pickcancel')) return false;
+    const tok = sp.get('ctx') || '';
+    if (sp.has('pickcancel')) pickCancelled(tok); else pickInbound(sp.get('picked'), sp.get('kind'), tok);
+    return true;
+  }
+  if (pickFromUrl(location.href)) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) { /* ignore */ } }
+  pickReadMsg();
+  // native app: Fee Desk returns with mblogs://pick?picked=…&kind=…&ctx=… (native.js passes it here; same validation)
+  window.__mblPick = href => { let u; try { u = new URL(href); } catch (e) { return; } if (u.protocol !== 'mblogs:' || u.hostname !== 'pick') return; pickFromUrl(u.href); };
+  window.__mblPickEnd = () => { if (fdSince) { picking = Math.max(0, picking - 1); fdSince = 0; lastAct = Date.now(); } };
+  // put the code into the cell it was picked for (Fee code(s): append, no duplicates; Dx: one per fee code, as when typing)
+  async function pickApply() {
+    if (!S || pickBusy) return;
+    const p = pickLoad(); if (!p || !p.picked) return;
+    pickBusy = true; pickClear();
+    try {
+      const { code, kind } = p.picked, col = kind === 'dx' ? 'dx' : 'fee';
+      const e0 = S.encs.find(x => x.id === p.id);
+      if (!e0) { toast(`That row no longer exists, so ${code} was not added`, 4000); return; }
+      const act = document.activeElement; if (act && act.classList && act.classList.contains('gc')) commitCell(act);
+      let msg = '', undo = null;
+      await gEnq(async () => {
+        const cur = S.encs.find(x => x.id === p.id); if (!cur) return;
+        const e = clone(cur), before = clone(cur), nc = s => norm(s);
+        if (col === 'fee') {
+          const list = (e.codes || []).map(c => c.c);
+          if (list.some(c => nc(c) === nc(code))) { msg = `${code} is already in this row`; return; }
+          await applyCell(e, 'fee', list.concat(code).join(', '), R.encDay(e)); msg = `${code} added`;
+          await saveEnc(e, 'edit', `Fee code ${code} picked in Fee Desk`);
+        } else {
+          const list = R.dxList(e), slots = (e.codes || []).length;
+          if (list.some(c => nc(c) === nc(code))) { msg = `${code} is already in this row`; return; }
+          let v, rep = '';
+          if (!list.length || list.length < slots) v = list.concat(code);
+          else { rep = list[list.length - 1]; v = list.slice(0, -1).concat(code); }   // one Dx per fee code (one without a fee code)
+          await applyCell(e, 'dx', v.join(', '), R.encDay(e));
+          await saveEnc(e, 'edit', `Diagnostic code ${code} picked in Fee Desk` + (rep ? ` (replaced ${rep})` : ''));
+          msg = rep ? `${code} replaced ${rep} (one Dx per fee code)` : `${code} added`;
+          if (rep) undo = () => undoTo(before, e, `${rep} is back`);
+        }
+      });
+      pickFocus(p, col);
+      if (undo) snack(msg, undo); else toast(msg, 2600);
+    } catch (er) { toast('Could not add the code: ' + ((er && er.message) || er), 4000); }
+    finally { pickBusy = false; }
+  }
+  // cursor back in the cell the pick started from (same row, same column); shows that day if it is not on screen
+  function pickFocus(p, col) {
+    col = col || p.col;
+    const sel = `tr[data-id="${CSS.escape(p.id)}"] .gc[data-c="${col}"]`;
+    let el = $((tab === 'history' ? '#histList ' : '#todayList ') + sel) || $('#todayList ' + sel);
+    if (!el && p.tab !== 'history') { const e = S.encs.find(x => x.id === p.id); if (e) { setDay(R.encDay(e)); el = $('#todayList ' + sel); } }
+    if (!el) { const e2 = S.encs.find(x => x.id === p.id); if (e2) histDay(R.encDay(e2)); else histNow(); el = $('#histList ' + sel); }
+    if (!el) return;
+    if (el.closest('#histList') && tab !== 'history') { tab = 'history'; showTab(); }
+    focusCell(el); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) { /* not a text field */ }
+  }
+  function pickLockMsg() { const p = pickLoad(); return p && p.picked ? `Unlock to add ${p.picked.code} to the spreadsheet.` : ''; }
 
   function render() {
     if (!S) return;
     renderOnsite(); renderToolbar(); renderTrackAgain();
     renderToday();
     $('#unitsNote').textContent = R.UNITS_NOTE;
-    renderHistory(); renderRetention(); renderPbar(); renderPeriodSettings();
+    if (tab === 'history') { histStale = false; renderHistory(); } else histStale = true;   // v9g: History (1,000s of rows) is drawn when shown
+    renderRetention(); renderPbar(); renderPeriodSettings();
     if ($('#revDlg').open) renderReview(); if ($('#tlDlg').open) renderTimeline();
     $('#storeInfo').textContent = `${S.encs.length} entr${S.encs.length === 1 ? 'y' : 'ies'} and ${S.encs.reduce((a, e) => a + (e.photos || []).length, 0)} photo(s) stored encrypted on this device.`;
   }
   function weekStart(k) { const [y, m, d] = k.split('-').map(Number); const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); return R.dayKey(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 12).getTime()); }
   const histSort = l => l.slice().sort((a, b) => R.startOf(a) - R.startOf(b) || (a.created || 0) - (b.created || 0));
+  const HIST_EAGER = 300; let histDays = null, histIO = null;
+  function histLazy(hl) {
+    const lz = hl.querySelectorAll('.gwrap[data-lazy]'); if (histIO) histIO.disconnect(); if (!lz.length) return;
+    const r = hl.querySelector('table.grid tbody tr'), rh = (r && r.offsetHeight) || 31;
+    lz.forEach(el => { el.style.height = Math.round((+el.dataset.n + 2) * rh + 4) + 'px'; });   // CSSOM (CSP allows it), keeps the scroll length right
+    if (!('IntersectionObserver' in window)) { lz.forEach(histFill); return; }
+    histIO = new IntersectionObserver(es => es.forEach(en => { if (en.isIntersecting) histFill(en.target); }), { rootMargin: '1500px 0px' });
+    lz.forEach(el => histIO.observe(el));
+  }
+  function histFill(el) {
+    const k = el && el.dataset.lazy; if (!k) return; if (histIO) histIO.unobserve(el);
+    const l = (histDays && histDays.get(k)) || [];
+    el.innerHTML = sheetHtml(histSort(l), { day: k }); el.removeAttribute('data-lazy'); el.removeAttribute('aria-busy'); el.classList.remove('hlazy'); el.style.height = '';
+    fitCols(el.querySelector('table.grid'));
+  }
+  function histDay(k) { histNow(); const el = document.querySelector(`#histList .gwrap[data-lazy="${CSS.escape(k)}"]`); if (el) histFill(el); }
+  function histNow() { if (S && histStale) { histStale = false; renderHistory(); } }
   function renderHistory() {
     renderStrip('hist');
     const days = R.byDay(S.encs.slice().sort((a, b) => R.startOf(b) - R.startOf(a)));
     const hl = $('#histList'), ae = document.activeElement;
     // editing a History cell: patch the day tables in place (focus and keyboard stay); full redraw when focus leaves
     if (hl.contains(ae) && ae.closest('table.grid')) {
+      histDays = days;
       for (const t of $$('#histList table.grid')) { const l = days.get(t.dataset.day); if (l) { patchGrid(t, sheetHtml(histSort(l), { day: t.dataset.day })); fitCols(t); } }
       histDirty = true; setActive(gCell); return;
     }
     if (!days.size) { hl.innerHTML = '<div class="empty">No history yet.</div>'; return; }
     const rv = S.settings.reviews || {}, re = S.settings.revEdited || {};
     const weeks = new Map(); for (const k of days.keys()) { const w = weekStart(k); if (!weeks.has(w)) weeks.set(w, []); weeks.get(w).push(k); }
-    let h = '';
+    let h = '', eager = 0; histDays = days;
     for (const [w, ks] of weeks) {
       const all = ks.flatMap(k => days.get(k)), t = R.totals(all);
       const wkRev = ks.every(k => rv[k]), wkEnd = shiftDay(w, 6);
@@ -793,11 +979,13 @@
       for (const k of ks) {
         const l = days.get(k), hol = R.holidayName(k);
         h += `<div class="dayg" id="d-${k}"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span>${hol ? `<i class="holb" title="${esc(hol)}">Holiday</i>` : ''}${rv[k] ? '<i class="rvb" title="Reviewed">✎ Reviewed</i>' : re[k] ? '<i class="rve" title="An entry changed after this day was reviewed">Edited after review</i>' : ''}<span class="sp"></span><button type="button" class="linkbtn sm" data-open-day="${k}">Open in Today</button><button type="button" class="linkbtn sm" data-tl="${k}">Timeline</button><button type="button" class="linkbtn sm" data-rv="${k}">Review</button><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>`;
-        h += `<div class="gwrap">${sheetHtml(histSort(l), { day: k })}</div></div>`;
+        // v9g: the most recent ~300 rows are drawn now; older days are drawn as they scroll near (fast with 100 patients a day)
+        if (eager < HIST_EAGER) { eager += l.length; h += `<div class="gwrap">${sheetHtml(histSort(l), { day: k })}</div></div>`; }
+        else h += `<div class="gwrap hlazy" data-lazy="${k}" data-n="${l.length}" aria-busy="true"></div></div>`;
       }
       h += '</div>';
     }
-    hl.innerHTML = h; fitAll(hl);
+    hl.innerHTML = h; fitAll(hl); histLazy(hl);
     $$('#histList [data-rep]').forEach(b => b.addEventListener('click', () => openReport(b.dataset.rep, b.dataset.rep)));
     $$('#histList [data-rv]').forEach(b => b.addEventListener('click', () => openReview(b.dataset.rv, b.dataset.rv)));
     $$('#histList [data-rvw]').forEach(b => b.addEventListener('click', () => { const [f, t2] = b.dataset.rvw.split('|'); openReview(f, t2); }));
@@ -822,6 +1010,7 @@
 
   // ------------------------------------------------------------ tabs
   function showTab() { $$('#tabs button').forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); }); $$('main .panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; }); document.body.dataset.tab = tab;
+    if (tab === 'history') histNow();
     if (S) requestAnimationFrame(() => { if (tab === 'today') { sizeGrid(); if (fillRows() !== fillRows.last) renderToday(); } fitAll($('#tab-' + tab) || document); }); }
   $$('#tabs button').forEach(b => b.addEventListener('click', () => { tab = b.dataset.tab; showTab(); if (tab === 'history' && !$('#rFrom').value) { $('#rTo').value = today(); const d = new Date(); d.setDate(d.getDate() - 6); $('#rFrom').value = R.dayKey(d.getTime()); } }));
   $('#homeLink').addEventListener('click', ev => { ev.preventDefault(); tab = 'today'; showTab(); window.scrollTo(0, 0); });
@@ -1640,7 +1829,7 @@
   const AB_PRE = 'medbilling-logs-auto-', AB_RX = /^medbilling-logs-auto-(\d{4}-\d{2}-\d{2}_\d{6})(?:-readable)?\.(?:mblbackup|zip|pdf|md|docx|xlsx)$/;
   const FMTS = { pdf: 'PDF', md: 'Markdown', docx: 'Word', xlsx: 'Excel' };
   const EVERY = { 60: 'every hour', 120: 'every 2 hours', 240: 'every 4 hours', 1440: 'daily' };
-  const CAPN = window.Capacitor, NATIVE = !!(CAPN && CAPN.isNativePlatform && CAPN.isNativePlatform());
+  const CAPN = window.Capacitor;   // NATIVE is defined at the top
   let mbb, sessPass = null, abBusy = null, abLocOk = false, abStatusCache = {};
   function MBB() { if (mbb !== undefined) return mbb; mbb = null; if (NATIVE) { try { mbb = (CAPN.Plugins && CAPN.Plugins.MBBackup) || (CAPN.registerPlugin ? CAPN.registerPlugin('MBBackup') : null); } catch (e) { mbb = null; } } return mbb; }
   function abMode() { if (NATIVE) return MBB() ? 'native' : 'manual'; return typeof window.showDirectoryPicker === 'function' && window.isSecureContext ? 'fsa' : 'manual'; }
@@ -2032,7 +2221,7 @@
   }
   function goDay(k) {
     if (!S.encs.some(e => R.encDay(e) === k)) return toast(`No entries on ${R.fmtDay(k)}`);
-    tab = 'history'; showTab(); const el = document.getElementById('d-' + k); if (el) scrollToDay(el);
+    tab = 'history'; showTab(); histDay(k); const el = document.getElementById('d-' + k); if (el) scrollToDay(el);
   }
   // "Today" in the week strip: back to the current week and today's date, from wherever you navigated
   function goToday(which) {
@@ -2192,6 +2381,6 @@
   // ------------------------------------------------------------ boot
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  loadProvs().then(() => showLock(''));
+  loadProvs().then(() => showLock(pickLockMsg()));
   window.BLApp = { lockNow };
 })();

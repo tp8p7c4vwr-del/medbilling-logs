@@ -67,10 +67,10 @@
   <div class="pb2"><div class="pbtrack" aria-hidden="true"><div class="pbfill" id="pbFill"></div></div><span class="pbr" id="pbLeft"></span></div>
 </div>
 <nav class="tabs" id="tabs" role="tablist">
-  <button type="button" role="tab" data-tab="today" class="on" aria-selected="true">Today</button>
-  <button type="button" role="tab" data-tab="history" aria-selected="false">History</button>
-  <button type="button" role="tab" data-tab="res" aria-selected="false">Resources</button>
-  <button type="button" role="tab" data-tab="data" aria-selected="false">Settings</button>
+  <button type="button" role="tab" data-tab="today" class="on" aria-selected="true"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6"/></svg><span>Today</span></button>
+  <button type="button" role="tab" data-tab="history" aria-selected="false"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4.5l3 2"/></svg><span>History</span></button>
+  <button type="button" role="tab" data-tab="res" aria-selected="false"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5"/></svg><span>Resources</span></button>
+  <button type="button" role="tab" data-tab="data" aria-selected="false"><svg class="ti" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg><span>Settings</span></button>
 </nav>
 
 <main id="main">
@@ -520,7 +520,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9f (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9g (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -627,7 +627,7 @@
         <li><b>Start the clock:</b> type the time in <b>In</b> (24-hour: <i>0930</i>, <i>9:30</i>, <i>21h05</i>; type <i>n</i> for now), or tap <b>▶</b> in the In cell. The row's Min cell then counts up live.</li>
         <li><b>Stop:</b> type the time in <b>Out</b> (an Out earlier than In means after midnight), or tap <b>■</b> in the Out cell.</li>
         <li><b>H/C:</b> tap (or press Space, or type H or C) to switch between Hospital and Clinic.</li>
-        <li><b>Codes:</b> type or paste fee and ICD-9 codes (several separated by commas). Hover or select the cell and tap <b>↗</b> to pick in MedBilling Fee Desk; the code comes back through a same-device handoff, never in the URL.</li>
+        <li><b>Codes:</b> type or paste fee and ICD-9 codes (several separated by commas). Select the cell and tap <b>↗</b> (or <b>ⓘ</b> beside a code) to pick in MedBilling Fee Desk: tap a code there and it comes straight back into that cell (see <a href="#m-codes" data-go="m-codes">section 8</a>).</li>
       </ol>
       <h4>Columns fit what you type</h4>
       <p>Each column widens to fit its longest entry (and narrows again when you shorten it). Past a sensible maximum, <b>Patient name</b>, <b>Fee code(s)</b>, <b>Dx</b> and <b>Billing notes</b> wrap onto more lines and the row grows taller, so nothing is cut off. On a narrow screen the grid scrolls sideways; # and Patient name stay pinned on the left.</p>
@@ -714,7 +714,24 @@
 
     <section id="m-codes">
       <h3>8. Billing and diagnostic codes</h3>
-      <p>In the spreadsheet, type or paste a fee or ICD-9 code into the cell, or tap <b>↗ Pick in Fee Desk</b>. Fee Desk writes the chosen code back when you return (shared local handoff on this device; no patient data leaves the vault).</p>
+      <p>In the spreadsheet, type or paste a fee or ICD-9 code into the cell, or pick it in MedBilling Fee Desk:</p>
+      <h4 id="m-pick">Pick a code in Fee Desk (v9g)</h4>
+      <ol>
+        <li>Tap the <b>Fee code(s)</b> or <b>Dx (ICD-9)</b> cell of the row, then tap <b>↗</b> in that cell (or <b>ⓘ</b> beside a code that is already there, to start from that code). The row's <b>⋯</b> menu has the same two choices.</li>
+        <li>Fee Desk opens in <b>pick mode</b>. A slim bar says <i>Picking a code for MedBilling Logs, tap a code to send it back · Cancel</i>.</li>
+        <li>Tap a billing code: a search result, a favourite or recent code, a code in the price list, or the big code on its page (also <b>Use … in MedBilling Logs</b>). Tap <b>Details</b> on a result to read it first.</li>
+        <li>Tap an ICD-9 code: in an ICD-9 search, in <b>Suggested ICD-9</b> on a billing code's page, or <b>Use</b>.</li>
+        <li>You are back in MedBilling Logs with the code in the same cell of the same row, saved, with the cursor in that cell and a short message such as <i>03.03A added</i>.</li>
+      </ol>
+      <ul>
+        <li><b>Several fee codes:</b> the code is added after the ones already in the cell (separated by a comma). A code already in the cell is not added twice.</li>
+        <li><b>Diagnostic codes:</b> same rule as typing them: one Dx per fee code (one without a fee code). If there is a free place it is added; if not, it replaces the last Dx, and the message offers <b>Undo</b>.</li>
+        <li>A billing code tapped while picking a Dx (or an ICD-9 code while picking a fee code) goes into the matching column of the same row.</li>
+        <li><b>Cancel</b> in the bar goes back without changes. A pick that isn't finished expires after 30 minutes.</li>
+        <li>If MedBilling Logs locked meanwhile, the code waits: unlock and it is added. MedBilling Logs stays unlocked for at most 10 minutes while Fee Desk is open for a pick, then locks as usual.</li>
+        <li><b>Privacy:</b> only the code, its kind and a random one-time token travel between the two apps; no name, MRN or other patient information. Fee Desk only returns to MedBilling Logs itself.</li>
+        <li><b>iPhone and iPad:</b> works in Safari and from the Home Screen icon. In the MedBilling Logs app, Fee Desk opens in an in-app browser and iOS may ask <i>Open in "MB Logs"?</i>: tap <b>Open</b>.</li>
+      </ul>
       <ol>
         <li>Open an encounter. Under <b>Fee codes and diagnostic codes</b>, check the fee schedule (province) on the right.</li>
         <li>In <b>Billing code</b>, type a code or a few words and tap a suggestion to add it.</li>
@@ -723,7 +740,7 @@
       <ul>
         <li>Suggestions come from lists built into the app (fee codes from MedBilling Fee Desk; ICD-9 from Alberta Health's diagnostic code supplement). They work offline and nothing you type is sent anywhere.</li>
         <li><b>Look up in Fee Desk</b> opens MedBilling Fee Desk in a new tab with fees, rules and notes. It goes straight to the code only if what you typed is a known code. Otherwise it opens Fee Desk's home page. No patient information is ever put in the link.</li>
-        <li>Opening Fee Desk locks this app (it went to the background). Your unsaved entry is kept as an encrypted draft and reopens after you unlock.</li>
+        <li>Opening Fee Desk from an open entry may lock this app (it went to the background). Your unsaved entry is kept as an encrypted draft and reopens after you unlock. To bring a code back automatically, use <b>↗</b> in the spreadsheet (pick mode, above).</li>
         <li><b>Nova Scotia (approval pending):</b> code lookup is unavailable until permission is granted, so no Nova Scotia code list is included. Type the code manually (it is saved exactly as typed) and confirm it in the official MSI Physician’s Manual. Codes already saved in your entries are kept.</li>
         <li>Codes and fees are a convenience. Always confirm in the official Schedule of Medical Benefits before you submit claims.</li>
       </ul>
@@ -898,7 +915,8 @@
         <dt>Can Face ID or a passkey open my exported files?</dt><dd>No. Export passwords are always typed, must be different from your passcode, and are never stored.</dd>
         <dt>I don't see "Unlock with a passkey" in my browser.</dt><dd>Your browser doesn't support the passkey PRF extension (it needs Safari 18 or later, current Chrome or Edge, or Firefox 148 or later on a computer). The option is hidden rather than offered in a weaker form.</dd>
         <dt>Does the timer stop when the app locks or the phone sleeps?</dt><dd>No. Timers use clock times and keep counting. Unlock and tap Stop (or fix the end time) when you're done.</dd>
-        <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock.</dd>
+        <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock. A code you picked in Fee Desk waits and is added right after you unlock.</dd>
+        <dt>I tapped a code in Fee Desk but nothing came back.</dt><dd>Open Fee Desk with <b>↗</b> in the Fee code(s) or Dx cell (the slim "Picking a code for MedBilling Logs" bar must show). Plain Fee Desk links only look codes up. Picks expire after 30 minutes.</dd>
         <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
         <dt>How do I move to a new phone?</dt><dd>On the old phone, Export a backup. On the new phone, install the app, create a passcode, then Import the backup with the passcode it was made with.</dd>
         <dt>Why does an entry say "Entered later"?</dt><dd>It was back-dated, time was added, or its times were edited. See section 7.</dd>
