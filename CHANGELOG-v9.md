@@ -1,3 +1,17 @@
+# MedBilling Logs v9j — Billing notes column visible and tappable on iPhone (2026-10-06)
+
+## Why
+Jose on TestFlight build 5 (v9i): after Fee code(s) and Dx (ICD-9) there was only a skinny unnamed "⋯" column; he could not type comments there, and its width did not match the other cells. On the desktop web the notes column worked.
+
+## Cause
+That skinny column is the row-actions (⋯) column; the **Billing notes** column next to it had collapsed to 0 px. The notes `<col>` had no width ("takes the rest") and the table relied on `min-width` with `table-layout: fixed; width: 100%`. Chromium honours `min-width` there; iOS WebKit (Safari and the app's WKWebView) does not, so the table stayed as wide as the phone and the auto-width notes column got nothing.
+
+## Fix (Logs v9j)
+- `fitCols` now sets explicit pixel widths for the Billing notes column (its fitted width, at least 22 characters on touch / 26 on desktop, scaling with Settings → Display text size, and taking any spare screen width) and for the whole table (`width` and `min-width` = sum of the columns). No column depends on `min-width` any more.
+- Tapping the Billing notes cell opens the v9i notes editor (bottom sheet on phones), so notes about the encounter can be typed on the phone as on the desktop.
+- Manual: section 4 explains Billing notes vs the ⋯ row menu; version 9j; PDF regenerated. Service-worker cache `bl-v9j-2026-10-06`.
+- Tests: `tests/display-notes-v9i.test.js` checks the notes column and table have explicit px widths, that notes ≥ Dx and ≥ 22 ch at 390 (11 and 20 px text), and that tapping it at 390 opens the editor and saves.
+
 # MedBilling Logs v9i — Nothing pinned, text size and font, notes editor, readable phone cells (2026-10-06)
 
 ## Why
