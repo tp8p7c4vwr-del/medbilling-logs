@@ -1,3 +1,15 @@
+# MedBilling Logs v9m — up to 10 fee codes, 10 ICD-9 and 10 modifiers per pick; no Dx dropped (2026-10-07)
+
+## Why
+Jose (Oct 7, 11:05 AM MT): raise the multi-pick limit to 10 codes at a time, and make sure Logs doesn't drop codes.
+
+## What changed (Logs v9m)
+- **Limit 10 per kind:** `pickParse2` accepts up to 10 fee codes, 10 ICD-9 and 10 modifiers per pickv=2 link or message (11 of a kind → the whole link is ignored, as before for 4). Logs adds `pmax=10` to the Fee Desk link; Fee Desk v37 then allows 10 of each, Fee Desk v36 (no pmax support) keeps 3, which v9m still accepts. Format otherwise unchanged; a 10-of-each return link is ~270–300 characters (web and `mblogs://pick`).
+- **Every ICD-9 is kept:** new optional encrypted field `dxx` (array) on an entry = diagnostic codes beyond one per fee code. Multi-pick: a linked Dx goes beside its fee code, others fill fee codes without a Dx (new ones first), any more are appended after them; nothing is replaced and nothing is "Not added" any more (only a full modifier cell can still skip a code). Typing in the Dx cell also keeps more codes than fee codes (previously the extras were dropped with a toast; without a fee code only the first was kept). `dxList` / `dxTxt` include `dxx`, so the Dx cell, History, details (extra "Dx …" chips), CSV/Excel/PDF/Word/Markdown, audit diff and backups all carry them. A single tapped Dx (one-code pick) is unchanged (fills a free place, else replaces the last with Undo).
+- **Cell limits:** Fee code(s) and Dx editors 60 → 200 characters, Modifier code 1 / 2 80 → 200 (`MOD_MAX`, `CODE_MAX`), enough for 20+ codes with ", "; cells wrap and the row grows (no clipping).
+- Manual: "Several codes at once" (10 each, Dx rule, tray counters), pick banner text, Dx single-pick wording, room for codes (200 characters, extra Dx), FAQ; version 9m; PDF regenerated. Service-worker cache `bl-v9m-2026-10-07`.
+- Tests: `tests/multipick-v9l.test.js` (pmax=10; C: an extra Dx is added after the existing one; malformed: 11 fee / 11 Dx / 11 modifiers rejected; 10 ICD-9 into a 2-fee-code row all kept, no clipping; I: 10 + 10 + 10 end to end through Fee Desk v37 at 1280 and 390); `tests/pick-return-v9g.test.js` (banner, pmax); mobile `scripts/pick-native-smoke.js` (pmax=10, 11 rejected, 10 of each via `mblogs://pick`).
+
 # MedBilling Logs v9l — several codes from Fee Desk in one pick: fee codes, ICD-9 and modifiers (2026-10-07)
 
 ## Why

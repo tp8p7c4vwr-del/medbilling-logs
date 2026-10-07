@@ -10,7 +10,7 @@ const LOGS = BASE + 'medbilling-logs/', FD = BASE + 'delara-medbilling/';
 const OUT = process.env.OUT || '/workspace/artifacts/mbl-pick-return';
 // v9l / Fee Desk v36: Logs now asks for the multi-code return (pv=2), so Alberta pick mode shows the multi-code banner
 // (with a Modifiers button); a plain tap still sends one code, which is what this suite checks. See multipick-v9l.test.js.
-const PIN = '48203917', BANNER = 'Picking for MedBilling Logs: tap a code to send it, or ＋ to pick several (3 fee, 3 ICD-9, 3 modifiers)';
+const PIN = '48203917', BANNER = 'Picking for MedBilling Logs: tap a code to send it, or ＋ to pick several (up to 10 fee, 10 ICD-9, 10 modifiers)';
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 const errors = [];
 const G = '#todayList table.grid';
@@ -59,7 +59,7 @@ async function suite(browser, o, label, touch) {
   const banner = (await fd.textContent('#pickbar')).replace(/\s+/g, ' ').trim();
   ok(banner === BANNER + ' · ModifiersCancel', `${label}: Fee Desk shows the pick banner ("${banner}")`);
   const u0 = new URL(fdUrls[0] || 'http://x/'), keys = [...u0.searchParams.keys()].sort().join(',');
-  ok(keys === 'ctx,jur,pick,pv,return' && u0.searchParams.get('pv') === '2' && u0.searchParams.get('pick') === 'hsc' && /^[a-f0-9]{32}$/.test(u0.searchParams.get('ctx')) && u0.searchParams.get('return') === LOGS && !/Pick|Test/i.test(u0.href.replace(/pick=|Pick/g, '')), `${label}: the link carries only pick/ctx/return/jur, no patient data (${u0.search})`);
+  ok(keys === 'ctx,jur,pick,pmax,pv,return' && u0.searchParams.get('pmax') === '10' && u0.searchParams.get('pv') === '2' && u0.searchParams.get('pick') === 'hsc' && /^[a-f0-9]{32}$/.test(u0.searchParams.get('ctx')) && u0.searchParams.get('return') === LOGS && !/Pick|Test/i.test(u0.href.replace(/pick=|Pick/g, '')), `${label}: the link carries only pick/ctx/return/jur, no patient data (${u0.search})`);
   ok(!/[?&](pick|ctx|return)=/.test(fd.url()), `${label}: Fee Desk removes the pick parameters from its address bar (${fd.url().replace(BASE, '/')})`);
   if (label === '390') await fd.screenshot({ path: path.join(OUT, 'pick-banner-390.png') });
   await fdSearch(fd, '03.03A');

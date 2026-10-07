@@ -5,11 +5,14 @@
 // 2nd fee code); merge without duplicates (already in this row); Undo; Dx never overwritten (not added, said so); single tap still
 // one code; modifier-only tap; locked vault on return (same tab) → "Unlock to add …" → applied after unlock; forged / replayed /
 // malformed v2 links ignored; the old single-code link still works; persistence after lock/unlock; 1280 + 390 touch.
+// v9m: pmax=10 sent; up to 10 of each per send (11 rejected); every ICD-9 kept (Dx beside fee codes, extras after them, never
+// 'Not added'); I. 10 fee + 10 ICD-9 + 10 modifiers end to end through Fee Desk v37 at 1280 and 390 (screenshots → multipick10/).
 // Run: cd /workspace/pwtest && BASE=http://127.0.0.1:18792/ node /workspace/medbilling-logs/tests/multipick-v9l.test.js [shots]
 const path = require('path'), fs = require('fs');
 const { chromium } = require(require.resolve('playwright', { paths: ['/workspace/pwtest'] }));
 const BASE = (process.env.BASE || 'http://127.0.0.1:18792/').replace(/\/?$/, '/');
 const LOGS = BASE + 'medbilling-logs/', FD = BASE + 'delara-medbilling/';
+const OUT10 = process.env.OUT10 || '/workspace/artifacts/multipick10'; fs.mkdirSync(OUT10, { recursive: true });
 const OUT = process.env.OUT || '/workspace/artifacts/multipick', SHOTS = process.argv[2] === 'shots'; fs.mkdirSync(OUT, { recursive: true });
 const PIN = '48203917';
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
@@ -57,7 +60,7 @@ async function suite(browser, o, label, touch) {
   // A. ＋ a fee code, an ICD-9 code and a modifier → one send fills Fee code(s), Dx and Modifier code 1
   let fdUrl = ''; ctx.on('request', r => { if (r.isNavigationRequest() && r.url().includes('/delara-medbilling/?')) fdUrl = r.url(); });
   let fd = await openPick(p, pickBtn(1, 'fee'), touch, cell(1, 'fee'));
-  ok(new URL(fdUrl || 'http://x/').searchParams.get('pv') === '2', `${label}: ↗ asks Fee Desk for the multi-code return (pv=2)`);
+  ok(new URL(fdUrl || 'http://x/').searchParams.get('pv') === '2' && new URL(fdUrl || 'http://x/').searchParams.get('pmax') === '10', `${label}: ↗ asks Fee Desk for the multi-code return (pv=2, pmax=10)`);
   ok(/＋ to pick several/.test(await fd.textContent('#pickbar')), `${label}: Fee Desk shows the multi-code banner`);
   await fdSearch(fd, '03.03A'); await tapOrClick(fd, '#results .hit[data-code="03.03A"] .psel', touch);
   await fdIcd(fd, 'V22', 'V22.2'); await tapOrClick(fd, '#icdresults .icdrow[data-icd="V22.2"] .psel', touch);
@@ -93,13 +96,13 @@ async function suite(browser, o, label, touch) {
   v = await vals(p, 1);
   ok(v.fee === '03.03A' && v.dx === 'V22.2' && v.mod1 === 'CMGP' && v.mod2 === '', `${label}: Undo restores the row ${JSON.stringify(v)}`);
 
-  // C. Dx never overwritten: the only fee code already has a Dx → the new Dx is left out and the message says so
+  // C. Dx never overwritten and never refused (v9m): the only fee code already has a Dx → the new Dx is added after it
   fd = await openPick(p, pickBtn(1, 'dx'), touch, cell(1, 'dx'));
   await fdIcd(fd, '650', '650'); await tapOrClick(fd, '#icdresults .icdrow[data-icd="650"] .psel', touch);
   await fdMod(fd, 'TELES', touch); await tapOrClick(fd, '.modrow[data-mod="TELES"] .psel', touch);
   await sendTray(fd, touch); await waitVal(p, cell(1, 'mod1'), /TELES/);
   v = await vals(p, 1); m = await msgTxt(p);
-  ok(v.dx === 'V22.2' && v.mod1 === 'CMGP, TELES' && /Not added: 650 \(one Dx per fee code, and each fee code here has one\)/.test(m), `${label}: existing Dx kept, 650 not added, TELES appended to Modifier code 1 (${JSON.stringify(v)}; "${m.trim()}")`);
+  ok(v.dx === 'V22.2, 650' && v.mod1 === 'CMGP, TELES' && /Added: Dx 650 · Modifier 1 TELES/.test(m) && !/Not added/.test(m), `${label}: existing Dx kept, 650 added after it, TELES appended to Modifier code 1 (${JSON.stringify(v)}; "${m.trim()}")`);
 
   // D. single tap still sends one code, as before
   fd = await openPick(p, pickBtn(1, 'fee'), touch, cell(1, 'fee'));
@@ -146,7 +149,8 @@ async function suite(browser, o, label, touch) {
     await p.evaluate(() => { window.__u = ''; window.open = u => { window.__u = u; return {}; }; });
     await tapOrClick(p, cell(2, 'fee'), false); await p.locator(pickBtn(2, 'fee')).evaluate(b => b.click()); await p.waitForTimeout(300);
     const tok = new URL(await p.evaluate(() => window.__u)).searchParams.get('ctx');
-    for (const bad of [`fee=03.03A,03.04A,03.05JR,13.99BA`, `mod=CM GP`, `fee=<b>`, `dx=650,V22.2,V22.1,V27.0`, ``]) {
+    const eleven = n => Array.from({ length: 11 }, (x, i) => n(i)).join(',');
+    for (const bad of [`fee=${eleven(i => '03.0' + i + 'A')}`, `mod=CM GP`, `fee=<b>`, `dx=${eleven(i => 'V2' + Math.floor(i / 10) + '.' + (i % 10))}`, `mod=${eleven(i => 'M' + i)}`, ``]) {
       await p.goto(LOGS + `?pickv=2&ctx=${tok}&${bad}`); await p.waitForSelector('#unlockForm:not([hidden])');
       ok(!/Unlock to add/.test(await p.textContent('#lockMsg')) && await p.evaluate(() => !!localStorage.getItem('bl.pick.v1')), `malformed v2 link rejected, pick still pending (${bad || 'no codes'})`);
     }
@@ -157,9 +161,45 @@ async function suite(browser, o, label, touch) {
     await p.goto(LOGS + `?pickv=2&ctx=${tok}&fee=03.04A`); await p.waitForSelector('#unlockForm:not([hidden])');
     ok(!/03\.04A/.test(await p.textContent('#lockMsg')), 'a used token cannot be replayed');
     await p.fill('#uPass', PIN); await p.click('#uBtn'); await p.waitForFunction(() => !document.body.classList.contains('locked')); await p.waitForTimeout(500);
+    // v9m: 10 ICD-9 into a row with 2 fee codes (one already has 650): one goes beside 13.99BA, the other 9 after them; none dropped
+    await p.evaluate(() => { window.__u = ''; window.open = u => { window.__u = u; return {}; }; });
+    await tapOrClick(p, cell(2, 'dx'), false); await p.locator(pickBtn(2, 'dx')).evaluate(b => b.click()); await p.waitForTimeout(300);
+    const tok2 = new URL(await p.evaluate(() => window.__u)).searchParams.get('ctx');
+    const dx10 = ['V22.0', 'V22.1', 'V22.2', 'V23.0', 'V23.1', 'V24.0', 'V24.1', 'V25.0', 'V27.0', '650'];
+    await p.goto(LOGS + `?pickv=2&ctx=${tok2}&dx=${dx10.join(',')}`); await p.waitForSelector('#unlockForm:not([hidden])');
+    await p.fill('#uPass', PIN); await p.click('#uBtn'); await p.waitForFunction(() => !document.body.classList.contains('locked'));
+    const dxAll = await waitVal(p, cell(2, 'dx'), /V27\.0/); m = await msgTxt(p);
+    ok(dxAll === '650, V22.0, V22.1, V22.2, V23.0, V23.1, V24.0, V24.1, V25.0, V27.0' && /Already in this row: 650/.test(m) && !/Not added/.test(m), `10 ICD-9 on a 2-fee-code row: all kept, 650 not doubled ("${dxAll}"; "${m.trim()}")`);
+    const det = await p.evaluate(async () => { const r = document.querySelector('#todayList table.grid tbody tr:nth-child(2) .gc[data-c="dx"]'); return r.scrollHeight <= r.clientHeight + 2; });
+    ok(det, 'the Dx cell shows every code (wraps, row grows, nothing clipped)');
     // H. persisted (encrypted vault) after lock / unlock
     v = await vals(p, 1);
-    ok(v.fee === '03.03A, 03.05JR' && v.dx === 'V22.2' && v.mod1 === 'CMGP, TELES, BMIPRO', `persisted after lock/unlock ${JSON.stringify(v)}`);
+    ok(v.fee === '03.03A, 03.05JR' && v.dx === 'V22.2, 650' && v.mod1 === 'CMGP, TELES, BMIPRO', `persisted after lock/unlock ${JSON.stringify(v)}`);
+  }
+  // I. 10 fee codes + 10 ICD-9 + 10 modifiers through Fee Desk v37 in one send → all in the row (fee, Dx paired in order, Mod 1)
+  const R10 = label === '1280' ? 3 : 2;
+  await tapOrClick(p, cell(R10, 'name'), touch); await p.keyboard.type('Ten Codes'); await p.keyboard.press('Tab');
+  await p.waitForSelector(`${G} tbody tr:nth-child(${R10})[data-id]`); await p.waitForTimeout(400);
+  fd = await openPick(p, pickBtn(R10, 'fee'), touch, cell(R10, 'fee'));
+  const add10 = async sel => { const ks = await fd.$$eval(sel, a => a.slice(0, 10).map(e => e.dataset.psel)); for (const k of ks) { const q = `[data-psel="${k}"].psel`; await fd.$eval(q, e => { e.scrollIntoView({ block: 'start' }); window.scrollBy(0, -150); }); if (touch) await fd.tap(q); else await fd.click(q); } return ks.map(k => k.slice(2)); };
+  await fdReady(fd); await fd.fill('#q', '03.0'); await fd.press('#q', 'Enter'); await fd.waitForSelector('#results .hit[data-code] .psel');
+  const F10 = await add10('#results .hit[data-code] .psel');
+  await fd.evaluate(() => { location.hash = '#/icd9'; }); await fd.waitForTimeout(250); await fd.fill('#iq', 'V2'); await fd.press('#iq', 'Enter'); await fd.waitForSelector('#icdresults .icdrow .psel');
+  const D10 = await add10('#icdresults .icdrow .psel');
+  await tapOrClick(fd, '#pickMods', touch); await fd.waitForSelector('.modrow .psel');
+  const M10 = await add10('.modrow .psel');
+  const tr10 = await fd.textContent('#picktray');
+  ok(F10.length === 10 && D10.length === 10 && M10.length === 10 && /Send to MedBilling Logs \(30\)/.test(tr10) && (tr10.match(/10\/10/g) || []).length === 3, `${label}: Fee Desk tray holds 10 + 10 + 10 (counters 10/10)`);
+  ok(await sendTray(fd, touch), `${label}: Send (30 codes) closes Fee Desk`);
+  await waitVal(p, cell(R10, 'mod1'), new RegExp(M10[9])); await p.waitForTimeout(400);
+  v = await vals(p, R10); m = await msgTxt(p);
+  ok(v.fee === F10.join(', ') && v.dx === D10.join(', ') && v.mod1 === M10.join(', ') && v.mod2 === '', `${label}: row filled with all 30 codes ${JSON.stringify(v)}`);
+  ok(/^Added: Fee /.test(m.replace(/^.*\| /, '')) && !/Not added/.test(m) && D10.every(d => m.includes(d)), `${label}: confirmation lists them ("${m.replace(/^.*\| /, '').slice(0, 90)}…")`);
+  const clip = await p.evaluate(r => ['fee', 'dx', 'mod1'].map(c => { const el = document.querySelector(`#todayList table.grid tbody tr:nth-child(${r}) .gc[data-c="${c}"]`); return el.scrollHeight - el.clientHeight; }), R10);
+  ok(clip.every(d => d <= 2), `${label}: Fee, Dx and Modifier 1 cells show every code (wrap, row grows; overflow ${clip.join('/')} px)`);
+  if (SHOTS) {
+    await p.locator(cell(R10, 'fee')).evaluate(el => el.scrollIntoView({ block: 'center', inline: 'start' })); await p.waitForTimeout(300);
+    await p.screenshot({ path: path.join(OUT10, `logs-row-after-10-fill-${label}.png`) });
   }
   await ctx.close();
 }
