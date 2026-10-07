@@ -27,10 +27,11 @@
   {
    "id": "NS",
    "name": "Nova Scotia",
-   "n": 2992,
-   "title": "MSI Physician’s Manual",
-   "eff": "Manual of July 2026 (units as printed)",
-   "credit": "Source: Government of Nova Scotia (MSI Physician’s Manual). © Crown copyright, Province of Nova Scotia. Reproduced for non-commercial reference; not an official version and not affiliated with or endorsed by the Government of Nova Scotia."
+   "held": true,
+   "n": 0,
+   "title": "Approval pending",
+   "eff": "",
+   "credit": "Code lookup unavailable until permission is granted; type codes manually and confirm them in the official MSI Physician’s Manual."
   },
   {
    "id": "SK",
