@@ -14,6 +14,31 @@
   try { sessionStorage.removeItem('bl.upd'); } catch (e) { /* storage unavailable */ }
   const $ = s => document.querySelector(s), $$ = s => Array.from(document.querySelectorAll(s));
   const R = window.BLR, V = window.Vault;
+  // ---- v9i Display (Settings → Display): text size slider (7 steps) and font style. Device-only preference in localStorage
+  // (no patient data), applied through CSS variables before unlock, so the lock screen and the grid use it too.
+  const DISP_KEY = 'bl.display.v1', TS = [11, 12, 13, 14, 16, 18, 20], TS_DEF = 13;
+  const FONTS = { system: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif',
+    rounded: 'ui-rounded,"SF Pro Rounded","Hiragino Maru Gothic ProN",Quicksand,Comfortaa,Manjari,"Arial Rounded MT Bold","Trebuchet MS",sans-serif',
+    serif: 'ui-serif,"New York",Georgia,Cambria,"Times New Roman",Times,serif',
+    mono: 'ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace' };
+  const TOUCHQ = matchMedia('(max-width:767px),(pointer:coarse)'), NARROWQ = matchMedia('(max-width:699px)');
+  function dispLoad() {
+    let d = null; try { d = JSON.parse(localStorage.getItem(DISP_KEY) || 'null'); } catch (e) { d = null; }
+    d = d && typeof d === 'object' ? d : {};
+    return { fs: TS.includes(d.fs) ? d.fs : TS_DEF, font: Object.prototype.hasOwnProperty.call(FONTS, d.font) ? d.font : 'system' };
+  }
+  // row height follows the text (phones and touch: at least 40 px to tap comfortably); columns use the same scale (em / ch)
+  function dispApply(d) {
+    d = d || dispLoad(); const r = document.documentElement, st = r.style, fs = d.fs, touch = TOUCHQ.matches;
+    const h = touch ? Math.max(40, Math.round(fs * 2.6)) : Math.max(28, Math.round(fs * 2.3));
+    st.setProperty('--g-fs', fs + 'px'); st.setProperty('--g-h', h + 'px'); st.setProperty('--g-lh', Math.round(fs * 1.3) + 'px');
+    st.setProperty('--app-k', String(Math.round((1 + (fs - TS_DEF) * 0.035) * 1000) / 1000)); st.setProperty('--app-font', FONTS[d.font]);
+    r.dataset.fs = String(fs); r.dataset.font = d.font;
+  }
+  dispApply();
+  // iPhone / iPad: grid text can be smaller than 16 px, so stop Safari's focus zoom (pinch-zoom still works on iOS)
+  const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (IOS) { const vm = document.querySelector('meta[name=viewport]'); if (vm && !/maximum-scale/.test(vm.content)) vm.content += ', maximum-scale=1'; }
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Date.now().toString(36) + '-' + Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, '0')).join('');
   const DEF = { defSetting: 'H', autolock: 2, prov: 'AB', curFac: null, favFac: [], customFac: [], bkEvery: 30, lastBackup: 0, bkSnooze: 0, abOn: false, abEvery: 60, abKeep: 24, abFmts: [], abZip: true, abPwMode: 'passcode', abNotes: false, abLoc: '',
@@ -55,13 +80,15 @@
   function lockNow(msg) {
     if (!S && document.body.classList.contains('locked')) return;
     if (cur && $('#editDlg').open) { try { V.saveDraft(editSnapshot()).catch(() => {}); } catch (e) { /* locked already */ } }
+    else { const nd = nedDraft(); if (nd && S) { try { V.saveDraft({ note: nd }).catch(() => {}); } catch (e) { /* locked already */ } } }
+    nedDraft(); nTipShow(null);
     hideSnack(); flushPhotoDel(); stopWake();
     if (S && S.settings.abOn && abLocOk && abMode() !== 'manual' && V.unlocked()) { try { runBackup('lock', abSnapshot()); } catch (e) { /* never block locking */ } }
     V.lock(); S = null; cur = null; sessPass = null; xpPw = null; xpAckSess = false; xpJob = null; gCell = null; viewDay = null;
     $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
     ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo', '#eNotes', '#eSummary', '#rmSub'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
-    $$('input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea').forEach(i => { i.value = ''; });
+    $$('input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]), textarea').forEach(i => { i.value = ''; });
     $('#pReady').hidden = true; repFile = null;
     showLock(msg || 'Locked.');
   }
@@ -204,7 +231,7 @@
     fillProv($('#defProv'), settings.prov); euRender();
     renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings(); abInit().catch(() => {});
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
-    else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else checkLongTimers(); }
+    else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else if (d && d.note) { await V.clearDraft(); nedRestore(d.note); } else checkLongTimers(); }
     await pickApply();
   }
   // v7: the single 280-character note of older versions becomes the first timestamped note (audit-logged, stays encrypted)
@@ -299,9 +326,13 @@
   const gHead = '<thead><tr>' + COLS.map(c => `<th scope="col" class="h-${c[0]}" data-h="${c[0]}"${c[0] === 'act' ? ' aria-label="Row actions"' : ''}>${esc(c[1])}</th>`).join('') + '</tr></thead>';
   // v9f: name, fee, dx and notes wrap (auto-growing textarea, height set by autoH after the widths are fitted), the rest stay one line.
   // Every editor has enterkeyhint="next": the phone's return key moves to the next cell, exactly like Tab / Enter.
-  const WRAP = { name: 1, fee: 1, dx: 1, note: 1 };
+  const WRAP = { name: 1, fee: 1, dx: 1 };   // v9i: Billing notes is a preview + notes editor
   const gAttrs = (c, o) => `class="gc${o.mono ? ' mono' : ''}" data-c="${c}" maxlength="${o.max || 80}"${o.ph ? ` placeholder="${esc(o.ph)}"` : ''} aria-label="${esc(o.lbl)}"${o.title ? ` title="${esc(o.title)}"` : ''} autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="next"${o.im ? ` inputmode="${o.im}"` : ''}${o.cap ? ` autocapitalize="${o.cap}"` : ''}`;
-  const gInp = (c, val, o) => WRAP[c] ? `<textarea rows="1" ${gAttrs(c, o)}>${esc(val)}</textarea>`
+  // v9i: Billing notes shows a one-line preview; tapping / clicking it (or typing on it) opens the notes editor.
+  // On narrow screens Patient name is a one-line field (ellipsis); the full name shows in a bubble while it has focus.
+  const notePrev = v => String(v || '').replace(/\s*\n+\s*/g, ' ↵ ');
+  const gInp = (c, val, o) => c === 'note' ? `<div class="gc nprev" data-c="note" tabindex="0" role="button" aria-label="${esc(o.lbl)}. Opens the notes editor" data-v="${esc(val)}">${esc(notePrev(val))}</div>`
+    : WRAP[c] && !(c === 'name' && NARROWQ.matches) ? `<textarea rows="1" ${gAttrs(c, o)}>${esc(val)}</textarea>`
     : `<input ${gAttrs(c, o)} value="${esc(val)}">`;
   const hcBtn = (v, lbl) => `<button type="button" class="gc hc" data-c="hc" aria-label="${esc(lbl)}: ${R.SET[v]}. Tap to switch" title="${R.SET[v]} (tap, or type H / C)">${v}</button>`;
   function gridRow(e, i) {
@@ -388,6 +419,7 @@
     nc.forEach((x, i) => {
       const y = oc[i]; if (!y) return o.appendChild(x);
       if (y === act) { for (const a of [...x.attributes]) if (a.name !== 'value' && a.name !== 'class' && y.getAttribute(a.name) !== a.value) y.setAttribute(a.name, a.value);
+        if (act.tagName === 'DIV') { if (act.textContent !== x.textContent) act.textContent = x.textContent; return; }   // v9i note preview
         const nv = x.tagName === 'TEXTAREA' ? x.defaultValue : (x.getAttribute('value') || ''); if (act.value === act.defaultValue && nv !== act.defaultValue) { const s0 = act.selectionStart, e0 = act.selectionEnd, all = s0 === 0 && e0 === act.value.length; act.defaultValue = nv; act.value = nv; if (all && act.select) act.select(); else if (act.setSelectionRange) { const n = Math.min(nv.length, e0 || 0); act.setSelectionRange(n, n); } } return; }
       if (y.contains(act)) { syncKids(y, x, act); for (const a of [...x.attributes]) if (y.getAttribute(a.name) !== a.value) y.setAttribute(a.name, a.value); return; }
       if (!sameEl(y, x)) y.replaceWith(x);
@@ -424,12 +456,13 @@
   function ensureVisible(el) {
     const w = el.closest('.gwrap'), td = el.closest('td'); if (!w || !td) return;
     const t = w.querySelector('table'), hh = (t.tHead && t.tHead.offsetHeight) || 0, fh = (t.tFoot && w.classList.contains('main') && t.tFoot.offsetHeight) || 0;
-    const rn = t.querySelector('tbody .rn'), nm = t.querySelector('tbody .c-name'), lw = (rn ? rn.offsetWidth : 0) + (nm && !td.classList.contains('c-name') && getComputedStyle(nm).position === 'sticky' ? nm.offsetWidth : 0);
+    const rn = t.querySelector('tbody .rn'), nm = t.querySelector('tbody .c-name'), pin = el => el && getComputedStyle(el).position === 'sticky';
+    const lw = (pin(rn) ? rn.offsetWidth : 0) + (nm && !td.classList.contains('c-name') && pin(nm) ? nm.offsetWidth : 0);   // v9i: nothing pinned → 0
     const wr = w.getBoundingClientRect(), r = td.getBoundingClientRect();
     if (r.top < wr.top + hh) w.scrollTop -= wr.top + hh - r.top; else if (r.bottom > wr.bottom - fh) w.scrollTop += r.bottom - (wr.bottom - fh);
     const isName = td.classList.contains('c-name');
     if (!isName) { if (r.left < wr.left + lw) w.scrollLeft -= wr.left + lw - r.left; else if (r.right > wr.right) w.scrollLeft += Math.min(r.right - wr.right, r.left - (wr.left + lw)); }
-    else if (w.scrollLeft) w.scrollLeft = 0;   // back to the patient name: show the start of the row again
+    else if (w.scrollLeft && r.left < wr.left + (rn ? rn.offsetWidth : 0)) w.scrollLeft = 0;   // back to the patient name: show the start of the row again
     if (w.classList.contains('main')) { const pr = w.getBoundingClientRect(); if (pr.bottom > innerHeight) td.scrollIntoView({ block: 'nearest' }); }
   }
   const COARSE = () => matchMedia('(pointer:coarse)').matches, FINE = () => matchMedia('(pointer:fine)').matches;
@@ -609,18 +642,18 @@
     root.addEventListener('pointerover', ev => { if (ev.pointerType !== 'mouse') return; const tr = ev.target.closest && ev.target.closest('tr[data-light]'); if (tr) lightUp(tr); });
     root.addEventListener('focusin', ev => {
       const c = ev.target.closest && ev.target.closest('.gc'); if (!c) return;
-      gCell = c; setActive(c); gNavShow(true); growNear(c);
+      gCell = c; setActive(c); gNavShow(true); growNear(c); nTipShow(c);
       if (gMouse === c) gEdit = true;
       else if (c.select && !COARSE()) { gEdit = false; if (document.activeElement === c && !(c.selectionStart === 0 && c.selectionEnd === c.value.length)) c.select(); }
       else gEdit = true;
       gMouse = null; kbSoon();
     });
     root.addEventListener('focusout', ev => {
-      const c = ev.target.closest && ev.target.closest('.gc'); if (c) commitCell(c);
-      setTimeout(() => { if (!root.contains(document.activeElement)) { setActive(null); gNavShow(false); if (root.id === 'histList' && histDirty) { histDirty = false; renderHistory(); } if (root.id === 'todayList' && todayResort) { todayResort = false; render(true); } } }, 0);
+      const c = ev.target.closest && ev.target.closest('.gc'); if (c) { commitCell(c); if (c === nTipFor) nTipShow(null); }
+      setTimeout(() => { if (!root.contains(document.activeElement) && !ned) { setActive(null); gNavShow(false); if (root.id === 'histList' && histDirty) { histDirty = false; renderHistory(); } if (root.id === 'todayList' && todayResort) { todayResort = false; render(true); } } }, 0);
     });
     root.addEventListener('input', ev => {
-      const c = ev.target.closest('.gc'); if (!c || c.tagName === 'BUTTON') return; gEdit = true;
+      const c = ev.target.closest('.gc'); if (!c || c.tagName === 'BUTTON' || c.tagName === 'DIV') return; gEdit = true; if (c === nTipFor) nTipShow(c);
       if (c.tagName === 'TEXTAREA') {
         if (c.dataset.c !== 'note' && /[\r\n]/.test(c.value)) { const p = c.selectionStart; c.value = c.value.replace(/[\r\n]+/g, ' '); c.setSelectionRange(p, p); }
       }
@@ -638,7 +671,6 @@
       const isIn = c.tagName === 'INPUT' || c.tagName === 'TEXTAREA', k = ev.key; gShiftEnter = k === 'Enter' && ev.shiftKey;
       if (k === 'Tab') { ev.preventDefault(); commitCell(c); return gMove(c, 0, ev.shiftKey ? -1 : 1, true); }
       if (k === 'Enter') {
-        if (c.dataset.c === 'note' && ev.shiftKey && FINE()) { gEdit = true; return; }   // computer only: new line inside the note
         ev.preventDefault(); commitCell(c); return gMove(c, 0, ev.shiftKey ? -1 : 1, true);   // Enter = next cell to the right (Shift+Enter = left)
       }
       if (k === 'Escape') { if (isIn && (c.value !== c.defaultValue || gEdit)) { ev.preventDefault(); ev.stopPropagation(); c.value = c.defaultValue; gEdit = false; c.select(); fitSoon(c.closest('table.grid')); } return; }
@@ -646,6 +678,11 @@
       if ((k === 'ArrowUp' || k === 'ArrowDown') && (!isIn || !gEdit)) { ev.preventDefault(); commitCell(c); return gMove(c, k === 'ArrowUp' ? -1 : 1, 0); }
       // ← → always move the cursor inside the text and never leave the cell (only the H/C button uses them to move)
       if (k === 'ArrowLeft' || k === 'ArrowRight') { if (!isIn) { ev.preventDefault(); return gMove(c, 0, k === 'ArrowLeft' ? -1 : 1, false); } gEdit = true; return; }
+      if (c.classList.contains('nprev')) {   // v9i: the notes preview (typing replaces, like any cell; Cancel puts it back)
+        if (k === 'F2' || k === ' ') { ev.preventDefault(); return nedOpen(c); }
+        if (k === 'Backspace' || k === 'Delete') { ev.preventDefault(); return nedOpen(c, ''); }
+        if (k.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); return nedOpen(c, k); }
+      }
       if (k === 'F2' && isIn) { ev.preventDefault(); gEdit = true; const n = c.value.length; c.setSelectionRange(n, n); return; }
       if (!isIn) { if (/^[hHcC]$/.test(k)) { ev.preventDefault(); hcToggle(c, k.toUpperCase()); } return; }
       if (k.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) gEdit = true;
@@ -658,6 +695,7 @@
       const ed = t.closest && t.closest('input.gc, textarea.gc');
       if (ed && document.activeElement === ed) { const s = getSelection(), td = ed.closest('td'); if (s && s.anchorNode && td && !td.contains(s.anchorNode)) { const n = ed.value.length; ed.setSelectionRange(n, n); } }
       const hc = t.closest('.gc.hc'); if (hc) return hcToggle(hc);
+      const np = t.closest('.gc.nprev'); if (np) return nedOpen(np);
       const pk = t.closest('.pickfd'); if (pk) { const tr = pk.closest('tr'), e = tr && tr.dataset.blank ? blankForPick(tr) : entryOf(pk); if (e) pickInFeeDesk(e, pk.dataset.kind, pk.dataset.at); return; }
       const a = t.closest('[data-a]');
       if (a) {
@@ -671,12 +709,124 @@
       const td0 = t.closest('td, th.rn'); if (!td0) return;
       const ltr = td0.closest('tr'), ci = [...ltr.cells].indexOf(td0); if (ltr.dataset.light) lightUp(ltr);
       const td = ltr.cells[ci] || td0;
+      if (td.classList.contains('c-note') && !td.classList.contains('rn')) { const np2 = td.querySelector('.gc.nprev'); if (np2) return nedOpen(np2); }
       const c = td.querySelector('.gc') || (td.classList.contains('rn') && td.parentNode.querySelector('.gc')); if (c) { gMouse = (c.tagName === 'INPUT' || c.tagName === 'TEXTAREA') && !td.classList.contains('rn') ? c : null; c.focus(); if (!gMouse && c.select) c.select(); }
     });
     root.addEventListener('dblclick', ev => { const rn = ev.target.closest('tbody .rn'); if (rn) { const e = entryOf(rn); if (e) openEdit(e); } });
     root.addEventListener('contextmenu', ev => { if (ev.target.closest('input')) return; const e = entryOf(ev.target); if (!e) return; ev.preventDefault(); openRowMenu(e); });
   }
   bindGrid($('#todayList')); bindGrid($('#histList'));
+
+  // ---- v9i notes editor: a bottom sheet on phones, a popover beside the cell on a computer. Multi-line, grows with the
+  // text, 16 px+ (no iPhone zoom). Done / Ctrl+Enter / Tab save like any cell (encrypted entry, audit-logged); Cancel / Esc
+  // put the note back. Tapping outside counts as Done (nothing typed is lost).
+  let ned = null;
+  const nedIn = t => !!(ned && t && ned.root.contains(t) && t.dataset.day === ned.day);   // the editor counts as working in that grid
+  const SHEET = () => matchMedia('(max-width:767px)').matches;
+  function nedFind(o) {
+    let tr = o.id ? o.root.querySelector(`tr[data-id="${CSS.escape(o.id)}"]`) : null;
+    if (!tr) { const t = o.root.querySelector(`table.grid[data-day="${CSS.escape(o.day)}"]`); tr = t && t.querySelector(`tbody tr[data-key="${CSS.escape(o.key)}"]`); }
+    return tr;
+  }
+  function nedOpen(cell, init) {
+    if (!S || !cell) return; let tr = cell.closest('tr'); if (!tr) return;
+    if (tr.dataset.light) { lightUp(tr); cell = tr.querySelector('.gc[data-c="note"]'); if (!cell) return; }
+    if (ned) nedClose(true);
+    const root = cell.closest('#todayList, #histList'), t = cell.closest('table.grid');
+    ned = { root, day: t ? t.dataset.day : '', key: tr.dataset.key, id: tr.dataset.id || '', orig: cell.dataset.v || '' };
+    const ta = $('#nedTa'), e = entryOf(cell);
+    ta.value = init != null ? init : ned.orig;
+    $('#nedSub').textContent = 'Row ' + (tr.sectionRowIndex + 1) + (e && ptName(e) ? ' · ' + ptName(e) : '');
+    const box = $('#noteEd'), sheet = SHEET(); box.classList.toggle('sheet', sheet); box.classList.toggle('pop', !sheet); box.hidden = false;
+    gCell = cell; setActive(cell); gNavShow(false); nTipShow(null);
+    nedSize(); ta.focus({ preventScroll: true }); const n = ta.value.length; ta.setSelectionRange(n, n); nedCount();
+    document.body.classList.add('nedopen');
+  }
+  function nedCount() { const n = $('#nedTa').value.length; $('#nedCnt').textContent = n > 400 ? `${n} / 500` : ''; }
+  // the sheet sits on the keyboard (visualViewport); the popover goes under the cell (or above it when there is no room)
+  function nedSize() {
+    if (!ned) return; const box = $('#nedBox'), ta = $('#nedTa'), vv = window.visualViewport;
+    const vh = vv ? vv.height : innerHeight, vt = vv ? vv.offsetTop : 0, sheet = $('#noteEd').classList.contains('sheet');
+    const tr = nedFind(ned), cell = tr && tr.querySelector('td.c-note'), cr = cell ? cell.getBoundingClientRect() : null;
+    if (sheet) { box.style.top = ''; box.style.left = ''; box.style.bottom = Math.max(0, Math.round(innerHeight - (vt + vh))) + 'px'; }
+    let room = sheet ? vh * 0.55 : Math.max(160, Math.min(innerHeight * 0.6, 420));
+    if (!sheet && cr) { const below = innerHeight - cr.bottom - 12, above = cr.top - 12; room = Math.max(140, Math.min(room, Math.max(below, above) - 70)); }
+    ta.style.height = 'auto'; const fixed = box.offsetHeight - ta.offsetHeight;
+    ta.style.height = Math.min(Math.max(ta.scrollHeight + 2, 96), Math.max(96, room - (sheet ? fixed : 0))) + 'px';
+    if (!sheet) {
+      const bw = box.offsetWidth, bh = box.offsetHeight, r = cr || { left: (innerWidth - bw) / 2, right: (innerWidth + bw) / 2, top: innerHeight / 3, bottom: innerHeight / 3 };
+      const left = Math.max(8, Math.min(r.right - bw, innerWidth - bw - 8)), top = r.bottom + 4 + bh <= innerHeight - 8 ? r.bottom + 4 : Math.max(8, r.top - 4 - bh);
+      box.style.bottom = ''; box.style.left = Math.round(Math.max(8, Math.min(left, r.left))) + 'px'; box.style.top = Math.round(top) + 'px';
+    }
+  }
+  function nedClose(save, move) {
+    if (!ned) return; const o = ned; ned = null; document.body.classList.remove('nedopen');
+    const ta = $('#nedTa'), v = ta.value.replace(/\r\n?/g, '\n'); $('#noteEd').hidden = true; ta.value = ''; ta.style.height = '';
+    const tr = nedFind(o), cell = tr && tr.querySelector('.gc[data-c="note"]');
+    if (save && v.trim() !== o.orig.trim() && S) {
+      if (cell) { cell.dataset.v = v; cell.textContent = notePrev(v); }
+      if (tr && tr.dataset.blank) createFromBlank(tr, 'note', v); else if (tr && tr.dataset.id) gridSave(tr.dataset.id, 'note', v); else if (o.id) gridSave(o.id, 'note', v);
+      if (cell) fitSoon(cell.closest('table.grid'));
+    }
+    if (cell && S) { if (move) gMove(cell, 0, move, true); else focusCell(cell); }
+  }
+  $('#nedTa').addEventListener('input', () => { nedSize(); nedCount(); });
+  $('#nedTa').addEventListener('keydown', ev => {
+    if (ev.isComposing) return;
+    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); return nedClose(false); }
+    if (ev.key === 'Tab') { ev.preventDefault(); return nedClose(true, ev.shiftKey ? -1 : 1); }
+    if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); return nedClose(true); }
+  });
+  $('#nedDone').addEventListener('click', () => nedClose(true));
+  $('#nedCancel').addEventListener('click', () => nedClose(false));
+  $('#nedBg').addEventListener('pointerdown', ev => { ev.preventDefault(); nedClose(true); });
+  [$('#nedDone'), $('#nedCancel')].forEach(b => b.addEventListener('pointerdown', ev => ev.preventDefault()));   // keep the keyboard up until closed
+  window.addEventListener('resize', () => { if (ned) { const sheet = SHEET(); $('#noteEd').classList.toggle('sheet', sheet); $('#noteEd').classList.toggle('pop', !sheet); nedSize(); } });
+  if (window.visualViewport) visualViewport.addEventListener('resize', () => { if (ned) nedSize(); });
+  // the app locks with the editor open: the unsaved note is kept as an encrypted draft and offered again after unlock
+  function nedDraft() {
+    if (!ned) return null; const v = $('#nedTa').value, o = ned; ned = null; $('#noteEd').hidden = true; document.body.classList.remove('nedopen');
+    return v.trim() !== o.orig.trim() ? { root: o.root.id, day: o.day, key: o.key, id: o.id, v } : null;
+  }
+  function nedRestore(d) {
+    const root = $('#' + (d.root === 'histList' ? 'histList' : 'todayList'));
+    if (d.root === 'histList') { if (tab !== 'history') { tab = 'history'; showTab(); } if (d.day) histDay(d.day); }
+    let tr = d.id ? root.querySelector(`tr[data-id="${CSS.escape(d.id)}"]`) : null;
+    if (!tr && !d.id) tr = $('#todayList tbody tr[data-blank]');
+    const cell = tr && tr.querySelector('.gc[data-c="note"]'); if (!cell) return;
+    cell.scrollIntoView({ block: 'center', inline: 'nearest' }); nedOpen(cell, d.v);
+    toast('Restored your unsaved billing note. Tap Done to save it.', 4000);
+  }
+  // ---- v9i: full patient name in a small bubble while a narrow (one-line, ellipsis) name cell has focus
+  let nTipFor = null;
+  function nTipShow(c) {
+    const tip = $('#nTip'); if (!tip) return;
+    const on = c && c.dataset && c.dataset.c === 'name' && c.tagName === 'INPUT' && NARROWQ.matches && c.value && c.scrollWidth > c.clientWidth + 1;
+    if (!on) { nTipFor = c && c.dataset && c.dataset.c === 'name' ? c : null; tip.hidden = true; tip.textContent = ''; return; }
+    nTipFor = c; tip.textContent = c.value; tip.hidden = false;
+    const r = c.closest('td').getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.round(Math.max(6, Math.min(r.left, innerWidth - tw - 6))) + 'px';
+    tip.style.top = Math.round(r.top - th - 4 >= 4 ? r.top - th - 4 : r.bottom + 4) + 'px';
+  }
+  $('#todayList').addEventListener('scroll', () => { if (nTipFor && !$('#nTip').hidden) nTipShow(nTipFor); }, { capture: true, passive: true });
+  // ---- v9i Settings → Display
+  function dispUi() {
+    const d = dispLoad(), i = TS.indexOf(d.fs), r = $('#dispSize');
+    r.value = String(i); r.setAttribute('aria-valuetext', d.fs + ' px'); $('#dispFont').value = d.font;
+    $('#tsVal').textContent = d.fs + ' px' + (d.fs === TS_DEF ? ' (default)' : '');
+  }
+  let dispT = 0;
+  function dispSet(d) {
+    try { localStorage.setItem(DISP_KEY, JSON.stringify({ fs: d.fs, font: d.font })); } catch (e) { /* storage blocked: applies until reload */ }
+    dispApply(d); dispUi();
+    cancelAnimationFrame(dispT); dispT = requestAnimationFrame(() => { if (!S) return; if (fillRows() !== fillRows.last) render(true); else fitAll(); sizeGrid(); });
+  }
+  $('#dispSize').addEventListener('input', () => { const d = dispLoad(); d.fs = TS[Math.max(0, Math.min(TS.length - 1, +$('#dispSize').value || 0))]; dispSet(d); });
+  $('#dispFont').addEventListener('change', () => { const d = dispLoad(); d.font = $('#dispFont').value; dispSet(d); });
+  $('#dispReset').addEventListener('click', () => dispSet({ fs: TS_DEF, font: 'system' }));
+  dispUi();
+  TOUCHQ.addEventListener('change', () => { dispApply(); if (S) fitAll(); });
+  NARROWQ.addEventListener('change', () => { if (S) render(true); });
   $('#todayList').addEventListener('scroll', growOnScroll, { capture: true, passive: true });
   window.addEventListener('scroll', () => { if (tab === 'today') growOnScroll(); }, { passive: true });
   // the Today grid fills the window below the toolbar (it scrolls inside, like Sheets, with the header and totals pinned)
@@ -695,7 +845,7 @@
     const day = curDay(), box = $('#todayList'); let list = dayList(day, true);
     const fill = fillRows(); fillRows.last = fill;
     let w = box.querySelector('.gwrap');
-    const old = w && w.querySelector('table.grid'), editing = old && old.contains(document.activeElement) && old.dataset.day === day;
+    const old = w && w.querySelector('table.grid'), editing = old && (old.contains(document.activeElement) || nedIn(old)) && old.dataset.day === day;
     // v9f: while you are working in the grid, rows keep their place (a typed In time never moves the row under your cursor);
     // they are re-sorted by time once focus leaves the grid
     // (and a row typed into lower down stays on that line instead of jumping up past the empty rows above it)
@@ -720,7 +870,17 @@
   }
   // ---- v9f dynamic column widths: each column fits its longest content (header and cells) between a minimum and a maximum;
   // past the maximum, name / codes / notes wrap and the row grows. Measured with a canvas in the cells' own fonts.
-  const FIT = { name: [160, 120, 34], mrn: [92, 88, 26], fee: [100, 96, 28], dx: [96, 90, 24], note: [170, 150, 40] };   // min desktop, min touch, max (ch)
+  // v9i: [min desktop, min touch, max] in characters ('0' widths of the column's font, cell padding included), so the
+  // minimums scale with Settings → Display → Text size: MRN/PHN 10 digits, Fee code 6 + ↗, Dx 5 + ↗, Billing notes wider.
+  // Patient name on a narrow screen: at most ~30 % of the width (one line, ellipsis; the full name shows on focus).
+  const FIT = { name: [22, 13, 34], mrn: [12.5, 12.5, 26], fee: [13, 12.5, 28], dx: [12, 11.5, 24], note: [26, 22, 40] };
+  function fitPx(key, need, ch, ww, touch) {
+    const cfg = FIT[key], mn = cfg[touch ? 1 : 0] * ch; let max = cfg[2] * ch;
+    if (key === 'name' && ww < 700) max = Math.min(max, Math.max(mn, ww * 0.30));
+    return Math.ceil(Math.min(Math.max(need, mn), Math.max(max, mn)));
+  }
+  const txtOf = el => el.tagName === 'DIV' ? el.textContent : (el.value || el.placeholder || '');
+  let fitBtn = 25;
   // v9g perf (100–150 rows a day): measurements are cached (per text+font, and per cell), all layout reads happen before
   // the writes, wrapping heights are set in one batch, and while you type only the edited cell is re-measured: the whole
   // table is refitted only when that cell actually changes a column's width.
@@ -738,7 +898,7 @@
     let rec = fitEC.get(el);
     if (!rec || rec.k !== ck) {
       const line = txt.split('\n').reduce((m, x) => x.length > m.length ? x : m, '');
-      const extra = cw ? cw.querySelectorAll('.cbtn, .tag').length * 25 : 0;
+      const extra = cw ? cw.querySelectorAll('.cbtn, .tag').length * fitBtn : 0;
       rec = { k: ck, tw: fitMw(line, f) + 18 + extra, multi: line !== txt }; fitEC.set(el, rec);
     }
     return rec;
@@ -757,11 +917,10 @@
     // fast path while typing: re-measure only the edited column; if its width stays the same, nothing else can change
     const st = t._fit, okey = only && only.dataset && only.dataset.c;
     if (only && st && st.ww === ww && st.touch === touch && FIT[okey] && st.px[okey] != null) {
-      const cfg = FIT[okey], f = okey !== 'name' && okey !== 'note' ? st.fM : st.fS;
+      const f = okey !== 'name' && okey !== 'note' ? st.fM : st.fS;
       let need = st.head[okey] || 0;
-      for (const el of t.querySelectorAll(`tbody .gc[data-c="${okey}"]`)) { const txt = el.value || el.placeholder || ''; if (txt) need = Math.max(need, fitRec(el, f, txt).tw); }
-      let max = cfg[2] * st.ch[okey]; if (okey === 'name' && ww < 700) max = Math.min(max, Math.max(cfg[1], ww * 0.42));
-      const px = Math.ceil(Math.min(Math.max(need, cfg[touch ? 1 : 0]), Math.max(max, cfg[touch ? 1 : 0])));
+      for (const el of t.querySelectorAll(`tbody .gc[data-c="${okey}"]`)) { const txt = txtOf(el); if (txt) need = Math.max(need, fitRec(el, f, txt).tw); }
+      const px = fitPx(okey, need, st.ch[okey], ww, touch);
       if (px === st.px[okey]) {
         if (only.tagName === 'TEXTAREA') { const txt = only.value; const r = txt ? fitRec(only, f, txt) : null;
           if (r && (r.multi || r.tw > px + 1)) autoHType(only); else if (only.style.height) only.style.height = ''; }
@@ -771,6 +930,7 @@
     const sans = t.querySelector('tbody .gc[data-c="name"]'), mono = t.querySelector('tbody .gc.mono'), th = t.querySelector('thead th.h-name');
     const fS = sans ? fontOf(sans) : '13px sans-serif', fM = mono ? fontOf(mono) : fS, fH = th ? fontOf(th) : fS;
     const memo = { ww, touch, fS, fM, px: {}, head: {}, ch: {} };
+    { const fsx = parseFloat(getComputedStyle(t).fontSize) || 13; fitBtn = Math.round(touch ? Math.max(30, fsx * 1.9 + 4) : Math.max(25, fsx * 1.55 + 6)); }   // ↗ / ▶ / tags
     const cols = [...t.querySelectorAll('colgroup col')], keys = cols.map(c => c.className.replace(/^c-/, ''));
     const fixed = cols.map((c, i) => FIT[keys[i]] ? 0 : (parseFloat(getComputedStyle(c).width) || 0));   // reads first
     let sum = 0, noteW = 0, noteCol = null, changed = false, onlyRec = null; const longs = [], widths = {};
@@ -780,14 +940,13 @@
       const h = t.querySelector(`thead [data-h="${key}"]`), isM = key !== 'name' && key !== 'note', f = isM ? fM : fS, ch = fitMw('0', f);
       let need = h ? fitMw(h.textContent, fH) + 18 : 0; memo.head[key] = need; memo.ch[key] = ch;
       for (const el of t.querySelectorAll(`tbody .gc[data-c="${key}"]`)) {
-        const txt = el.value || el.placeholder || ''; if (!txt) continue;
+        const txt = txtOf(el); if (!txt) continue;
         const rec = fitRec(el, f, txt);
         need = Math.max(need, rec.tw);
         if (el.tagName === 'TEXTAREA' && el.value) longs.push([el, key, rec.tw, rec.multi]);
         if (el === only) onlyRec = [el, key, rec.tw, rec.multi];
       }
-      let max = cfg[2] * ch; if (key === 'name' && ww < 700) max = Math.min(max, Math.max(cfg[1], ww * 0.42));
-      const px = Math.ceil(Math.min(Math.max(need, cfg[touch ? 1 : 0]), Math.max(max, cfg[touch ? 1 : 0])));
+      const px = fitPx(key, need, ch, ww, touch);
       widths[key] = px; memo.px[key] = px;
       if (key === 'note') { noteW = px; noteCol = col; return; }
       if (col.style.width !== px + 'px') { col.style.width = px + 'px'; changed = true; }
@@ -1013,7 +1172,7 @@
     const days = R.byDay(S.encs.slice().sort((a, b) => R.startOf(b) - R.startOf(a)));
     const hl = $('#histList'), ae = document.activeElement;
     // editing a History cell: patch the day tables in place (focus and keyboard stay); full redraw when focus leaves
-    if (hl.contains(ae) && ae.closest('table.grid')) {
+    if ((hl.contains(ae) && ae.closest('table.grid')) || (ned && ned.root === hl)) {
       histDays = days;
       for (const t of $$('#histList table.grid')) { const l = days.get(t.dataset.day); if (l) { patchGrid(t, sheetHtml(histSort(l), { day: t.dataset.day })); fitCols(t); } }
       histDirty = true; setActive(gCell); return;
