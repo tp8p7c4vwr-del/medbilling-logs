@@ -124,6 +124,21 @@ async function run(p, label, touch) {
   const hs = await p.evaluate(() => [document.querySelectorAll('#histList table.grid').length, document.querySelectorAll('#histList .gwrap[data-lazy]').length, document.querySelectorAll('#histList tbody tr[data-id]').length]);
   ok(hs[0] === N_PAST_DAYS + 1 && hs[1] === 0 && hs[2] === N_PAST_DAYS * PER_DAY + N_TODAY, `${label}: History draws older days as you scroll (${lazy0} waiting at first → ${hs[0]} day grids, ${hs[2]} rows; scroll frame p95 ${pct(hj, 0.95).toFixed(1)} ms)`);
   await p.click('#tabs [data-tab="today"]'); await p.waitForTimeout(300);
+  // 6. v9h endless rows: grow the grid to 150 entries + 300 empty rows by scrolling, then type and save again
+  for (let i = 0; i < 60 && (await p.evaluate(() => document.querySelectorAll('#todayList tbody tr').length)) < N_TODAY + 300; i++) { await p.evaluate(() => { const w = document.querySelector('#todayList .gwrap'); w.scrollTop = w.scrollHeight; }); await p.waitForTimeout(40); }
+  const big = await p.evaluate(() => [document.querySelectorAll('#todayList tbody tr').length, document.querySelectorAll('#todayList tbody tr[data-blank]').length]);
+  ok(big[1] >= 300, `${label}: endless rows: grid grown to ${big[0]} rows (${big[1]} empty) by scrolling`);
+  const gaps2 = await scrollJank(p, '#todayList .gwrap', -300 * 32, 90);
+  ok(pct(gaps2, 0.95) < FRAME_P95, `${label}: scrolling ${big[0]} rows: frame p95 ${pct(gaps2, 0.95).toFixed(1)} ms`);
+  await hit(p, cell(N_TODAY - 5, 'note'), touch);
+  kl = await typeLatency(p, ' more words with hundreds of empty rows below');
+  ok(pct(kl, 0.95) < KEY_P95 && Math.max(...kl) < KEY_MAX, `${label}: typing with ${big[0]} rows: p50 ${pct(kl, 0.5).toFixed(1)} / p95 ${pct(kl, 0.95).toFixed(1)} / max ${Math.max(...kl).toFixed(1)} ms per key`);
+  const b2 = await p.textContent(`${G} tfoot [data-tn]`);
+  await hit(p, cell(3, 'tout'), touch); await p.keyboard.press('Control+A'); await p.keyboard.type('now');
+  const bm = await p.textContent(`${G} tfoot [data-tm]`), t2 = await p.evaluate(() => performance.now()); await p.keyboard.press('Tab');
+  const save2 = await p.evaluate(async ({ bm, t2 }) => { const tm = () => document.querySelector('#todayList tfoot [data-tm]').textContent; while (tm() === bm && performance.now() - t2 < 5000) await new Promise(r => setTimeout(r, 5)); return performance.now() - t2; }, { bm, t2 });
+  const after = await p.evaluate(() => [document.querySelectorAll('#todayList tbody tr').length, document.querySelector('#todayList tfoot [data-tn]').textContent]);
+  ok(save2 < SAVE_MS && after[0] >= big[0] && after[1] === b2, `${label}: save with ${big[0]} rows → totals updated in ${save2.toFixed(0)} ms (< ${SAVE_MS}); rows kept (${after[0]}); count "${after[1].trim()}"`);
 }
 (async () => {
   const browser = await chromium.launch();
