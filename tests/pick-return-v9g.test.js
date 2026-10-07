@@ -1,5 +1,6 @@
 // v9g pick-and-return: ↗ in a Fee code(s) / Dx cell opens MedBilling Fee Desk in pick mode; tapping a code there puts it
 // straight back into the same cell (append, no duplicates, one Dx per fee code), with the cursor in the cell and a toast.
+// v9n: a single ICD-9 tap never replaces a Dx: beside the first fee code without one, else added after the others (extra Dx), with Undo.
 // Covers: fee from a search result and from a code page, ICD-9 from a search and from the suggested list, append + no
 // duplicate, Cancel, a locked vault on return (same-tab return), invalid return URLs rejected, 390 touch + 1280, NS held.
 // Run: cd /workspace/pwtest && BASE=http://127.0.0.1:18792/ node /workspace/medbilling-logs/tests/pick-return-v9g.test.js
@@ -113,6 +114,22 @@ async function suite(browser, o, label, touch) {
   await tapOrClick(fd, `#icdsug .icdrow[data-icd="${sug}"] .code`, touch); await closed5;
   v = await waitVal(p, cell(1, 'dx'), new RegExp(sug.replace(/\./g, '\\.')));
   ok(v === 'V22.2, ' + sug, `${label}: suggested ICD-9 ${sug} is added as the 2nd Dx ("${v}")`);
+  ok(new RegExp(sug.replace(/\./g, '\\.') + ' added beside 03\\.04A').test(await toastTxt(p)), `${label}: message says where it went ("${(await toastTxt(p)).trim()}")`);
+  // 5b. v9n: every fee code has a Dx → a 3rd ICD-9 is added after them (never replaces), with Undo; a duplicate is not added
+  const pickIcd = async (code, q) => {
+    const f = await openPick(p, pickBtn(1, 'dx'), touch, cell(1, 'dx'));
+    await fdReady(f); await f.fill('#iq', q || code); await f.press('#iq', 'Enter'); await f.waitForSelector(`#icdresults .icdrow[data-icd="${code}"]`, { timeout: 8000 });
+    const cl = f.waitForEvent('close', { timeout: 8000 }).then(() => true).catch(() => false);
+    await tapOrClick(f, `#icdresults .icdrow[data-icd="${code}"] .code`, touch); await cl; };
+  const two = 'V22.2, ' + sug;
+  await pickIcd('V22.0', 'V22'); v = await waitVal(p, cell(1, 'dx'), /V22\.0/);
+  let tm = await toastTxt(p);
+  ok(v === two + ', V22.0' && /V22\.0 added/.test(tm) && !/replaced/.test(tm) && await p.isVisible('#snackUndo'), `${label}: 3rd ICD-9 added after the others, nothing replaced, Undo offered ("${v}"; "${tm.trim()}")`);
+  await tapOrClick(p, '#snackUndo', touch); await p.waitForTimeout(600);
+  ok(await p.inputValue(cell(1, 'dx')) === two, `${label}: Undo removes it ("${await p.inputValue(cell(1, 'dx'))}")`);
+  await pickIcd('V22.0', 'V22'); v = await waitVal(p, cell(1, 'dx'), /V22\.0/);
+  await pickIcd('V22.2', 'V22'); await p.waitForTimeout(700); tm = await toastTxt(p);
+  ok(await p.inputValue(cell(1, 'dx')) === two + ', V22.0' && /V22\.2 is already in this row/.test(tm) && !/V22\.0 added/.test(tm), `${label}: a Dx already in the row is not added twice ("${tm.trim()}")`);
 
   // 6. Cancel: back without changes
   fd = await openPick(p, pickBtn(1, 'fee'), touch, cell(1, 'fee'));

@@ -1,3 +1,15 @@
+# MedBilling Logs v9n — a single tapped ICD-9 is added, never replaces a Dx (2026-10-07)
+
+## Why
+Jose (Oct 7, 11:45 AM MT): make the single-tap ICD-9 return append like the multi-pick does.
+
+## What changed (Logs v9n)
+- One ICD-9 code tapped in Fee Desk (`?picked=<code>&kind=dx`, unchanged link) now uses the multi-pick placement: beside the first fee code without a Dx; if every fee code has one, it is added after them (encrypted `dxx`, v9m); with no fee code it fills the empty Dx, else is added too. An existing Dx is never replaced (before: the last Dx was replaced, with Undo). A code already in the row is not added twice ("… is already in this row").
+- Confirmation: "V22.1 added" / "V22.1 added beside 03.04A" (row with 2+ fee codes), now always with **Undo**; an older Undo snack is hidden when a newer pick message appears. Audit: "Diagnostic code V22.1 picked in Fee Desk".
+- Fee Desk unchanged (v37). Single fee-code taps unchanged.
+- Manual (Pick in Fee Desk → Diagnostic codes), version 9n; PDF regenerated. Service-worker cache `bl-v9n-2026-10-07`.
+- Tests: `tests/pick-return-v9g.test.js` (where-it-went message; 3rd ICD-9 on a row whose 2 fee codes have Dx is added after them with Undo; Undo removes it; a duplicate is not added and the old Undo is gone).
+
 # MedBilling Logs v9m — up to 10 fee codes, 10 ICD-9 and 10 modifiers per pick; no Dx dropped (2026-10-07)
 
 ## Why
