@@ -62,8 +62,8 @@ async function scrollJank(p, sel, dist, steps) {
   }, { sel, dist, steps });
 }
 async function hit(p, sel, touch) {
-  // scroll the cell to the middle of the grid, then tap a point of it that is not covered by the pinned header,
-  // totals row or the sticky name column
+  // scroll the cell to the middle of the grid, then tap a point of it that is not covered by the pinned header
+  // or totals row
   const pt = await p.evaluate(sel => {
     const el = document.querySelector(sel); el.scrollIntoView({ block: 'center', inline: 'center' });
     const r = el.getBoundingClientRect();
@@ -84,7 +84,10 @@ async function run(p, label, touch) {
   const r = Math.max(1, N_TODAY - 5);
   await hit(p, cell(r, 'note'), touch);
   let kl = await typeLatency(p, ' added more words for the billing note so it wraps');
-  ok(pct(kl, 0.95) < KEY_P95 && Math.max(...kl) < KEY_MAX, `${label}: typing in Billing notes on row ${r}: p50 ${pct(kl, 0.5).toFixed(1)} / p95 ${pct(kl, 0.95).toFixed(1)} / max ${Math.max(...kl).toFixed(1)} ms per key (budget p95 < ${KEY_P95}, max < ${KEY_MAX})`);
+  ok(pct(kl, 0.95) < KEY_P95 && Math.max(...kl) < KEY_MAX, `${label}: typing in the Billing notes editor on row ${r}: p50 ${pct(kl, 0.5).toFixed(1)} / p95 ${pct(kl, 0.95).toFixed(1)} / max ${Math.max(...kl).toFixed(1)} ms per key (budget p95 < ${KEY_P95}, max < ${KEY_MAX})`);
+  const nt = await p.evaluate(() => performance.now()); await p.keyboard.press('Control+Enter');
+  const noteMs = await p.evaluate(async ({ r, t }) => { const d = () => document.querySelector(`#todayList tbody tr:nth-child(${r}) .gc[data-c="note"]`); while (!/so it wraps$/.test(d().dataset.v) && performance.now() - t < 5000) await new Promise(x => setTimeout(x, 5)); return performance.now() - t; }, { r, t: nt });
+  ok(noteMs < SAVE_MS && await p.isHidden('#noteEd'), `${label}: notes editor Done → cell updated in ${noteMs.toFixed(0)} ms`);
   await hit(p, cell(r, 'name'), touch);
   const w0 = await p.evaluate(() => Math.round(document.querySelector('#todayList thead [data-h="name"]').getBoundingClientRect().width));
   kl = await typeLatency(p, ' Maximiliano Fernández-Oyarzún de la Cruz y Mendoza');
@@ -131,7 +134,7 @@ async function run(p, label, touch) {
   const gaps2 = await scrollJank(p, '#todayList .gwrap', -300 * 32, 90);
   ok(pct(gaps2, 0.95) < FRAME_P95, `${label}: scrolling ${big[0]} rows: frame p95 ${pct(gaps2, 0.95).toFixed(1)} ms`);
   await hit(p, cell(N_TODAY - 5, 'note'), touch);
-  kl = await typeLatency(p, ' more words with hundreds of empty rows below');
+  kl = await typeLatency(p, ' more words with hundreds of empty rows below'); await p.keyboard.press('Control+Enter'); await p.waitForTimeout(150);
   ok(pct(kl, 0.95) < KEY_P95 && Math.max(...kl) < KEY_MAX, `${label}: typing with ${big[0]} rows: p50 ${pct(kl, 0.5).toFixed(1)} / p95 ${pct(kl, 0.95).toFixed(1)} / max ${Math.max(...kl).toFixed(1)} ms per key`);
   const b2 = await p.textContent(`${G} tfoot [data-tn]`);
   await hit(p, cell(3, 'tout'), touch); await p.keyboard.press('Control+A'); await p.keyboard.type('now');

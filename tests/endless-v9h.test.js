@@ -56,6 +56,7 @@ async function run(browser, o, label, touch) {
     for (let i = 0; i < 20 && (await at(p))[0] < 151; i++) { const r = await rows(p), sel = `${G} tbody tr:nth-child(${r - 3}) td.c-name`; await p.locator(sel).evaluate(el => el.scrollIntoView({ block: 'center' })); await p.waitForTimeout(60); await p.locator(sel).tap(); await p.waitForTimeout(60); }
     info = await at(p);
     const rb = await rows(p); const sel = `${G} tbody tr:nth-child(${rb - 6}) td.c-note`; await p.locator(sel).evaluate(el => el.scrollIntoView({ block: 'center', inline: 'center' })); await p.locator(sel).tap(); await p.waitForTimeout(100);
+    await p.locator('#nedDone').tap(); await p.waitForTimeout(100);   // v9i: the note opens its editor; Done returns to the cell
     await p.locator('#gNextF').tap(); await p.waitForTimeout(150);
     const an = await at(p); ok(an[0] === rb - 5 && an[1] === 'name' && await rows(p) === rb + 10, `${label}: Next bar from row ${rb - 6} to ${an[0]} adds 10 rows (${rb} → ${await rows(p)})`);
   }
