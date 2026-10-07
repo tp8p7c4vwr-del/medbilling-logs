@@ -40,9 +40,10 @@ const settle = p => p.waitForTimeout(1300);
     const w1 = await colW(p, k); ok(w1 > w0, `1280: ${k} column grows while typing (${w0} → ${w1}px)`);
     ok(await where(p) === `${k}@1`, `1280: focus stays in ${k} while typing a long value (${await where(p)})`);
   }
-  await p.click(cell(1, 'note')); await p.keyboard.type(LONG.note, { delay: 2 }); await p.waitForTimeout(150);
-  const noteInfo = await p.evaluate(() => { const ta = document.querySelector('#todayList tbody tr:nth-child(1) .gc[data-c="note"]'), cs = getComputedStyle(ta); return { sh: ta.scrollHeight, ch: ta.clientHeight, rowH: ta.closest('tr').offsetHeight, wrap: cs.whiteSpace, w: Math.round(ta.getBoundingClientRect().width) }; });
-  ok(noteInfo.sh <= noteInfo.ch + 1 && noteInfo.rowH > 40 && /pre-wrap/.test(noteInfo.wrap), `1280: long note wraps and the row grows instead of truncating (row ${noteInfo.rowH}px, note ${noteInfo.w}px wide)`);
+  // v9i: Billing notes is a one-line preview; the long text lives in the notes editor (popover on a computer)
+  await p.click(cell(1, 'note')); await p.waitForSelector('#noteEd:not([hidden])'); await p.keyboard.type(LONG.note, { delay: 2 }); await p.keyboard.press('Control+Enter'); await p.waitForTimeout(150);
+  const noteInfo = await p.evaluate(() => { const d = document.querySelector('#todayList tbody tr:nth-child(1) .gc[data-c="note"]'), cs = getComputedStyle(d); return { full: d.dataset.v, over: d.scrollWidth > d.clientWidth, wrap: cs.whiteSpace, ell: cs.textOverflow, w: Math.round(d.getBoundingClientRect().width) }; });
+  ok(noteInfo.full === LONG.note && noteInfo.over && noteInfo.wrap === 'nowrap' && noteInfo.ell === 'ellipsis', `1280: long note: one-line preview with ellipsis (${noteInfo.w}px), full text kept for the editor`);
   const nameWrap = await p.evaluate(() => { const ta = document.querySelector('#todayList tbody tr:nth-child(1) .gc[data-c="name"]'); return [ta.scrollHeight <= ta.clientHeight + 1, Math.round(ta.closest('td').getBoundingClientRect().width)]; });
   ok(nameWrap[0], `1280: long name fully visible (column capped at ${nameWrap[1]}px, text wraps)`);
   await p.keyboard.press('Tab'); await settle(p);
@@ -72,8 +73,8 @@ const settle = p => p.waitForTimeout(1300);
   await p.keyboard.press('Shift+Enter'); ok(await where(p) === 'name@2', 'Shift+Enter → previous cell');
   await p.keyboard.press('ArrowRight'); await p.keyboard.press('ArrowRight'); await p.keyboard.press('ArrowLeft'); ok(await where(p) === 'name@2', '← → move the caret only, never the cell');
   const caret = await p.evaluate(() => [document.activeElement.selectionStart, document.activeElement.value.length]); ok(caret[0] === caret[1] - 1, `caret moved inside the text (${caret[0]}/${caret[1]})`);
-  await p.click(cell(2, 'note')); await p.keyboard.type('line one'); await p.keyboard.press('Shift+Enter'); await p.keyboard.type('line two');
-  ok(await where(p) === 'note@2' && (await p.inputValue(cell(2, 'note'))).includes('\n'), 'computer: Shift+Enter makes a new line inside Billing notes');
+  await p.click(cell(2, 'note')); await p.keyboard.type('line one'); await p.keyboard.press('Enter'); await p.keyboard.type('line two'); await p.keyboard.press('Control+Enter');
+  ok(await where(p) === 'note@2' && (await p.getAttribute(cell(2, 'note'), 'data-v')).includes('\n'), 'computer: Enter makes a new line in the notes editor; Ctrl+Enter saves and keeps the cell');
   await p.keyboard.press('Enter'); ok(await where(p) === 'name@3', 'Enter in Billing notes → first cell of the next row');
   // 4. a typed In time does not move the row under the cursor while editing
   await p.click(cell(1, 'tin')); await p.keyboard.type('0700'); await p.keyboard.press('Tab'); await settle(p);
@@ -84,27 +85,30 @@ const settle = p => p.waitForTimeout(1300);
   ok(errors.length === 0, '1280: no console errors so far');
 
   // ===================================================================== phone 390, touch
-  const m = await open(browser, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const m = await open(browser, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1' });
   await m.screenshot({ path: path.join(OUT, 'narrow-content-390.png') });
   const attrs = await m.evaluate(() => [...document.querySelectorAll('#todayList tbody tr:nth-child(1) .gc')].filter(e => e.tagName !== 'BUTTON').map(e => [e.dataset.c, e.getAttribute('enterkeyhint'), parseFloat(getComputedStyle(e).fontSize)]));
-  ok(attrs.every(a => a[1] === 'next'), 'every editor has enterkeyhint="next": ' + attrs.map(a => a[0]).join(','));
-  ok(attrs.every(a => a[2] >= 16), 'every editor is ≥16px on the phone (no iOS zoom): ' + attrs.map(a => a[0] + ' ' + a[2]).join(', '));
+  ok(attrs.filter(a => a[0] !== 'note').every(a => a[1] === 'next'), 'every editor has enterkeyhint="next": ' + attrs.map(a => a[0]).join(','));
+  // v9i: grid text follows Settings → Display (13 px default); iPhone focus zoom is off via the viewport instead (16 px+ in the notes editor)
+  ok(attrs.every(a => a[2] >= 12.5 && a[2] <= 13), 'phone grid text follows the 13 px default: ' + attrs.map(a => a[0] + ' ' + a[2]).join(', '));
+  ok(/maximum-scale=1/.test(await m.getAttribute('meta[name=viewport]', 'content')), 'iPhone: viewport stops the focus zoom (maximum-scale=1)');
   ok(await m.isHidden('#gNav'), 'floating Next bar hidden until a cell is active');
   await m.locator(cell(1, 'name')).tap(); ok(await where(m) === 'name@1', 'tap → that cell');
   ok(await m.isVisible('#gNav'), 'floating ← Next → bar shows while a cell is active');
   for (const ch of LONG.name) { await m.keyboard.type(ch); } await settle(m); ok(await where(m) === 'name@1', 'typing a long name on the phone never moves focus');
   const order = ['mrn', 'hc', 'tin', 'tout', 'fee', 'dx', 'note'];
-  for (const k of order) { await m.keyboard.press('Enter'); ok(await where(m) === `${k}@1`, `phone return key → ${k}`); if (k !== 'hc' && k !== 'tin' && k !== 'tout') { await m.keyboard.type(LONG[k]); await m.waitForTimeout(500); ok(await where(m) === `${k}@1`, `typing in ${k} keeps focus`); } }
-  await m.keyboard.press('Enter'); ok(await where(m) === 'name@2', 'phone return key in Billing notes → next row (no new line)');
-  ok(!(await m.inputValue(cell(1, 'note'))).includes('\n'), 'no line break was added to the note on the phone');
+  for (const k of order) { await m.keyboard.press('Enter'); ok(await where(m) === `${k}@1`, `phone return key → ${k}`); if (k !== 'hc' && k !== 'tin' && k !== 'tout' && k !== 'note') { await m.keyboard.type(LONG[k]); await m.waitForTimeout(500); ok(await where(m) === `${k}@1`, `typing in ${k} keeps focus`); } }
+  await m.locator(cell(1, 'note')).tap(); await m.waitForSelector('#noteEd.sheet:not([hidden])'); await m.keyboard.type(LONG.note); await m.locator('#nedDone').tap(); await m.waitForTimeout(300);
+  ok(await where(m) === 'note@1' && (await m.getAttribute(cell(1, 'note'), 'data-v')) === LONG.note, 'phone: tap Billing notes → bottom sheet; Done saves and returns to the cell');
+  await m.keyboard.press('Enter'); ok(await where(m) === 'name@2', 'phone return key on Billing notes → next row');
   await settle(m);
   await m.locator(cell(2, 'dx')).tap(); await m.keyboard.type('650'); ok(await where(m) === 'dx@2' && (await m.inputValue(cell(2, 'dx'))) === '650', 'tap a cell next to a wrapped cell: typing lands in the tapped cell');
   await m.locator('#gNextF').tap(); ok(await where(m) === 'note@2', 'floating Next → moves exactly one cell and keeps the keyboard in the grid');
   await m.locator('#gPrevF').tap(); ok(await where(m) === 'dx@2', 'floating ← moves back one cell');
   // Android-style keyboards: a line break typed into a wrapping cell means "next cell"
-  await m.locator(cell(2, 'note')).tap();
+  await m.locator(cell(2, 'dx')).tap();
   const moved = await m.evaluate(() => { const ta = document.activeElement, ev = new InputEvent('beforeinput', { inputType: 'insertLineBreak', bubbles: true, cancelable: true }); ta.dispatchEvent(ev); return ev.defaultPrevented; });
-  ok(moved && await where(m) === 'name@3', 'line-break input from the phone keyboard → next cell (Android IME path)');
+  ok(moved && await where(m) === 'note@2', 'line-break input from the phone keyboard → next cell (Android IME path)');
   await m.locator(cell(2, 'tin')).tap(); ok(await where(m) === 'tin@2', 'tapping another cell moves there');
   await m.keyboard.type('0815'); await settle(m); ok(await where(m) === 'tin@2', 'full time typed on the phone: focus stays');
   ok((await aligned(m)).length === 0, '390: header, body and totals aligned ' + JSON.stringify(await aligned(m)));
@@ -113,6 +117,7 @@ const settle = p => p.waitForTimeout(1300);
   await m.screenshot({ path: path.join(OUT, 'wide-content-390.png') });
   await m.locator(cell(1, 'note')).tap(); await m.waitForTimeout(400);
   await m.screenshot({ path: path.join(OUT, 'wide-content-notes-390.png') });
+  await m.locator('#nedCancel').tap(); await m.waitForTimeout(200);
 
   // ===================================================================== Nova Scotia withheld
   const nErr = errors.length;

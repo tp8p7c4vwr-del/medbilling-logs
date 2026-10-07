@@ -1,3 +1,18 @@
+# MedBilling Logs v9i — Nothing pinned, text size and font, notes editor, readable phone cells (2026-10-06)
+
+## Why
+Jose tested TestFlight build 4 (v9h) on his iPhone: the pinned Patient column took too much room, the letters were too big, the notes cell was too small, and the cells were too narrow and hard to see.
+
+## What changed (Logs v9i)
+- **Nothing pinned:** the sticky # and Patient name columns are gone on every screen size (no setting); the grid scrolls sideways as a whole. Header (top) and totals (bottom) rows stay sticky.
+- **Patient name on phones:** about 30% of the viewport, one line with an ellipsis; focusing/tapping it shows the full name in a bubble above the cell.
+- **Settings → Display:** Text size slider like iOS (small A … large A, 7 steps 11/12/13/14/16/18/20 px, default 13 px, live preview line) and Font style picker (System default, Rounded, Serif, Monospace; system font stacks, no web fonts). Stored per device in localStorage `bl.display.v1` (no patient data), applied before unlock via CSS variables on the grid and the app. Row height scales (touch: max(40, 2.6×size) px).
+- **Billing notes editor:** tapping/clicking the notes cell (or F2/Space, or typing on it) opens a multi-line, auto-growing editor: bottom sheet on phones (above the keyboard), popover next to the cell on desktop. Done/Cancel; Enter = new line, Ctrl/⌘-Enter = Done, Tab = Done + next cell, Esc = Cancel, tap outside = Done. Input ≥16 px. Saved through the same encrypted save queue; a dirty editor is kept as an encrypted draft if the app locks and restored after unlock. The cell shows a one-line preview (↵ for line breaks); the notes column is wider. While the editor is open the grid counts as "in use", so rows are not re-sorted under it.
+- **Readable phone cells:** minimum column widths in characters that scale with the text size (MRN ~10 digits, Fee ~6, Dx ~5, In/Out ~5, Min/Units ~4), rows ≥40 px, darker gridlines, light zebra striping, tinted active row and a 2.5 px active-cell ring. iOS: viewport `maximum-scale=1` so focusing a sub-16 px cell never zooms (pinch zoom still works).
+- Unchanged: pick-and-return, endless rows, 150-row performance (notes editor typing p95 ~21 ms at 1280, ~19 ms at 390), encrypted export, Face ID / easy unlock.
+- Manual: section 4 (nothing pinned, Billing notes editor, Settings → Display), section 5 Billing notes; version 9i; PDF regenerated. Service-worker cache `bl-v9i-2026-10-06`.
+- Tests: new `tests/display-notes-v9i.test.js` (390 touch + 1280: no sticky columns, horizontal scroll, slider steps/persistence/reload, font picker persistence, min widths, row height, zebra/active highlight, name bubble, notes editor open/Done/Cancel/Esc/Tab/multi-line on sheet and popover, saved after lock/unlock); grid-v9f, endless-v9h and perf-v9g updated for the notes editor. All 7 suites pass.
+
 # MedBilling Logs v9h — Endless rows (2026-10-06)
 
 ## Why
