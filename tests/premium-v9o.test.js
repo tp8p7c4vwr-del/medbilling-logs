@@ -63,7 +63,7 @@ async function desktop(browser) {
     ['h-0', 'Thanks Pt', T('2025-10-13T09:00'), T('2025-10-13T10:00'), { mod2: 'WK', modU: { WK: 4 } }], ['b-0', 'Boxing Pt', Date.parse('2025-12-26T09:00:00-07:00'), Date.parse('2025-12-26T10:00:00-07:00'), { mod1: 'CMGP, TST', modU: { TST: 4 } }]];
   const p = await setup(browser, { viewport: { width: 1280, height: 860 } }, L, seed);
   ok(!(await popOpen(p)), `${L}: no pop-up on unlock for days already logged`);
-  const pb = await p.textContent('#pbUnits'); ok(/^(TEV|TNTP|TNTA|TWK|TST|TDES) \d+\/\d+ u · logged \d+ u$|^no premium units/.test(pb), `${L}: header shows the current modifier, units entered / limit and logged time ("${pb}")`);
+  const pb = await p.textContent('#pbUnits'); ok(/^(TEV|TNTP|TNTA|TWK|TST|TDES) \d+ of \d+ units$|^No premium units$/.test(pb), `${L}: header shows the current modifier, units entered / limit and logged time ("${pb}")`);
   await goDay(p, '2026-10-06'); let s = await strip(p);
   ok(s && s.txt === '03.01AA TNTA 0/28 TEV 16/20 TNTP 0/8' && s.cls.TEV === 'near', `${L}: day strip counts the units entered on the modifiers: "${s && s.txt}"`);
   ok(await p.textContent(`${G} tbody tr:nth-child(1) td.c-mod1 .mub`) === '×16', `${L}: units chip beside TEV shows ×16`);
@@ -141,14 +141,14 @@ async function fixedDays(browser) {
   // the app's clock on Thanksgiving 2026 and on the designated day for Boxing Day 2026
   let p = await setup(browser, { viewport: { width: 1280, height: 860 } }, 'thanks26', [['t-0', 'Thanks', T('2026-10-12T07:00'), T('2026-10-12T09:45'), { mod1: 'WK', modU: { WK: 11 } }]], '2026-10-12T10:00:00-06:00');
   let n = await p.textContent('#pbName'), u = await p.textContent('#pbUnits'), s = await strip(p);
-  ok(/Weekend\/holiday daytime · Thanksgiving Day/.test(n) && u === 'TST 11/60 u · logged 11 u' && s.txt === '03.01AA · Thanksgiving Day TNTA 0/28 TST 11/60 TNTP 0/8', `Mon Oct 12, 2026 (Thanksgiving): header "${n} · ${u}", strip "${s.txt}"`);
+  ok(/Weekend\/holiday daytime · Thanksgiving Day/.test(n) && u === 'TST 11 of 60 units' && /time logged: 11 units/.test(await p.textContent('#pbLeft')) && s.txt === '03.01AA · Thanksgiving Day TNTA 0/28 TST 11/60 TNTP 0/8', `Mon Oct 12, 2026 (Thanksgiving): header "${n} · ${u}", strip "${s.txt}"`);
   await p.context().close();
   p = await setup(browser, { viewport: { width: 1280, height: 860 } }, 'des26', [], '2026-12-28T12:00:00-07:00');
   n = await p.textContent('#pbName'); u = await p.textContent('#pbUnits');
-  ok(/Designated holiday for Boxing Day/.test(n) && u === 'TDES 0/60 u · logged 0 u', `Mon Dec 28, 2026: header "${n} · ${u}"`);
+  ok(/Designated holiday for Boxing Day/.test(n) && u === 'TDES 0 of 60 units', `Mon Dec 28, 2026: header "${n} · ${u}"`);
   await p.context().close();
   p = await setup(browser, { viewport: { width: 1280, height: 860 } }, 'eve26', [], '2026-10-07T18:30:00-06:00');
-  u = await p.textContent('#pbUnits'); ok(u === 'TEV 0/20 u · logged 0 u', `weekday evening header "${u}"`);
+  u = await p.textContent('#pbUnits'); ok(u === 'TEV 0 of 20 units', `weekday evening header "${u}"`);
   await p.context().close();
 }
 
