@@ -4,7 +4,7 @@ const fs = require('fs'), path = require('path');
 const { chromium } = require(require.resolve('playwright', { paths: ['/workspace/pwtest'] }));
 const PUB = path.join(__dirname, '..', 'public');
 const OUT = process.argv[2] || '/workspace/medbilling-logs-user-manual.pdf';
-const VERSION = process.env.MAN_VERSION || '9o';
+const VERSION = process.env.MAN_VERSION || '9p';
 (async () => {
   const html = fs.readFileSync(path.join(PUB, 'index.html'), 'utf8');
   const m = html.match(/<div class="man" id="manBody">([\s\S]*?)<\/div>\s*<\/dialog>/); if (!m) throw new Error('manual not found');

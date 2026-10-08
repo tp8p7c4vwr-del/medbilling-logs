@@ -26,6 +26,11 @@ arrival/departure (time on site), call-backs, fee codes, photos and reports. Liv
 - **Facility # / Functional centre (v9o):** official Alberta Health facility listing (effective 2026-07-01, 411 facilities) with search, favourites and recents; Med Access-style functional centres; H/C tie-in; carry-down.
 - **After-hours premium units (v9o):** 01–20 unit picker on TEV/TNTP/TNTA/TWK/TST/TDES (and EV/NTPM/NTAM/WK); daily maximums from the Price List (03.01AA); strip, period-bar counts and a non-blocking limit pop-up; AHCIP holidays per SOMB GR 1.2/1.3.
 - **Today scrolling (v9o):** the grid is the only vertical scroller (fills the screen, header pinned); the footer sits after the last row.
+- **Face ID by default (v9p):** biometric / passkey unlock is set up with the passcode (app) or offered once (web, existing users); it prompts by itself on open / resume, passcode is the fallback.
+- **Undo / Redo (v9p):** ↶ ↷ in the Today toolbar and Ctrl/⌘+Z, Shift+Ctrl/⌘+Z; 60 steps per day sheet, encrypted in the vault, survives relaunch.
+- **Same patient rows (v9p):** ＋ same in the selected row's number (or ⋯) adds a row below with the patient, facility, functional centre and H/C copied; grouped rows; "N encounters · M patients".
+- **Plain-words totals (v9p):** totals in hours and minutes ("8 h 52 min · 36 units") with one line per setting / time period; CSV keeps raw minutes and adds `hours_minutes`.
+- **Modifier ↗ Fee Desk (v9p):** Modifier code 1 / 2 cells open Fee Desk on its Modifiers tab in pick mode; the picked modifiers come back into the cell you started from (appended, no duplicates).
 - **Easy unlock (v9e):** optional Face ID / Touch ID / fingerprint (iOS/Android app, Keychain/Keystore via `@capgo/capacitor-native-biometric`), quick 4–6 digit PIN (app only, PBKDF2 600k + Keychain pepper, erased after 5 wrong tries) and passkey unlock on the web (WebAuthn PRF; hidden where unsupported). Each wraps the vault key; the passcode stays the fallback; changing the passcode turns easy unlock off; exports always need a typed password.
 
 ## User manual

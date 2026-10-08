@@ -21,6 +21,10 @@ async function lock(page) { await page.click('#lockNow'); await page.waitForSele
   const cdp = await ctx.newCDPSession(page); await cdp.send('WebAuthn.enable');
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true, hasPrf: true } });
   await setup(page, '48203917');
+  // v9p: a platform passkey is offered right after setup ("Use Face ID / Touch ID to unlock?"); say Not now here (accepting is
+  // covered by easy-default-v9p.test.js) so the Settings toggle path is still tested
+  await page.waitForSelector('#askDlg[open]', { timeout: 8000 }); ok(/Use Face ID \/ Touch ID to unlock\?/.test(await page.textContent('#askTitle')) && (await page.textContent('#askCancel')) === 'Not now', 'v9p: passkey offered after setup (Not now)');
+  await page.click('#askCancel'); await page.waitForTimeout(300);
   await page.click('#tabs [data-tab="data"]'); await page.waitForTimeout(300);
   ok(await page.isVisible('#euCard') && await page.isVisible('#euBioL') && /passkey/.test(await page.textContent('#euBioLbl')), 'web: passkey option shown (PRF-capable authenticator)');
   ok(await page.isHidden('#euPinL'), 'web: quick PIN not offered in the browser');
@@ -65,14 +69,18 @@ async function lock(page) { await page.click('#lockNow'); await page.waitForSele
       deleteData: async ({ key }) => { store.delete(key); }
     };
     window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'ios', Plugins: { NativeBiometric } };
+    Object.defineProperty(document, 'visibilityState', { get: () => window.__vis || 'visible' }); Object.defineProperty(document, 'hidden', { get: () => window.__vis === 'hidden' });
   });
+  const resume = async p => { await p.evaluate(() => { window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); }); await p.waitForTimeout(150); await p.evaluate(() => { window.__vis = 'visible'; document.dispatchEvent(new Event('visibilitychange')); }); };
   await setup(p3, '48203917'); await p3.click('#tabs [data-tab="data"]'); await p3.waitForTimeout(300);
   ok(/Face ID/.test(await p3.textContent('#euBioLbl')) && await p3.isVisible('#euPinL'), 'app: "Unlock with Face ID" + quick PIN offered');
-  await p3.check('#euBioOn'); await askFill(p3, { p: '48203917' }); await p3.waitForTimeout(1500);
+  await p3.waitForFunction(() => document.querySelector('#euBioOn').checked, null, { timeout: 8000 });   // v9p: on by default after setup (one confirming scan)
   const st = await p3.evaluate(() => [...window.__nb.store.entries()].map(([k, v]) => k + ':' + v.ac).join(','));
-  ok(await p3.isChecked('#euBioOn') && /mbl\.easy\.bio\.v1:1/.test(st), 'Face ID on: wrap key stored with biometric access control (' + st + ')');
+  ok(await p3.isChecked('#euBioOn') && /mbl\.easy\.bio\.v1:1/.test(st), 'Face ID on by default after setup: wrap key stored with biometric access control (' + st + ')');
   await p3.locator('#euCard').scrollIntoViewIfNeeded(); await p3.screenshot({ path: path.join(OUT, 'easy-unlock-settings-app-390.png') });
-  await lock(p3); await unlocked(p3); ok(await p3.evaluate(() => window.__nb.prompts) >= 1, 'app: Face ID prompt shown automatically on the lock screen and unlocks');
+  await p3.waitForTimeout(1200);   // the setup scan holds the background lock for 0.8 s after it ends
+  const pr0 = await p3.evaluate(() => window.__nb.prompts);
+  await resume(p3); await unlocked(p3); ok(await p3.evaluate(() => window.__nb.prompts) === pr0 + 1, `app: back from the background, Face ID prompts automatically and unlocks (prompts ${pr0} → ${await p3.evaluate(() => window.__nb.prompts)})`);
   // quick PIN
   await p3.click('#tabs [data-tab="data"]'); await p3.check('#euPinOn'); await askFill(p3, { p: '48203917', n1: '1234', n2: '1234' });
   ok(/straight sequence/.test(await p3.textContent('#askErr')), 'weak PIN 1234 refused');
