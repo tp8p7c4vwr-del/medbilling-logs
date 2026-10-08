@@ -831,3 +831,49 @@ body.footin{padding-bottom:0}
 .gwrap.main > .gfoot .foot{margin:0 auto;padding:0 4px}
 @media print{.gwrap.main > .gfoot{display:none}}
 html.native body.footin{padding-bottom:0}   /* beats native.css "html.native body" padding in the iOS / Android app */
+
+/* v9p: Undo / Redo in the day toolbar (always on screen: the page itself doesn't scroll on Today). 44x44 tap area on touch. */
+.tgrp.udo{gap:4px}
+.tb.ub{font-size:1.15rem;font-weight:600;color:#0b57d0}
+.tb.ub:disabled{color:#80868b}
+@media (pointer:coarse){
+  #gPrev,#gNext{display:none}            /* the floating ← Next → bar does this on touch while a cell is active */
+  .tgrp.cnav{display:none}
+  .tb.ub{position:relative;z-index:1;min-width:42px;min-height:32px}
+  .tb.ub::before{content:'';position:absolute;inset:-7px -2px}   /* 44 x 44 pt tap target without a taller toolbar */
+}
+@media (max-width:430px){.dpick .dlt{display:none}}
+/* v9p: Same patient. The ＋ button lives in the row-number cell of the selected row (hover on a computer); rows of one patient
+   share a blue bar on the left of the name, and a repeated name right under the same patient is shown lighter (stored in full). */
+table.grid tbody th.rn .spb{display:none}
+table.grid tbody tr.act>th.rn,table.grid tbody tr.gr:hover>th.rn{position:relative}
+table.grid tbody tr.act>th.rn .spb{display:flex}
+@media (hover:hover) and (pointer:fine){table.grid tbody tr.gr:hover>th.rn .spb{display:flex}}
+table.grid .spb{position:absolute;inset:0;z-index:3;flex-direction:column;align-items:center;justify-content:center;gap:0;margin:0;padding:0;border:0;border-radius:0;background:#0b57d0;color:#fff;cursor:pointer;line-height:1;font-family:inherit}
+table.grid .spb b{font-size:15px;font-weight:700;line-height:1}
+table.grid .spb small{font-size:8.5px;font-weight:600;letter-spacing:.02em;line-height:1;margin-top:1px}
+table.grid .spb:hover{background:#0842a0}
+table.grid .spb:focus-visible{outline:2px solid #fbbc04;outline-offset:-2px}
+@media (pointer:coarse){
+  table.grid col.c-rn{width:44px}
+  table.grid tbody tr.act>th.rn{overflow:visible}
+  table.grid .spb{inset:auto;left:0;top:50%;width:100%;min-width:44px;height:max(44px,100%);transform:translateY(-50%);border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+  table.grid tbody tr:first-child>th.rn .spb{top:0;transform:none}   /* the first row's button grows downwards, not under the header */
+}
+table.grid tbody tr.spg>td.c-name{box-shadow:inset 3px 0 0 #8ab4f8}
+table.grid tbody tr.spg.act>td.c-name.act{box-shadow:inset 0 0 0 2px var(--g-act)}
+table.grid tbody tr.spc>td.c-name .gc[data-c="name"]:not(:focus),table.grid tbody tr.spc>td.c-mrn .gc[data-c="mrn"]:not(:focus){color:#9aa0a6}
+table.grid tbody tr.spc>td.c-name .cw::before{content:'″';color:#8ab4f8;font-weight:700;margin:0 2px 0 4px;flex:none}
+table.grid tbody tr.spn>td,table.grid tbody tr.spn>th.rn{border-bottom-color:#e3e8ef}
+/* v9p: plain-words totals. The totals row shows hours and minutes; the lines under it (Hospital …, Day …, Evening …) span the
+   visible width at any sideways scroll: one per line on a phone, side by side on a wide screen. Both rows stay pinned on Today. */
+table.grid tfoot tr.gt>th,table.grid tfoot tr.gt>td{bottom:var(--tsh,0px)}
+table.grid tfoot tr.gts>td{height:auto;padding:0;border-top:1px solid var(--g-line);text-align:left;white-space:normal}
+table.grid tfoot .tsumi{position:sticky;left:0;box-sizing:border-box;width:var(--gvw,100%);max-width:var(--gvw,100vw);display:flex;flex-wrap:wrap;gap:1px 26px;padding:4px 10px 5px;font-weight:500;font-size:max(12px,calc(var(--g-fs) - 1px));line-height:1.35;color:#3c4043}
+table.grid tfoot .tsumi>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.grid tfoot td[data-tm]{white-space:nowrap}
+#histList table.grid tfoot .tsumi{position:sticky;left:0}
+.pbr b{font-weight:700}
+@media (max-width:600px){.pbnx{display:none}}
+table.grid tfoot tr.gts>td{overflow:visible}
+@media (max-width:600px){table.grid tfoot .tsumi{flex-direction:column}}
