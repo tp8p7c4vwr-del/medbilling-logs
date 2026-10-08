@@ -94,6 +94,10 @@
         <button type="button" class="tb ic" id="gPrev" aria-label="Previous cell" title="Previous cell (Shift+Tab)">←</button>
         <button type="button" class="tb ic" id="gNext" aria-label="Next cell" title="Next cell (Tab or Enter)">→</button>
       </div>
+      <div class="tgrp udo" role="group" aria-label="Undo and redo">
+        <button type="button" class="tb ic ub" id="gUndo" aria-label="Undo" title="Undo (Ctrl+Z / ⌘Z)" disabled>↶</button>
+        <button type="button" class="tb ic ub" id="gRedo" aria-label="Redo" title="Redo (Shift+Ctrl+Z / ⇧⌘Z)" disabled>↷</button>
+      </div>
       <span class="tinfo wk" id="wkTot"></span>
       <span class="tsp" aria-hidden="true"></span>
       <div class="tgrp acts">
@@ -419,9 +423,11 @@
       <button type="button" data-rmi="time"><span class="ei" aria-hidden="true">+</span>Add time</button>
       <button type="button" data-rmi="segs"><span class="ei" aria-hidden="true">⧉</span>Segments &amp; photos (edit details)</button>
       <button type="button" data-rmi="note"><span class="ei" aria-hidden="true">✎</span>Add note</button>
-      <button type="button" data-rmi="same" id="rmSame"><span class="ei" aria-hidden="true">↔</span>Same patient, new encounter</button>
+      <button type="button" data-rmi="same" id="rmSame"><span class="ei" aria-hidden="true">＋</span>Same patient: new row below</button>
+      <button type="button" data-rmi="samerun" id="rmSameRun"><span class="ei" aria-hidden="true">↔</span>Same patient: start a new timer now</button>
       <button type="button" data-rmi="fee"><span class="ei" aria-hidden="true">↗</span>Pick fee code in Fee Desk</button>
       <button type="button" data-rmi="dx"><span class="ei" aria-hidden="true">↗</span>Pick diagnostic code in Fee Desk</button>
+      <button type="button" data-rmi="mod"><span class="ei" aria-hidden="true">↗</span>Pick modifier in Fee Desk</button>
       <button type="button" data-rmi="full"><span class="ei" aria-hidden="true">⛶</span>Full-screen timer</button>
       <button type="button" data-rmi="open"><span class="ei" aria-hidden="true">›</span>Open details</button>
       <button type="button" data-rmi="del" class="rmdel"><span class="ei" aria-hidden="true">✕</span>Delete row</button>
@@ -559,7 +565,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9o (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9p (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -597,7 +603,15 @@
         <li>To change it later, or to switch between a passcode and a passphrase: <b>Settings → Lock → Change passcode / passphrase</b>. Everything is re-encrypted with the new one.</li>
       </ul>
       <h4 id="m-easy">Easy unlock: Face ID, Touch ID, fingerprint, passkey or quick PIN</h4>
-      <p>Typing the passcode every time is optional. Turn on easy unlock in <b>Settings → Lock → Easy unlock</b> (you type your passcode or passphrase once to turn it on). It is off until you choose it.</p>
+      <p><b>Face ID is the default way in (v9p).</b> When you open the app, or come back to it from another app, it asks for Face ID (Touch ID, fingerprint or passkey) by itself; there's nothing to tap. Your passcode or passphrase is the fallback and always works.</p>
+      <ul>
+        <li><b>New setup, iPhone / iPad / Android app:</b> right after you create your passcode, easy unlock is turned on and confirmed with one Face ID scan. The first time, iOS asks <i>Do you want to allow "MedBilling Logs" to use Face ID?</i>; tap <b>Allow</b>. If you cancel, don't allow it, or Face ID isn't set up on the phone, easy unlock stays off and the passcode is used; you can turn it on any time in <b>Settings → Lock → Easy unlock</b>.</li>
+        <li><b>New setup, browser / Home Screen web app:</b> where the device has a built-in Face ID / Touch ID / Windows Hello passkey that supports this, you're asked once <i>Use Face ID to unlock?</i>; <b>Use</b> creates the passkey (the browser needs that tap).</li>
+        <li><b>Already using the app:</b> after your next passcode unlock you're asked once <i>Use Face ID to unlock?</i>, with <b>Use Face ID</b> as the main choice. <b>Not now</b> keeps the passcode, and you won't be asked again (Settings → Lock turns it on later).</li>
+        <li><b>When it asks by itself:</b> when the app opens and when you return to it. After you press <b>Lock</b> yourself, or after it locks from inactivity while on screen, it waits for you: tap <b>Unlock with Face ID</b> (the main button) or type the passcode.</li>
+        <li><b>If Face ID fails or you cancel:</b> the passcode box is ready to type in; it doesn't keep re-asking. Tap <b>Unlock with Face ID</b> to try again.</li>
+      </ul>
+      <p>To turn it off, or to use a quick PIN instead: <b>Settings → Lock → Easy unlock</b> (you type your passcode or passphrase once to turn it on).</p>
       <ul>
         <li><b>iPhone / iPad app:</b> <b>Unlock with Face ID</b> (or Touch ID). A copy of the encryption key is wrapped with a key kept in the iOS Keychain that only opens after Face ID / Touch ID, and stops working if the enrolled faces or fingers change.</li>
         <li><b>Android app:</b> <b>Unlock with fingerprint</b> (or face unlock where the phone offers strong biometrics), using the Android Keystore the same way.</li>
@@ -638,7 +652,7 @@
         <li><b>Statutory holidays bill like weekends (v9o: the official AHCIP list).</b> The holidays are the ones in the SOMB Governing Rules (GR 1.2), worked out automatically every year, including the moving ones: New Year's Day, Family Day (3rd Monday of February), Good Friday, Victoria Day (Monday before May 25), Canada Day, Alberta Heritage Day (1st Monday of August), Labour Day, Thanksgiving Day (2nd Monday of October; Monday 12 October 2026), Remembrance Day, Christmas Day and Boxing Day. National Day for Truth and Reconciliation and Easter Monday are <i>not</i> AHCIP holidays, so they are not on the list. Switch any of them off under <b>Settings → Time periods and holidays</b>, which shows this year's and next year's dates.</li>
         <li><b>Designated days (GR 1.3).</b> When a holiday falls on a Saturday or Sunday, the Minister designates another day. The app marks the expected weekday (for example Monday 28 December 2026 for Boxing Day 2026, as published in the AMA's 2026 after-hours table; 27 and 28 December 2027 are computed, so confirm them with Alberta Health when they are announced). The weekend holiday itself bills with <b>TST</b>, the designated day with <b>TDES</b>.</li>
         <li>For any other day you need treated as a holiday, tick <b>Today is a statutory holiday</b> in Settings on that day (marked "set by you").</li>
-        <li>The bar also shows the after-hours premium for the period (e.g. <b>TEV 6/20 u · logged 5 u</b>): units you entered against the official daily maximum, then the units your logged times would give. See <a href="#m-prem" data-go="m-prem">After-hours premium units</a> in section 4.</li>
+        <li>The bar also shows the after-hours premium for the period, in plain words (v9p). First line, e.g. <b>TEV 18 of 20 units</b>: the units you entered on that modifier today against its official daily maximum. Second line, e.g. <b>Evening time logged: 35 units · 25 min left</b>: the 15-minute units of encounter time logged <i>in this period only</i> (from your rows' In / Out times). The totals row under the spreadsheet counts the whole day, so it can be higher (for example 36 units = Day 1 unit + Evening 35 units). See <a href="#m-prem" data-go="m-prem">After-hours premium units</a> in section 4.</li>
       </ul>
     </section>
 
@@ -662,7 +676,8 @@
 
     <section id="m-enc">
       <h3>4. Encounters: the spreadsheet</h3>
-      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, light zebra striping, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Facility #</b> · <b>Functional centre</b> · <b>Fee code(s)</b> · <b>Modifier code 1</b> · <b>Modifier code 2</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
+      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, light zebra striping, a sticky header, and a totals row pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Facility #</b> · <b>Functional centre</b> · <b>Fee code(s)</b> · <b>Modifier code 1</b> · <b>Modifier code 2</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
+      <p><b>The totals (v9p).</b> The totals row shows the number of encounters, the total time in hours and minutes (<b>8 h 52</b>) and the units, then <b>8 h 52 min · 36 units</b>. Under it, one plain line each for Hospital, Clinic, Call-backs and On site, and for every time period with logged time, for example <b>Hospital 8 h 52 min · 36 units</b>, <b>Day 17 min · 1 unit</b>, <b>Evening 8 h 35 min · 35 units</b> (Night, Late evening, Weekend or Holiday as they apply). On a phone each is on its own line; they stay in view when you scroll sideways. The Min column of each row still shows minutes. Each row's units are counted on its own, so the period lines can add up to a unit more or less than the total.</p>
       <ol>
         <li><b>New patient:</b> type a name or MRN/PHN in the first blank row. That creates the encounter (not started yet).</li>
         <li><b>Start the clock:</b> type the time in <b>In</b> (24-hour: <i>0930</i>, <i>9:30</i>, <i>21h05</i>; type <i>n</i> for now), or tap <b>▶</b> in the In cell. The row's Min cell then counts up live.</li>
@@ -677,6 +692,7 @@
         <li><b>Room for several codes:</b> Fee code(s), Modifier code 1, Modifier code 2 and Dx are wide enough for about 15 characters (three or four codes) before anything wraps, at every text size. When a cell holds more, the column widens up to a maximum and then the codes wrap onto more lines and the row grows taller; nothing is ever cut off. On a phone a code column stops at about 60 % of the screen and wraps from there. Each of these cells holds up to 200 characters (v9m), enough for 20 or more codes with their commas. In <b>Dx</b> each code sits beside a fee code in order; more Dx than fee codes are kept too, after the paired ones (v9m).</li>
         <li><b>A bigger cell while you type:</b> the code cell you are editing opens to at least two lines, and keeps growing as you add codes. Tab, Enter or the keyboard's <b>Next</b> moves Fee code(s) → Modifier code 1 → Modifier code 2 → Dx, like any other cell. On a phone, a code cell you tap that is partly off the edge slides fully into view.</li>
         <li>Modifiers are encrypted with the entry and appear in <b>History</b>, the entry details (a <b>Modifiers</b> line) and the edit form (<b>Modifier code(s) 1 / 2</b>), every report (PDF, Word, Excel, CSV columns <i>modifier_1</i> and <i>modifier_2</i>), encrypted backups and the audit log. Entries made before version 9k simply have empty Modifier cells, and totals are not affected.</li>
+        <li><b>Modifiers from Fee Desk (v9p):</b> select a Modifier code 1 or Modifier code 2 cell and tap <b>↗</b> (or ⋯ → Pick modifier in Fee Desk). Fee Desk opens straight on its Modifiers tab; tap a modifier to send it, or ＋ several and Send. They come back into the cell you started from (from Modifier code 2 they go to Modifier code 2), added after what is already there; a modifier already in the row is not added twice. Undo takes the whole pick back in one step.</li>
         <li>Type modifiers, or bring them back from Fee Desk with fee and ICD-9 codes in one go (see <a href="#m-multi">Several codes at once</a>, v9l / v9m): Modifier code 1 gets the modifiers for the row's first fee code, Modifier code 2 those for its second or later fee code. Always confirm modifiers and their rules in the current Alberta Schedule of Medical Benefits.</li>
       </ul>
       <h4 id="m-fac">Facility # and Functional centre (v9o)</h4>
@@ -722,6 +738,7 @@
         <li>Clicking or tapping a cell.</li>
         <li><b>↑</b> <b>↓</b> move up or down a row only right after you arrive in a cell (before you start typing). <b>← →</b> arrow keys always move the cursor inside the text and never leave the cell.</li>
         <li><b>Esc</b> cancels the edit. Typing over a selected cell replaces it; click, or press F2, to edit inside it.</li>
+        <li><b>Ctrl-Z</b> (⌘Z on a Mac) undoes the last change and <b>Shift-Ctrl-Z</b> (⇧⌘Z) or <b>Ctrl-Y</b> redoes it (see <a href="#m-undo">Undo and Redo</a>). While you are typing in a cell, before you press Tab or Enter, Ctrl-Z is the cell's own text undo.</li>
         <li>On <b>Billing notes</b>, Enter and Tab move on as usual; click it, or press F2 or Space, to open the notes editor (below).</li>
       </ul>
       <h4>On a phone or tablet</h4>
@@ -749,13 +766,33 @@
         <li>Both settings apply straight away and are remembered on this device and browser only (they are not part of your encrypted data, backups or reports, and they contain no patient information). <b>Reset to default</b> goes back to 13 px, System default.</li>
       </ul>
       <h4>The ⋯ row menu</h4>
-      <p>Tap <b>⋯</b> at the end of a row (or press and hold the row number; right-click on a computer) for: Start now, Pause, Resume, Stop, Add time, Segments &amp; photos, Add note, Same patient (new encounter), pick fee or dx in Fee Desk, Full-screen timer, Open details and Delete. Double-click a row number to open the details.</p>
+      <p>Tap <b>⋯</b> at the end of a row (or press and hold the row number; right-click on a computer) for: Start now, Pause, Resume, Stop, Add time, Segments &amp; photos, Add note, Same patient: new row below, Same patient: start a new timer now, pick fee or dx in Fee Desk, Full-screen timer, Open details and Delete. Double-click a row number to open the details.</p>
       <ul>
         <li><b>Next unit:</b> hover the Units cell of a running row to see when the next unit starts. A running row turns <b>amber</b> after 60 minutes and <b>red</b> after 3 hours (Settings → Timers). This is a display only: recorded minutes are always the real minutes, never rounded.</li>
-        <li><b>Undo:</b> after <b>Delete</b>, an <b>Undo</b> button shows for 5 seconds. Both the action and the undo are kept in the audit log.</li>
+        <li><b>Undo:</b> after <b>Delete</b>, an <b>Undo</b> button shows for 5 seconds, and the <b>↶</b> Undo button in the toolbar brings the row back at any time that day (below). Both the action and the undo are kept in the audit log.</li>
         <li><b>Forgotten timer:</b> type the real time in <b>Out</b>. If a timer is red when you unlock, the app asks: <b>Stop now</b>, <b>Stop at time</b> or <b>Keep running</b>. A corrected time is saved as "entered later" with a note in the audit log. All of this happens inside the app, with no notifications.</li>
         <li><b>Full-screen timer:</b> big digits for procedures, readable from a distance (⋯ → Full-screen timer). It shows the time only, plus Pause and Stop. Auto-lock still applies, so for long procedures set a longer auto-lock first.</li>
         <li><b>Other days:</b> use ‹ › or tap the date in the toolbar to show another day in the same grid; <b>Today</b> jumps back. Rows typed on a past day are marked "entered later".</li>
+      </ul>
+      <h4 id="m-same">Same patient, more than one encounter (v9p)</h4>
+      <p>When you see a patient again (or bill a second encounter for them), tap any cell in their row: the row number turns into a blue <b>＋ same</b> button. Tap it (on a computer, hover the row number and click). You can also use <b>⋯ → Same patient: new row below</b>.</p>
+      <ul>
+        <li>A new row appears right under the patient's last row that day, with the <b>patient name, MRN / PHN, Facility #, Functional centre and H/C</b> copied (and the Minor / Obstetric flags). <b>In, Out, minutes, units, fee codes, Dx, modifiers and notes are blank</b>; the cursor goes to In. Type the time when you know it; the row then sorts by time like any other.</li>
+        <li>Rows for the same patient are grouped: a blue bar on the left of the name, and under the first row the name and MRN show lighter with a <b>″</b> mark. Every row still stores the full name and number, so reports, CSV and Excel show them on every line.</li>
+        <li>Each encounter counts on its own. The totals row says, for example, <b>6 encounters · 4 patients</b> (the patients count shows when someone has more than one encounter). Rows count as the same patient when they were made with Same patient, or have the same MRN / PHN.</li>
+        <li>Premium units (TEV, TNTP, …) and minutes add up across all the encounters as usual.</li>
+        <li><b>Changing the name or MRN on one row changes only that row.</b> If other encounters of that patient still have the old one, a message offers <b>Apply to all</b>; tap it to update them too (one Undo reverts it).</li>
+        <li>One <b>↶ Undo</b> removes the added row. <b>⋯ → Same patient: start a new timer now</b> still starts a running encounter right away (and stops the first one if it was running).</li>
+      </ul>
+      <h4 id="m-undo">Undo and Redo (v9p)</h4>
+      <p>The <b>↶</b> (Undo) and <b>↷</b> (Redo) buttons sit in the toolbar above the grid, so they're always on screen without scrolling, on a phone too. A short message says what was undone, for example <i>Undone: Fee code(s) edited</i> or <i>Undone: row deleted</i>. Hold the pointer over ↶ on a computer to see what it will undo.</p>
+      <ul>
+        <li><b>What can be undone:</b> typing over or clearing a cell; deleting or clearing rows (a deleted row comes back in its place with everything in it, including extra Dx codes, units, facility and functional centre); codes filled in from Fee Desk (fee, Dx and modifiers added together undo in one step); Facility # and Functional centre picks; unit changes (01–20); and changes that touch several rows at once.</li>
+        <li><b>Keyboard:</b> Ctrl-Z / ⌘Z undoes, Shift-Ctrl-Z / ⇧⌘Z or Ctrl-Y redoes. While you are typing in a cell (before Tab or Enter), Ctrl-Z undoes your typing in that cell, like any text box.</li>
+        <li><b>Each day has its own history:</b> up to 60 steps per day sheet, for today and the 3 most recently edited days. Making a new change after undoing clears the Redo steps.</li>
+        <li><b>Kept safely:</b> the history is encrypted with your data (the same key) and survives locking, closing and reopening the app. It is re-encrypted when you change your passcode, and cleared when you import a backup.</li>
+        <li><b>Photos:</b> photos of a deleted row are kept until the app locks, so Undo brings them back. Undoing a delete after the app has locked restores the row without its photos (the message says so).</li>
+        <li>Every undo and redo is a normal saved change, recorded in the audit log ("Undo: …"). Retention clean-up and <b>Delete all data</b> can't be undone.</li>
       </ul>
       <p>Open <b>details</b> (⋯ → Open details) for segments, photos and multi-code search (section 5). Patient name and MRN/PHN never go into URLs or console logs.</p>
       <ul>
@@ -879,7 +916,7 @@
         <li>Rows are grouped by day (newest first) and by week. Each day shows its totals: number of encounters, Hospital minutes/units (H), Clinic minutes/units (C), call-backs (CB) and time on site.</li>
         <li>Double-click a row number to open the details. Tap <b>⋯</b> (or press and hold the row number) for quick actions: Add time, Add note, Same patient, Edit. In an entry, <b>History of this entry</b> shows every change made to it.</li>
         <li>Each day also shows its <b>time periods</b> (for example <i>Eve 45m/3u · Late 20m/1u</i>).</li>
-        <li><b>Week strip</b> (top of History; Today has a compact date control with ‹ › and <b>Today</b>): Monday to Sunday with minutes and units under each day. Today is outlined, holidays are tinted, and ✓ marks reviewed days. Tap ‹ › or swipe to change weeks, and tap a day to jump to it. Tap <b>Today</b> (it turns teal when you're looking at another week) to go straight back to the current week; in History it also scrolls to today's entries. <b>Today</b> and <b>This week</b> totals sit beside it. On Today, the totals row at the bottom of the grid splits the day by Hospital, Clinic and time period.</li>
+        <li><b>Week strip</b> (top of History; Today has a compact date control with ‹ › and <b>Today</b>): Monday to Sunday with the time (e.g. 45m or 6h11) and units under each day. Today is outlined, holidays are tinted, and ✓ marks reviewed days. Tap ‹ › or swipe to change weeks, and tap a day to jump to it. Tap <b>Today</b> (it turns teal when you're looking at another week) to go straight back to the current week; in History it also scrolls to today's entries. <b>Today</b> and <b>This week</b> totals sit beside it. On Today, the totals row at the bottom of the grid splits the day by Hospital, Clinic and time period.</li>
         <li><b>Timeline</b> (Today, or a day in History) draws the day as blocks: on-site time as a shaded band, Hospital in teal, Clinic in orange, call-backs dashed. Gaps and overlaps are easy to see. Tap a block to open it, or tap an empty spot to add a past entry at that time.</li>
       </ul>
     </section>
@@ -1026,6 +1063,10 @@
     <section id="m-faq">
       <h3>17. FAQ and troubleshooting</h3>
       <dl class="manfaq">
+        <dt>How do I log a second encounter for the same patient?</dt><dd>Tap a cell in the patient's row, then the blue <b>＋ same</b> button in the row number (or ⋯ → Same patient: new row below). The name, MRN / PHN, facility, functional centre and H/C are copied; times and codes are left blank. See section 4.</dd>
+        <dt>The app asks for Face ID by itself. Can I stop that?</dt><dd>Yes: <b>Settings → Lock → Easy unlock</b>, turn it off, and the passcode is used. Face ID is the default from v9p; it never replaces the passcode, which always works.</dd>
+        <dt>Face ID didn't work or I cancelled it.</dt><dd>Type your passcode; the box is ready. Tap <b>Unlock with Face ID</b> to try again. If iOS was told not to allow Face ID, turn it back on in the iPhone's <b>Settings → MedBilling Logs → Face ID</b>, then in the app's Settings → Lock.</dd>
+        <dt>Undo is greyed out.</dt><dd>There's nothing to undo on the day you're looking at. Each day sheet has its own history, and importing a backup clears it.</dd>
         <dt>I forgot my passcode or passphrase.</dt><dd>It can't be recovered. Use <b>Forgot passcode?</b> to erase and start over, then import a backup if you remember its passcode.</dd>
         <dt>Face ID / fingerprint / passkey stopped working.</dt><dd>Use your passcode or passphrase; it always works. Easy unlock turns off after a passcode change, after the device's enrolled faces or fingers change, or if the passkey was deleted. Turn it on again in Settings → Lock → Easy unlock.</dd>
         <dt>Can Face ID or a passkey open my exported files?</dt><dd>No. Export passwords are always typed, must be different from your passcode, and are never stored.</dd>
@@ -1051,7 +1092,7 @@
         <dt>The time period or holiday looks wrong.</dt><dd>Periods follow America/Edmonton time and your list of periods. Check <b>Settings → Time periods and holidays</b>: switch a holiday on or off, or tick "Today is a statutory holiday". Always verify against the current SOMB.</dd>
         <dt>Why did a red timer prompt appear when I unlocked?</dt><dd>A timer ran past the red limit (3 hours by default). Stop it now or at the real end time, or keep it running. Change the limits under Settings → Timers.</dd>
         <dt>The full-screen timer went away.</dt><dd>Auto-lock still applies. Unlock and reopen it with ⛶, or set a longer auto-lock before a long procedure.</dd>
-        <dt>I tapped Stop or Delete by mistake.</dt><dd>Tap <b>Undo</b> within 5 seconds. After that, edit the entry (a corrected time is marked "entered later"), or find deleted entries under Settings → Audit log → Deleted entries.</dd>
+        <dt>I tapped Stop or Delete by mistake.</dt><dd>Tap <b>↶</b> (Undo) in the toolbar, or Ctrl-Z / ⌘Z on a computer; it works for the rest of the day, even after the app was closed (v9p). The <b>Undo</b> in the message works within 5 seconds too. After that, edit the entry (a corrected time is marked "entered later"), or find deleted entries under Settings → Audit log → Deleted entries.</dd>
         <dt>Can I use it on a computer or tablet?</dt><dd>Yes. Open the same web address in Chrome, Edge, Safari or Firefox. On a tablet or computer, Today shows your controls on the left and the day's entries on the right. History becomes a table with end time, units, setting and facility, and time periods. Settings and Resources show in columns. Data stays in that browser on that device, encrypted. To move data between devices, use an encrypted backup (Settings → Encrypted backup).</dd>
         <dt>Can I add time to an entry, or start another encounter for the same patient?</dt><dd>Yes. Open the entry (or tap ⋯ on its History row) and use <b>+ Add time</b> or <b>Same patient, new encounter</b>. See section 5.</dd>
         <dt>Where did my old note go?</dt><dd>It is now the first note in the entry's <b>Notes</b> list, with the time the entry was created.</dd>

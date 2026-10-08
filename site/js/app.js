@@ -74,9 +74,15 @@
   async function showLock(msg) {
     document.body.classList.add('locked');
     const has = await V.exists();
-    $('#setupForm').hidden = has; $('#unlockForm').hidden = !has; if (has) { unlockUi(); euLockUi(true); } else kindUi();
-    $('#lockMsg').textContent = msg || '';
-    setTimeout(() => (has ? $('#uPass') : $('#sPass')).focus(), 50);
+    $('#setupForm').hidden = has; $('#unlockForm').hidden = !has; $('#lockMsg').textContent = msg || '';
+    const auto = !showLock.booted || document.visibilityState === 'hidden'; showLock.booted = true;
+    if (!has) { kindUi(); setTimeout(() => $('#sPass').focus(), 50); return; }
+    unlockUi();
+    // v9p: Face ID (app) / passkey (web) is the default: it prompts by itself, so don't raise the keyboard under it;
+    // the passcode field gets the focus only when there is no easy unlock, or after it is cancelled or fails
+    // auto-prompt on open and on return to the app (locked in the background); not right after Lock / auto-lock on screen
+    const r = await euLockUi(auto);
+    if (!(r && (r.bio || r.key))) setTimeout(() => { if (document.body.classList.contains('locked')) $('#uPass').focus(); }, 50);
   }
   function lockNow(msg) {
     if (!S && document.body.classList.contains('locked')) return;
@@ -85,7 +91,7 @@
     nedDraft(); nTipShow(null); if (fpk) { fpk.onPick = null; fpk.onDone = null; fpkClose(); }
     hideSnack(); flushPhotoDel(); stopWake();
     if (S && S.settings.abOn && abLocOk && abMode() !== 'manual' && V.unlocked()) { try { runBackup('lock', abSnapshot()); } catch (e) { /* never block locking */ } }
-    V.lock(); S = null; premBase = null; premSeen.clear(); cur = null; sessPass = null; xpPw = null; xpAckSess = false; xpJob = null; gCell = null; viewDay = null;
+    undoFlush(); V.lock(); S = null; premBase = null; premSeen.clear(); cur = null; sessPass = null; xpPw = null; xpAckSess = false; xpJob = null; gCell = null; viewDay = null;
     $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
     ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo', '#eNotes', '#eSummary', '#rmSub'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
@@ -100,7 +106,7 @@
     if (!$('#sAck').checked) return err.textContent = 'Please confirm you understand the warning.';
     if (!$('#sResp').checked) return err.textContent = 'Please accept the records responsibility statement.';
     err.textContent = ''; $('#sBtn').disabled = true; $('#sBtn').textContent = 'Creating…';
-    try { await V.create(a, kind); sessPass = a; $('#sPass').value = $('#sPass2').value = ''; await afterUnlock(true); }
+    try { await V.create(a, kind); sessPass = a; $('#sPass').value = $('#sPass2').value = ''; await afterUnlock(true); setTimeout(() => euOffer('new', a).catch(() => {}), 600); }
     catch (e) { err.textContent = 'Could not create the vault: ' + e.message; }
     $('#sBtn').disabled = false; $('#sBtn').textContent = 'Create passcode';
   });
@@ -143,11 +149,25 @@
     const bio = st.bio && c.bio, key = st.passkey && c.passkey, pin = st.pin && c.pin;
     $('#euBio').hidden = !bio; $('#euBio').textContent = `Unlock with ${bioLbl(c.bioName)}`;
     $('#euKey').hidden = !key; $('#euPinBox').hidden = !pin; box.hidden = !(bio || key || pin);
-    if (auto && bio) { euAutoPending = true; if (document.visibilityState === 'visible') setTimeout(euAuto, 350); }
+    $('#euBio').classList.toggle('primary', bio); $('#euKey').classList.toggle('primary', key && !bio);
+    if (auto && (bio || key)) { euAutoPending = true; if (document.visibilityState === 'visible') setTimeout(euAuto, 350); }
     return { bio, key, pin };
   }
-  function euAuto() { if (!euAutoPending || S || !document.body.classList.contains('locked') || $('#euBio').hidden || document.visibilityState !== 'visible') return; euAutoPending = false; $('#euBio').click(); }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(euAuto, 350); });
+  // v9p: on open and on every return to the app while it is locked, Face ID (or the passkey on the web) prompts by itself,
+  // once per open / return; cancel or failure leaves the passcode (and quick PIN) on screen as the fallback
+  let euLastEnd = 0;
+  function euAuto() {
+    if (!euAutoPending || S || euBusy || !document.body.classList.contains('locked') || document.visibilityState !== 'visible' || $('#unlockForm').hidden) return;
+    const b = !$('#euBio').hidden ? $('#euBio') : !$('#euKey').hidden ? $('#euKey') : null; if (!b) return;
+    euAutoPending = false; euBusy || (euLastEnd = Date.now()); b.click();
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { if (document.body.classList.contains('locked') && !euBusy && Date.now() - euLastEnd > 1500 && (!$('#euBio').hidden || !$('#euKey').hidden)) euAutoPending = true; return; }
+    setTimeout(euAuto, 350);
+  });
+  // native.js: App 'appStateChange' → active. iOS also reports inactive → active around the Face ID sheet itself, so a return
+  // within 1.5 s of a prompt (or during one) never re-prompts: no cancel loop.
+  window.__mblForeground = () => { if (document.body.classList.contains('locked') && !euBusy && Date.now() - euLastEnd > 1500 && (!$('#euBio').hidden || !$('#euKey').hidden)) { euAutoPending = true; setTimeout(euAuto, 350); } };
   async function euDone(raw) {
     const ok = await V.unlockRaw(raw).catch(() => false); raw.fill(0);
     if (!ok) throw new Error('That didn\u2019t unlock the app. Use your passcode or passphrase.');
@@ -157,8 +177,9 @@
   async function euTry(fn) {
     if (euBusy) return; euBusy = true; $('#euErr').textContent = '';
     try { await euDone(await fn()); }
-    catch (e) { const m = e && e.name === 'NotAllowedError' ? '' : (e && e.message) || ''; $('#euErr').textContent = m; if (e && (e.code === 'gone' || e.code === 'wiped')) euLockUi(false, true); }
-    euBusy = false;
+    catch (e) { const m = e && e.name === 'NotAllowedError' ? '' : (e && e.message) || ''; $('#euErr').textContent = m; if (e && (e.code === 'gone' || e.code === 'wiped')) euLockUi(false, true);
+      if (document.body.classList.contains('locked') && !(e && e.code === 'wrong')) setTimeout(() => { if (document.body.classList.contains('locked') && $('#euPinBox').hidden) $('#uPass').focus(); }, 50); }
+    euBusy = false; euLastEnd = Date.now();
   }
   $('#euBio').onclick = () => euTry(() => EU.unlockBio());
   $('#euKey').onclick = () => euTry(() => EU.unlockPasskey());
@@ -172,7 +193,7 @@
     $('#euBioLbl').textContent = c.native ? `Unlock with ${bioLbl(c.bioName)}` : 'Unlock with a passkey (Face ID / Touch ID / Windows Hello)';
     $('#euBioOn').checked = c.native ? st.bio : st.passkey; $('#euPinOn').checked = st.pin;
     $('#euInfo').textContent = (c.native ? `${bioLbl(c.bioName)} unlocks with a key kept in this device's ${/Android/i.test(navigator.userAgent) ? 'Android Keystore' : 'Keychain'}; it stops working if your ${bioLbl(c.bioName)} enrolment changes.` : 'A passkey on this device (or synced in your password manager) unlocks the app through the WebAuthn PRF extension.')
-      + ' Your passcode or passphrase always works and is never replaced. Easy unlock turns off when you change the passcode, and it never opens exports: export passwords are always typed.';
+      + ' When it is on, it is the default: it asks by itself when you open or return to the app. Your passcode or passphrase always works and is never replaced. Easy unlock turns off when you change the passcode, and it never opens exports: export passwords are always typed.';
   }
   async function euEnable(kind) {
     const pin = kind === 'pin';
@@ -188,6 +209,42 @@
       await V.appendAudit({ action: 'easy-unlock', note: `${what} unlock turned on` }).catch(() => {}); toast(`${what} unlock is on`); return true;
     } catch (e) { toast(e && e.name === 'NotAllowedError' ? 'Cancelled' : 'Could not turn it on: ' + ((e && e.message) || e), 4500); return false; }
     finally { raw.fill(0); }
+  }
+  // v9p: Face ID / passkey on by default.
+  //  - New setup in the app: turned on right after the passcode is created, then confirmed with one real Face ID scan (this is
+  //    also when iOS asks for the Face ID permission). Cancelled / denied / failed → turned off again; Settings can retry.
+  //  - New setup on the web (needs a tap for the passkey), and existing users with a passcode but no easy unlock: a one-time
+  //    "Use Face ID to unlock?" with Use Face ID as the default button and "Not now". Asked once (settings.euAsked).
+  //  Same key wrapping as before (Keychain / Keystore wrap key or passkey PRF); the passcode stays the root secret.
+  async function euOffer(why, pass) {
+    if (!EU || !S || !pass || S.settings.euAsked) return;
+    let c, st; try { [c, st] = await Promise.all([EU.caps(), EU.status()]); } catch (e) { return; }
+    const can = c.native ? c.bio : (c.passkey && c.platform), on = c.native ? st.bio : st.passkey;
+    if (!can || on) return;
+    S.settings.euAsked = Date.now(); await V.saveSettings(S.settings).catch(() => {});
+    const name = c.native ? bioLbl(c.bioName) : 'a passkey';
+    const raw = await V.rawKey(pass).catch(() => null); if (!raw) return;   // derived before asking, so the tap below can start the passkey
+    try {
+      if (!(why === 'new' && c.native)) {
+        const v = await ask({ title: c.native ? `Use ${name} to unlock?` : 'Use Face ID / Touch ID to unlock?', text: c.native
+          ? `${name} becomes the default way to open MedBilling Logs: it asks by itself when you open or return to the app. Your passcode always works too, and nothing about your encryption changes. You can turn it off in Settings → Lock.`
+          : 'A passkey on this device (Touch ID, Face ID or Windows Hello) becomes the default way to open MedBilling Logs. Your passcode or passphrase always works too, and nothing about your encryption changes. You can turn it off in Settings → Lock.',
+          ok: c.native ? `Use ${name}` : 'Use a passkey', cancel: 'Not now' });
+        if (!v) { await V.appendAudit({ action: 'easy-unlock', note: `Default ${c.native ? name : 'passkey'} unlock declined (not asked again; Settings → Lock)` }).catch(() => {}); return; }
+      }
+      if (c.native) {
+        await EU.enableBio(raw);
+        // the Face ID sheet makes iOS report the app inactive: hold the background lock (like photo picking) during this one scan
+        let back = null; pickStart(); try { back = await EU.unlockBio(); } catch (e) { await EU.disable('bio').catch(() => {}); throw e; } finally { pickEnd(); }
+        const same = back && back.length === raw.length && back.every((x, i) => x === raw[i]); back.fill(0);
+        if (!same) { await EU.disable('bio').catch(() => {}); throw new Error(`${name} check failed`); }
+      } else await EU.enablePasskey(raw);
+      await V.appendAudit({ action: 'easy-unlock', note: `${c.native ? name : 'Passkey'} unlock turned on (default, ${why === 'new' ? 'new setup' : 'offered at unlock'})` }).catch(() => {});
+      toast(`${c.native ? name : 'Passkey'} unlock is on. Your passcode still works.`, 3500);
+    } catch (e) {
+      const cancel = (e && (e.name === 'NotAllowedError' || e.code === 'cancel')) && !(e && e.message);
+      toast(`${c.native ? name : 'Passkey'} unlock is off${cancel ? '' : ' (' + ((e && e.message) || e) + ')'}. Turn it on any time in Settings → Lock.`, 5000);
+    } finally { raw.fill(0); euRender(); }
   }
   async function euToggle(kind, on) {
     if (!S) return;
@@ -210,7 +267,7 @@
       $('#uPass').select(); return;
     }
     localStorage.removeItem(failKey); err.textContent = ''; sessPass = $('#uPass').value; $('#uPass').value = '';
-    await afterUnlock(false);
+    await afterUnlock(false); const pw = sessPass; setTimeout(() => euOffer('existing', pw).catch(() => {}), 600);
   });
   $('#forgot').addEventListener('click', () => ask({ title: 'Forgot passcode', text: "The passcode is never stored, so there is no way to recover it or decrypt your data. If you can't remember it, the only option is to delete all data on this device and start again (you can then import an encrypted backup if you remember that backup's passcode). Type DELETE to erase everything.", fields: [{ id: 'conf', label: 'Type DELETE', type: 'text' }], ok: 'Delete everything', danger: true,
     check: v => v.conf.trim().toUpperCase() === 'DELETE' ? '' : 'Type DELETE to confirm.' }).then(async v => { if (!v) return; if (window.EasyUnlock) await EasyUnlock.disableAll().catch(() => {}); await V.wipe(); await abForget(); localStorage.removeItem(failKey); showLock('All data deleted. Create a new passcode.'); }));
@@ -229,7 +286,7 @@
     document.body.classList.remove('locked'); window.scrollTo(0, 0);
     R.setHolidays({ off: settings.holOff, extra: settings.holExtra });
     $('#defSetting').value = settings.defSetting; $('#autolock').value = String(settings.autolock); $('#warnA').value = String(settings.warnA); $('#warnR').value = String(settings.warnR);
-    fillProv($('#defProv'), settings.prov); euRender();
+    fillProv($('#defProv'), settings.prov); euRender(); await undoLoad();
     renderCredits(); setQuick(); render(); renderRetention(); fpSetUi(); premSetUi(); checkBackupDue(); renderPeriodSettings(); abInit().catch(() => {});
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
     else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else if (d && d.note) { await V.clearDraft(); nedRestore(d.note); } else checkLongTimers(); }
@@ -268,6 +325,7 @@
     if (i < 0) S.encs.push(e); else S.encs[i] = e;
     await V.save(e);
     await V.appendAudit({ action: action || (before ? 'edit' : 'create'), eid: e.id, kind: e.kind, before, after: clone(e), note: note || undefined });
+    undoRec(before, clone(e), note, action);
     if (!quiet) await reviewTouch([before, e], `${R.KIND[e.kind] || 'entry'} ${action || 'edit'} after review`);
   }
   // defer: keep the photos for a few seconds so Undo can bring the entry back whole (removed on timeout or lock)
@@ -276,10 +334,90 @@
     if (!defer) for (const p of ph) await V.removePhoto(p);
     premDirty(before || e); await V.remove(e.id); S.encs = S.encs.filter(x => x.id !== e.id);
     await V.appendAudit({ action: 'delete', eid: e.id, kind: kindOf(e), before: before ? clone(before) : null, after: null, note: [note, ph.length ? `${ph.length} photo(s) removed with the entry` : ''].filter(Boolean).join('. ') || undefined });
+    if (before) undoRec(clone(before), null, note, 'delete');
     await reviewTouch([before], 'entry deleted after review');
     return ph;
   }
   async function saveSettings() { await V.saveSettings(S.settings); }
+
+  // ---- v9p Undo / Redo for the day sheets. Every change to an entry goes through saveEnc / deleteEnc, so this one recorder
+  // covers typing over / clearing cells, Fee Desk code fills, facility / functional-centre and unit picks, times, row deletes and
+  // anything else. A step = the entries' full copies before and after (so a deleted row comes back whole, with its Dx extras
+  // and units, in its place). Changes less than 150 ms apart (one action saving several things) form one step. Up to UNDO_MAX
+  // steps per day; kept encrypted in the vault (meta 'undo', same key as the entries), so they survive closing the app.
+  const UNDO_MAX = 60, UNDO_DAYS = 3;
+  let U = { v: 1, days: {} }, undoMute = 0, undoOpen = null, undoT = null;
+  const undoDayKey = e => { try { return R.encDay(e) || curDay(); } catch (er) { return curDay(); } };
+  const undoBook = day => (U.days[day] = U.days[day] || { u: [], r: [] });
+  function undoLabel(before, after, note, action) {
+    if (action === 'delete' || (before && !after)) return 'row deleted';
+    let n = String(note || '').replace(/ in (the )?spreadsheet( row menu)?/i, '').replace(/^Deleted from the spreadsheet row menu$/i, 'row deleted').trim();
+    if (!n) n = before ? 'edit' : 'new row';
+    return n.length > 70 ? n.slice(0, 67) + '…' : n;
+  }
+  function undoRec(before, after, note, action) {
+    if (undoMute || !S || (!before && !after)) return;
+    const id = (after || before).id, now = Date.now(), o = undoOpen;
+    if (o && now - o.t < 150 && o.ch.length < 50) {
+      const c = o.ch.find(x => x.id === id);
+      if (c) c.after = after; else { o.ch.push({ id, before, after }); o.n = o.ch.length; }
+      o.t = now;
+    } else {
+      const day = undoDayKey(after || before), b = undoBook(day);
+      undoOpen = { t: now, at: now, day, label: undoLabel(before, after, note, action), ch: [{ id, before, after }] };
+      b.u.push(undoOpen); b.r = []; if (b.u.length > UNDO_MAX) b.u.splice(0, b.u.length - UNDO_MAX);
+    }
+    undoSaveSoon(); undoUi();
+  }
+  function undoPrune() { const keep = new Set(Object.keys(U.days).sort().slice(-UNDO_DAYS).concat([curDay(), today()])); for (const k of Object.keys(U.days)) if (!keep.has(k) || (!U.days[k].u.length && !U.days[k].r.length)) delete U.days[k]; }
+  function undoSaveSoon() { clearTimeout(undoT); undoT = setTimeout(undoFlush, 300); }
+  function undoFlush() { clearTimeout(undoT); undoT = null; if (!S || !V.unlocked()) return; undoPrune(); V.saveUndo(U).catch(() => {}); }
+  async function undoLoad() { const u = await V.loadUndo().catch(() => null); U = u && u.days ? u : { v: 1, days: {} }; undoOpen = null; undoUi(); }
+  function undoReset() { U = { v: 1, days: {} }; undoOpen = null; if (S) V.clearUndo().catch(() => {}); undoUi(); }
+  function undoUi() {
+    const b = S && U.days[curDay()], u = b && b.u[b.u.length - 1], r = b && b.r[b.r.length - 1], bu = $('#gUndo'), br = $('#gRedo'); if (!bu) return;
+    bu.disabled = !u; br.disabled = !r;
+    bu.title = u ? `Undo: ${u.label}${u.ch.length > 1 ? ` (${u.ch.length} rows)` : ''} (Ctrl+Z / ⌘Z)` : 'Nothing to undo';
+    br.title = r ? `Redo: ${r.label}${r.ch.length > 1 ? ` (${r.ch.length} rows)` : ''} (Shift+Ctrl+Z / ⇧⌘Z)` : 'Nothing to redo';
+    bu.setAttribute('aria-label', u ? 'Undo: ' + u.label : 'Undo'); br.setAttribute('aria-label', r ? 'Redo: ' + r.label : 'Redo');
+  }
+  async function livePhotos(ids) { if (!ids || !ids.length) return ids || []; const have = new Set((await V.photoIds()).map(r => r.id)); return ids.filter(p => have.has(p)); }
+  function keepPhotos(ph) { if (ph && ph.length) photoDel.set(-(++photoDelN), ph); }   // removed when the app locks (flushPhotoDel)
+  function unkeepPhotos(ids) { if (!ids || !ids.length) return; const s = new Set(ids); for (const [k, ph] of photoDel) { const left = ph.filter(p => !s.has(p)); if (left.length !== ph.length) { if (left.length) photoDel.set(k, left); else { clearTimeout(k); photoDel.delete(k); } } } }
+  async function undoApply(dir) {
+    if (!S) return;
+    if (gCell && document.contains(gCell)) commitCell(gCell);   // a half-typed cell is saved first, so Undo takes back exactly that
+    await gQ;
+    return gEnq(async () => {
+      const b = U.days[curDay()], from = b && (dir < 0 ? b.u : b.r);
+      if (!from || !from.length) { toast(dir < 0 ? 'Nothing to undo' : 'Nothing to redo'); return; }
+      const st = from.pop(), word = dir < 0 ? 'Undo' : 'Redo'; undoOpen = null; undoMute++;
+      let lostPh = 0;
+      try {
+        for (const c of dir < 0 ? [...st.ch].reverse() : st.ch) {
+          const target = dir < 0 ? c.before : c.after, now = S.encs.find(x => x.id === c.id);
+          if (!target) { if (now) keepPhotos(await deleteEnc(now, `${word}: ${st.label}`, true)); continue; }
+          const t = clone(target), had = (t.photos || []).length; t.photos = await livePhotos(t.photos); lostPh += had - t.photos.length; unkeepPhotos(t.photos);
+          await saveEnc(t, dir < 0 ? 'undo' : 'redo', `${word}: ${st.label}`);
+        }
+        (dir < 0 ? b.r : b.u).push(st);
+      } catch (er) { from.push(st); throw er; }
+      finally { undoMute--; undoOpen = null; }
+      undoSaveSoon(); undoUi(); histDirty = true;
+      toast(`${dir < 0 ? 'Undone' : 'Redone'}: ${st.label}${st.ch.length > 1 ? ` (${st.ch.length} rows)` : ''}${lostPh ? ` (${lostPh} photo(s) were already removed)` : ''}`, 2600);
+    });
+  }
+  $('#gUndo').addEventListener('click', () => undoApply(-1));
+  $('#gRedo').addEventListener('click', () => undoApply(1));
+  // Ctrl/⌘+Z, Shift+Ctrl/⌘+Z, Ctrl+Y. While you are typing in a cell (text changed), the text field's own undo is left alone.
+  document.addEventListener('keydown', ev => {
+    if (!S || tab !== 'today' || document.body.classList.contains('locked') || !(ev.metaKey || ev.ctrlKey) || ev.altKey) return;
+    const k = (ev.key || '').toLowerCase(); if (k !== 'z' && k !== 'y') return;
+    if (document.querySelector('dialog[open]')) return;
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) { if (!a.closest('#todayList') || a.value !== a.defaultValue) return; }
+    ev.preventDefault(); ev.stopPropagation(); undoApply(k === "y" || ev.shiftKey ? 1 : -1);
+  }, true);
 
   // ------------------------------------------------------------ encounters
   function setQuick() { /* v9c: the blank rows show the default setting (quickSet); nothing else to sync */ }
@@ -340,7 +478,9 @@
     : WRAP[c] && !(c === 'name' && NARROWQ.matches) ? `<textarea rows="1" ${gAttrs(c, o)}>${esc(val)}</textarea>`
     : `<input ${gAttrs(c, o)} value="${esc(val)}">`;
   const hcBtn = (v, lbl) => `<button type="button" class="gc hc" data-c="hc" aria-label="${esc(lbl)}: ${R.SET[v]}. Tap to switch" title="${R.SET[v]} (tap, or type H / C)">${v}</button>`;
-  function gridRow(e, i) {
+  // v9p: Modifier code 1 / 2 open Fee Desk on its Modifiers tab too; what comes back goes into the cell it was opened from
+  const modPick = (n, blank) => `<button type="button" class="cbtn hov pickfd" data-kind="mod${n}" tabindex="-1" title="${blank ? 'New row: pick' : 'Pick'} a modifier in Fee Desk (tap one there and it comes back to Modifier code ${n})" aria-label="${blank ? 'New row, pick' : 'Pick'} modifier ${n} in Fee Desk">↗</button>`;
+  function gridRow(e, i, sp) {
     const k = kindOf(e), st = e.status, ms = R.msOf(e), m = Math.floor(ms / 60000), cs = e.codes || [], dx = R.dxList(e);
     const started = e.segs.length > 0, en = R.endOf(e), open = started && en == null, ed = k !== 'shift', id = esc(e.id);
     const nameVal = ptName(e), mrnVal = ptMrn(e), feeVal = cs.map(c => c.c).join(', '), dxVal = dx.join(', ');
@@ -356,10 +496,11 @@
       + `<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="Pick a fee code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="fee" data-at="${esc((cs[cs.length - 1] && (cs[cs.length - 1].k || cs[cs.length - 1].c)) || '')}" tabindex="-1" title="Open ${esc(cs[cs.length - 1] && cs[cs.length - 1].c)} in Fee Desk (pick another code there to add it)" aria-label="Open fee code in Fee Desk">ⓘ</button>` : ''}` : '';
     const dxc = ed ? gInp('dx', dxVal, { lbl: 'Diagnostic code(s), ICD-9', mono: 1, max: CODE_MAX, cap: 'characters', title: dx.map(v => v + (dxDesc(v) ? ' ' + dxDesc(v) : '')).join('; ') })
       + `<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="Pick an ICD-9 code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="dx" data-at="${esc(dx[dx.length - 1])}" tabindex="-1" title="Open ${esc(dx[dx.length - 1])} in Fee Desk (pick another code there to add it)" aria-label="Open diagnostic code in Fee Desk">ⓘ</button>` : ''}` : '';
-    const modc = n => { if (!ed) return ''; const inp = gInp('mod' + n, modOf(e, n), { lbl: 'Modifier code(s) ' + n, mono: 1, max: MOD_MAX, cap: 'characters' }), ch = muChips(e, n); return `<div class="cw mucw">${inp}${ch}</div>`; };   // v9o: always wrapped, so a units chip can appear beside a focused cell
+    const modc = n => { if (!ed) return ''; const inp = gInp('mod' + n, modOf(e, n), { lbl: 'Modifier code(s) ' + n, mono: 1, max: MOD_MAX, cap: 'characters' }), ch = muChips(e, n); return `<div class="cw mucw">${inp}${ch}${modPick(n, false)}</div>`; };   // v9o: always wrapped, so a units chip can appear beside a focused cell
     const wl = warnLvl(e);
-    return `<tr class="gr ${st} k-${k}${wl ? ' w' + wl : ''}" data-key="${id}" data-id="${id}">`
-      + `<th scope="row" class="rn" title="Row ${i}. Right-click or press and hold for actions">${st === 'run' || st === 'pause' ? `<i class="dot ${st}" aria-label="${st === 'run' ? 'Running' : 'Paused'}"></i>` : ''}${i}</th>`
+    const spCls = sp && sp.g ? ' spg' + (sp.c ? ' spc' : '') + (sp.n ? ' spn' : '') : '', spOk = ed && (nameVal || mrnVal);   // v9p: same-patient rows grouped
+    return `<tr class="gr ${st} k-${k}${wl ? ' w' + wl : ''}${spCls}" data-key="${id}" data-id="${id}">`
+      + `<th scope="row" class="rn" title="Row ${i}. Right-click or press and hold for actions">${st === 'run' || st === 'pause' ? `<i class="dot ${st}" aria-label="${st === 'run' ? 'Running' : 'Paused'}"></i>` : ''}${i}${spOk ? `<button type="button" class="spb" data-a="same" tabindex="-1" aria-label="Same patient: add an encounter row below" title="Same patient: new row below with the name, MRN / PHN, facility, functional centre and H/C (times and codes blank)"><b aria-hidden="true">＋</b><small aria-hidden="true">same</small></button>` : ''}</th>`
       + `<td class="c-name"><div class="cw">${name}${tags}</div></td>`
       + `<td class="c-mrn">${ed ? gInp('mrn', mrnVal, { lbl: 'MRN or PHN', mono: 1, max: 24 }) : ''}</td>`
       + `<td class="c-hc">${ed ? hcBtn(e.setting === 'C' ? 'C' : 'H', 'Hospital or clinic') : '<span class="gtxt mid">–</span>'}</td>`
@@ -405,25 +546,48 @@
       + '<td class="num c-min"></td><td class="num c-u"></td>'
       + `<td class="c-fno">${gInp('fno', '', { lbl: 'Facility # (new row)' })}</td><td class="c-fcen">${gInp('fcen', '', { lbl: 'Functional centre (new row)' })}</td>`
       + `<td class="c-fee"><div class="cw">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: CODE_MAX, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="New row: pick a fee code in Fee Desk (it comes back to this cell)" aria-label="New row, pick fee code in Fee Desk">↗</button></div></td>`
-      + `<td class="c-mod1"><div class="cw mucw">${gInp('mod1', '', { lbl: 'Modifier code(s) 1 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</div></td>`
-      + `<td class="c-mod2"><div class="cw mucw">${gInp('mod2', '', { lbl: 'Modifier code(s) 2 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</div></td>`
+      + `<td class="c-mod1"><div class="cw mucw">${gInp('mod1', '', { lbl: 'Modifier code(s) 1 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}${modPick(1, true)}</div></td>`
+      + `<td class="c-mod2"><div class="cw mucw">${gInp('mod2', '', { lbl: 'Modifier code(s) 2 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}${modPick(2, true)}</div></td>`
       + `<td class="c-dx"><div class="cw">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: CODE_MAX, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="New row: pick an ICD-9 code in Fee Desk (it comes back to this cell)" aria-label="New row, pick diagnostic code in Fee Desk">↗</button></div></td>`
       + `<td class="c-note">${gInp('note', '', { lbl: 'Billing notes (new row)', max: 500 })}</td><td class="c-act"></td></tr>`;
   }
-  function gTotals(list) {
-    const enc = list.filter(e => kindOf(e) !== 'shift'), t = R.totals(enc), site = R.totals(list.filter(e => kindOf(e) === 'shift')).site;
-    return { n: enc.length, m: t.H.m + t.C.m + t.cb.m, u: t.H.u + t.C.u + t.cb.u, det: [t.H.n && `H ${t.H.m} min / ${t.H.u} u`, t.C.n && `C ${t.C.m} min / ${t.C.u} u`, t.cb.n && `CB ${t.cb.n} · ${t.cb.m} min`, site.n && `on site ${R.hmin(site.m)}`].concat(t.perList.map(p => `${R.PBY[p.id].short} ${p.m}m/${p.u}u`)).filter(Boolean).join(' · ') };
+  // v9p: which rows are the same patient: linked by "Same patient" (e.pt), or the same MRN / PHN typed on both
+  const mrnKey = e => String(ptMrn(e) || '').replace(/[^0-9a-z]/gi, '').toUpperCase();
+  function ptKeys(list) {
+    const par = new Map(), by = new Map(), root = x => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+    for (const e of list) par.set(e.id, e.id);
+    for (const e of list) {
+      if (kindOf(e) === 'shift') continue; const m = mrnKey(e);
+      for (const k of [e.pt && 'p:' + e.pt, m.length >= 4 && 'm:' + m]) { if (!k) continue; if (by.has(k)) { const a = root(by.get(k)), b = root(e.id); if (a !== b) par.set(b, a); } else by.set(k, e.id); }
+    }
+    const out = new Map(); for (const e of list) out.set(e.id, root(e.id)); return out;
   }
-  function gFoot(list) {
-    const t = gTotals(list);
-    return `<tfoot><tr class="gt"><th scope="row" class="rn" aria-label="Totals">Σ</th><td class="c-name"><span class="gtxt" data-tn>${t.n} encounter${t.n === 1 ? '' : 's'}</span></td><td></td><td></td><td></td><td class="tl"><span class="gtxt">Total</span></td><td class="num" data-tm title="Total minutes">${t.m}</td><td class="num" data-tu title="Total units">${t.u}</td><td colspan="7" class="tdet"><span class="gtxt" data-td>${esc(t.det)}</span></td><td></td></tr></tfoot>`;
+  function gTotals(list, day) {
+    const enc = list.filter(e => kindOf(e) !== 'shift'), t = R.totals(enc), site = R.totals(list.filter(e => kindOf(e) === 'shift')).site;
+    const pk = ptKeys(enc), m = t.H.m + t.C.m + t.cb.m, u = t.H.u + t.C.u + t.cb.u; t.site = site;
+    const lines = enc.length || site.n ? R.totLines(t, day) : [];
+    return { n: enc.length, p: new Set(enc.map(e => pk.get(e.id))).size, m, u, mTxt: R.hmCol(m), det: enc.length ? `${R.hmTxt(m)} · ${R.uTxt(u)}` : '', lines };
+  }
+  // v9p: the totals row says time in hours and minutes; under it, one plain line per setting / call-backs / on site / time period
+  // (kept in view at any sideways scroll; a narrow phone shows one per line, a wide screen several side by side)
+  const linesHtml = l => l.map(x => `<span>${esc(x)}</span>`).join('');
+  function gFoot(list, day) {
+    const t = gTotals(list, day);
+    return `<tfoot><tr class="gt"><th scope="row" class="rn" aria-label="Totals">Σ</th><td class="c-name"><span class="gtxt" data-tn>${t.n} encounter${t.n === 1 ? '' : 's'}${t.p < t.n ? ` · ${t.p} patient${t.p === 1 ? '' : 's'}` : ''}</span></td><td></td><td></td><td></td><td class="tl"><span class="gtxt">Total</span></td><td class="num" data-tm title="Total time (hours and minutes)">${t.mTxt}</td><td class="num" data-tu title="Total units">${t.u}</td><td colspan="7" class="tdet"><span class="gtxt" data-td>${esc(t.det)}</span></td><td></td></tr>`
+      + `<tr class="gts"${t.lines.length ? '' : ' hidden'}><td colspan="${COLS.length}" class="tsum"><div class="tsumi" data-tl aria-label="Totals by setting and time period">${linesHtml(t.lines)}</div></td></tr></tfoot>`;
+  }
+  function sumFit(t) {   // the lines block spans the visible width; the totals row sits right above it (both pinned on Today)
+    const w = t && t.closest('.gwrap'); if (!w || !t.tFoot) return; const r2 = t.tFoot.rows[1], h = r2 && !r2.hidden ? r2.offsetHeight : 0;
+    const vw = w.clientWidth + 'px', hh = h + 'px'; if (w.style.getPropertyValue('--gvw') !== vw) w.style.setProperty('--gvw', vw); if (w.style.getPropertyValue('--tsh') !== hh) w.style.setProperty('--tsh', hh);
   }
   function sheetHtml(list, o) {
     let rows = '';
     const lf = o.lightFrom || Infinity, lt = i => i >= lf && 'r' + i !== o.keepKey;   // v9h: light rows (no editors) from row lightFrom on
-    if (o.seq) { const fb = o.seq.indexOf(null); o.seq.forEach((e, i) => { rows += e ? gridRow(e, i + 1) : blankRow(i + 1, i === fb, lt(i + 1)); }); }   // v9f: rows kept where they are while editing
-    else { rows = list.map((e, i) => gridRow(e, i + 1)).join(''); for (let j = 0; j < (o.blank || 0); j++) rows += blankRow(list.length + j + 1, j === 0, lt(list.length + j + 1)); }
-    return `<table class="grid${o.main ? ' main' : ''}" data-day="${esc(o.day)}" aria-label="${esc((o.main ? 'Spreadsheet for ' : '') + R.fmtDay(o.day))}">${gColgroup}${gHead}<tbody>${rows}</tbody>${gFoot(list)}</table>`;
+    const disp = o.seq || list, pk = ptKeys(list), cnt = new Map(); list.forEach(e => cnt.set(pk.get(e.id), (cnt.get(pk.get(e.id)) || 0) + 1));
+    const spOf = i => { const e = disp[i], k = e && pk.get(e.id); if (!k || cnt.get(k) < 2) return null; const a = disp[i - 1], b = disp[i + 1]; return { g: 1, c: !!(a && pk.get(a.id) === k), n: !!(b && pk.get(b.id) === k) }; };
+    if (o.seq) { const fb = o.seq.indexOf(null); o.seq.forEach((e, i) => { rows += e ? gridRow(e, i + 1, spOf(i)) : blankRow(i + 1, i === fb, lt(i + 1)); }); }   // v9f: rows kept where they are while editing
+    else { rows = list.map((e, i) => gridRow(e, i + 1, spOf(i))).join(''); for (let j = 0; j < (o.blank || 0); j++) rows += blankRow(list.length + j + 1, j === 0, lt(list.length + j + 1)); }
+    return `<table class="grid${o.main ? ' main' : ''}" data-day="${esc(o.day)}" aria-label="${esc((o.main ? 'Spreadsheet for ' : '') + R.fmtDay(o.day))}">${gColgroup}${gHead}<tbody>${rows}</tbody>${gFoot(list, o.day)}</table>`;
   }
   // rows shown for a day: Today also keeps running / paused entries from earlier days at the top
   function dayList(day, main) {
@@ -610,8 +774,21 @@
       try { note = await applyCell(e, f, v, R.encDay(e0)); } catch (er) { if (!er.user) throw er; toast(er.message, 3500); return; }
       if (!note) return;
       await saveEnc(e, actOf(note), note);
+      if (f === 'name' || f === 'mrn') sameOffer(e0, e, f);
     });
   }
+  // v9p: changing the name or MRN / PHN of one encounter never changes the patient's other encounters by itself;
+  // the message offers to apply it to the linked encounters that still had the old value (one Undo step)
+  function sameOffer(old, e, f) {
+    const g = ptOf(f), was = g(old), now = g(e); if (!e.pt || was === now) return;
+    const sib = S.encs.filter(x => x.id !== e.id && x.pt === e.pt && kindOf(x) !== 'shift' && g(x) === was); if (!sib.length) return;
+    const what = f === 'name' ? 'Name' : 'MRN / PHN';
+    snack(`${what} changed on this row only. ${sib.length} other encounter${sib.length === 1 ? '' : 's'} for this patient still ${sib.length === 1 ? 'has' : 'have'} the old one.`, () => gEnq(async () => {
+      let n = 0; for (const x0 of sib) { const x = S.encs.find(y => y.id === x0.id); if (!x || g(x) !== was) continue; const c = clone(x); const note = await applyCell(c, f, now, R.encDay(x)).catch(() => null); if (note) { await saveEnc(c, 'edit', `${what} applied to all encounters for this patient`); n++; } }
+      toast(n ? `${what} updated on ${n} more encounter${n === 1 ? '' : 's'}` : 'Nothing to update');
+    }), 8000, true, `Apply to all ${sib.length + 1}`);
+  }
+  const ptOf = f => f === 'name' ? (x => ptName(x) || '') : (x => ptMrn(x) || '');
   function createFromBlank(tr, f, v) {
     if (!S || !String(v || '').trim()) return;
     const key = tr.dataset.key, day = tr.closest('table').dataset.day, id = uid(), set = blankSet[key] || quickSet;
@@ -686,7 +863,7 @@
     growRaf = requestAnimationFrame(() => { growRaf = 0;
       for (const t of $$('#todayList table.grid')) {
         const tb = t.tBodies[0], last = tb && tb.rows[tb.rows.length - 1]; if (!last || !tb.querySelector('tr[data-blank]') || !t.offsetParent) continue;
-        const w = t.closest('.gwrap'), rh = last.offsetHeight || 30, bottom = Math.min(innerHeight, w ? w.getBoundingClientRect().bottom : innerHeight);
+        const w = t.closest('.gwrap'), rh = last.offsetHeight || 30, bottom = Math.min(innerHeight, w ? w.getBoundingClientRect().bottom : innerHeight) - ((w && parseFloat(w.style.getPropertyValue('--tsh'))) || 0);   // v9p: rows under the pinned totals lines don't count as seen
         // v9o: scrolling alone adds up to SCROLL_MORE empty rows past those already there, then the footer shows after the last
         // row; the cursor (Tab / Enter / Next near the end) keeps adding rows without limit and the footer moves down with them
         if (!scrollCap.has(t)) scrollCap.set(t, tb.rows.length); const cap = scrollCap.get(t) + SCROLL_MORE;
@@ -787,6 +964,7 @@
         if (a.dataset.a === 'now') { if (tr.dataset.blank) createFromBlank(tr, 'tin', 'now'); else if (e) gridSave(e.id, 'tin', 'now'); return; }
         if (a.dataset.a === 'stop' && e) return act(e, 'stop');
         if (a.dataset.a === 'more' && e) return openRowMenu(e);
+        if (a.dataset.a === 'same' && e) { if (ev.detail > 1) return; if (!matchMedia('(pointer:fine)').matches) return sameRow(e); clearTimeout(spT); spT = setTimeout(() => sameRow(e), 280); return; }   // with a mouse, wait: a double-click on the row number opens the details instead
         return;
       }
       if (t.closest('a, input, textarea, button')) return;
@@ -797,7 +975,8 @@
       if ((td.classList.contains('c-fno') || td.classList.contains('c-fcen')) && !td.classList.contains('rn')) { const fp2 = td.querySelector('.gc.fpv'); if (fp2) return fpkCell(fp2); }
       const c = td.querySelector('.gc') || (td.classList.contains('rn') && td.parentNode.querySelector('.gc')); if (c) { gMouse = (c.tagName === 'INPUT' || c.tagName === 'TEXTAREA') && !td.classList.contains('rn') ? c : null; c.focus(); if (!gMouse && c.select) c.select(); }
     });
-    root.addEventListener('dblclick', ev => { const rn = ev.target.closest('tbody .rn'); if (rn) { const e = entryOf(rn); if (e) openEdit(e); } });
+    root.addEventListener('mousedown', ev => { if (ev.target.closest && ev.target.closest('.spb')) ev.preventDefault(); });   // v9p: the cell keeps focus, so the row stays selected
+    root.addEventListener('dblclick', ev => { const rn = ev.target.closest('tbody .rn'); if (rn) clearTimeout(spT); if (rn) { const e = entryOf(rn); if (e) openEdit(e); } });
     root.addEventListener('contextmenu', ev => { if (ev.target.closest('input')) return; const e = entryOf(ev.target); if (!e) return; ev.preventDefault(); openRowMenu(e); });
   }
   bindGrid($('#todayList')); bindGrid($('#histList'));
@@ -1269,7 +1448,9 @@
     if (editing) {
       const byId = new Map(list.map(e => [e.id, e])), used = new Set(); seq = [];
       for (const r of old.tBodies[0].rows) { const k = r.dataset.key; if (byId.has(k)) { seq.push(byId.get(k)); used.add(k); } else if (r.dataset.blank) seq.push(null); }
-      const extra = list.filter(e => !used.has(e.id)), lastE = seq.reduce((m, x, i) => x ? i : m, -1); seq.splice(lastE + 1, 0, ...extra);
+      let extra = list.filter(e => !used.has(e.id));
+      if (gAfter) { const ne = extra.find(e => e.id === gAfter.id), ai = seq.findIndex(x => x && x.id === gAfter.after); if (ne && ai >= 0) { extra = extra.filter(e => e !== ne); seq.splice(ai + 1, 0, ne); } gAfter = null; }   // v9p: Same patient row goes right under
+      seq.splice(seq.reduce((m, x, i) => x ? i : m, -1) + 1, 0, ...extra);
       const lastE2 = seq.reduce((m, x, i) => x ? i : m, -1), T = Math.max(lastE2 + 1 + Math.max(MIN_BLANK, fill - list.length), rowsMin[day] || 0);
       seq.length = Math.min(seq.length, T); while (seq.length < T) seq.push(null);
       lightFrom = lastE2 + 2 + Math.max(MIN_BLANK, fill - list.length);
@@ -1283,6 +1464,7 @@
     else { box.innerHTML = `<div class="gwrap main">${html}</div>`; w = box.firstElementChild; }
     fitCols(w.querySelector('table.grid'));
     sizeGrid(); placeFoot();
+    if (gSameFocus) { const id = gSameFocus; gSameFocus = null; const c = box.querySelector(`tr[data-id="${id}"] .gc[data-c="tin"]`); if (c) setTimeout(() => { if (document.contains(c)) { c.focus({ preventScroll: true }); if (c.select) c.select(); ensureVisible(c); } }, 0); }
   }
   // ---- v9f dynamic column widths: each column fits its longest content (header and cells) between a minimum and a maximum;
   // past the maximum, name / codes / notes wrap and the row grows. Measured with a canvas in the cells' own fonts.
@@ -1293,7 +1475,7 @@
   // characters next to their ↗ ⓘ buttons, the two Modifier columns ~15 characters, before anything wraps; the cell being
   // edited is at least two lines tall (CSS) and every code cell wraps and grows the row instead of clipping.
   const CODEC = { fee: 1, mod1: 1, mod2: 1, dx: 1 };
-  const FIT = { name: [22, 13, 34], mrn: [12.5, 12.5, 26], fno: [10, 10, 30], fcen: [8.5, 8.5, 22], fee: [24.5, 25.5, 46], mod1: [18, 18, 38], mod2: [18, 18, 38], dx: [24.5, 25.5, 46], note: [30, 28, 44] };
+  const FIT = { name: [22, 13, 34], mrn: [12.5, 12.5, 26], fno: [10, 10, 30], fcen: [8.5, 8.5, 22], fee: [24.5, 25.5, 46], mod1: [23.5, 24.5, 42], mod2: [23.5, 24.5, 42], dx: [24.5, 25.5, 46], note: [30, 28, 44] };
   function fitPx(key, need, ch, ww, touch) {
     const cfg = FIT[key], mn = cfg[touch ? 1 : 0] * ch; let max = cfg[2] * ch;
     if (key === 'name' && ww < 700) max = Math.min(max, Math.max(mn, ww * 0.30));
@@ -1334,6 +1516,7 @@
   }
   function fitCols(t, only) {
     if (!t || !t.isConnected || !t.offsetParent) return;
+    sumFit(t);
     if (!fitCtx) fitCtx = document.createElement('canvas').getContext('2d');
     const w = t.closest('.gwrap'), ww = (w && w.clientWidth) || innerWidth, touch = matchMedia('(max-width:767px),(pointer:coarse)').matches;
     // fast path while typing: re-measure only the edited column; if its width stays the same, nothing else can change
@@ -1431,13 +1614,14 @@
     ['pointerdown', 'mousedown'].forEach(n => b.addEventListener(n, ev => ev.preventDefault()));   // keep focus (and the phone keyboard) in the cell
     b.addEventListener('click', () => gStep(d)); });
   function renderToolbar() {
+    undoUi();
     const day = curDay(), td = today(), isT = day === td, d = new Date(day + 'T12:00');
-    $('#dLbl').textContent = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) + (isT ? ' · Today' : '');
+    $('#dLbl').innerHTML = esc(d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })) + (isT ? '<span class="dlt"> · Today</span>' : '');   // v9p: "· Today" hidden on narrow phones (past days are tinted yellow) to make room for Undo / Redo
     $('#dPick').value = day; $('#dToday').disabled = isT; $('#dToday').classList.toggle('on', !isT); $('#dNext').disabled = day >= td;
     $('#tbar').classList.toggle('past', !isT);
     const ws = weekStart(day), we = shiftDay(ws, 6), wl = S.encs.filter(e => { const k = R.encDay(e); return k >= ws && k <= we && kindOf(e) !== 'shift'; }), wt = R.totals(wl);
-    $('#wkTot').innerHTML = `Week <b>${wt.H.m + wt.C.m + wt.cb.m}</b> min · <b>${wt.H.u + wt.C.u + wt.cb.u}</b> u`;
-    $('#wkTot').title = `Week of ${R.fmtDay(ws)} (Mon–Sun): ${wl.length} entr${wl.length === 1 ? 'y' : 'ies'}. Hospital ${wt.H.m} min / ${wt.H.u} u, Clinic ${wt.C.m} min / ${wt.C.u} u${wt.cb.n ? `, call-backs ${wt.cb.m} min` : ''}`;
+    $('#wkTot').innerHTML = `Week <b>${R.hmTxt(wt.H.m + wt.C.m + wt.cb.m)}</b> · <b>${wt.H.u + wt.C.u + wt.cb.u}</b> u`;
+    $('#wkTot').title = `Week of ${R.fmtDay(ws)} (Mon–Sun): ${wl.length} entr${wl.length === 1 ? 'y' : 'ies'}. Hospital ${R.hmTxt(wt.H.m)} / ${R.uTxt(wt.H.u)}, Clinic ${R.hmTxt(wt.C.m)} / ${R.uTxt(wt.C.u)}${wt.cb.n ? `, call-backs ${R.hmTxt(wt.cb.m)}` : ''}`;
   }
   // ============================================================ v9g pick-and-return with MedBilling Fee Desk
   // ↗ / ⓘ in a Fee code(s) or Dx cell opens Fee Desk in "pick mode". Tapping a code there sends it straight back into the
@@ -1458,7 +1642,7 @@
   function fdBack() { fdSince = 0; }
   function pickInFeeDesk(e, kind, at) {
     if (!e || !kind) return;
-    const col = kind === 'dx' ? 'dx' : 'fee', tok = pickTok();
+    const col = kind === 'dx' || kind === 'mod1' || kind === 'mod2' ? kind : 'fee', isMod = col === 'mod1' || col === 'mod2', tok = pickTok();
     const act = document.activeElement; if (act && act.classList && act.classList.contains('gc')) commitCell(act);   // save what was typed first
     pickSave({ tok, id: e.id, col, day: R.encDay(e), tab, t: Date.now() });
     const u = new URL(FD);
@@ -1471,8 +1655,9 @@
     // deep link only to a code that is in the bundled lists (never free text)
     if (at) { const h = col === 'dx' ? fdDxHref(at) : fdCodeHref(at, j); u.hash = h.includes('#') ? h.slice(h.indexOf('#')) : ''; }
     else if (col === 'dx') u.hash = '#/icd9';
+    if (isMod) u.hash = '#/modifiers';   // Fee Desk v36+: the Modifiers tab; in pick mode a tapped modifier (or ＋ several) comes back with pickv=2&mod=
     fdSince = Date.now(); pickStart();
-    const hint = (col === 'dx' ? 'Tap an ICD-9 code in Fee Desk to bring it back' : 'Tap a fee code in Fee Desk to bring it back') + ' (＋ picks several)';
+    const hint = (col === 'dx' ? 'Tap an ICD-9 code in Fee Desk to bring it back' : isMod ? `Tap a modifier in Fee Desk to bring it back to Modifier code ${col.slice(3)}` : 'Tap a fee code in Fee Desk to bring it back') + ' (＋ picks several)';
     if (NATIVE) { window.open(u.href, '_blank'); toast(hint, 3000); return; }
     // a named window keeps the opener, so Fee Desk can hand the code back to this tab and close itself
     let w = null; try { w = window.open(u.href, 'mbfeedesk'); } catch (er) { w = null; }
@@ -1527,7 +1712,7 @@
   // codes that have none (new ones first), never replacing one; v9m: any more are appended after them (e.dxx), never refused; modifiers: Modifier code 1 for the row's first fee
   // code, Modifier code 2 for its second or later fee code; a modifier linked to (or sent with only) one fee code follows that fee
   // code, others go to Modifier code 1; never a duplicate across the two cells. Returns what happened, for the confirmation.
-  async function pickMerge(e, v) {
+  async function pickMerge(e, v, target) {
     const nc = s => norm(s), out = { fee: [], dx: [], m1: [], m2: [], have: [], skipped: [] };
     const list0 = (e.codes || []).map(c => c.c), newFee = [];
     v.fee.forEach(c => { if (list0.concat(newFee).some(x => nc(x) === nc(c))) out.have.push(c); else newFee.push(c); });
@@ -1557,7 +1742,7 @@
       const m = { 1: R.normMods(e.mod1).split(', ').filter(Boolean), 2: R.normMods(e.mod2).split(', ').filter(Boolean) };
       v.mod.forEach((x, i) => {
         if (m[1].includes(x) || m[2].includes(x)) { out.have.push(x); return; }
-        const f = v.modFor[i] || (v.fee.length === 1 ? v.fee[0] : ''), n = posOf(f) > 0 ? 2 : 1;
+        const f = v.modFor[i] || (v.fee.length === 1 ? v.fee[0] : ''), n = target === 'mod1' ? 1 : target === 'mod2' ? 2 : posOf(f) > 0 ? 2 : 1;   // v9p: opened from a modifier cell → that cell
         if (m[n].concat(x).join(', ').length > MOD_MAX) { out.skipped.push(x); return; }
         m[n].push(x); out['m' + n].push(x);
       });
@@ -1575,7 +1760,7 @@
     await gEnq(async () => {
       const cur = S.encs.find(x => x.id === p.id); if (!cur) return;
       const e = clone(cur); before = clone(cur);
-      r = await pickMerge(e, v); if (!r.changed) return;
+      r = await pickMerge(e, v, p.col); if (!r.changed) return;
       const aud = [r.fee.length && 'fee +' + r.fee.join(', '), r.dx.length && 'Dx +' + r.dx.join(', '), r.m1.length && 'modifier 1 +' + r.m1.join(', '), r.m2.length && 'modifier 2 +' + r.m2.join(', ')].filter(Boolean).join('; ');
       await saveEnc(e, 'edit', 'Codes picked in Fee Desk: ' + aud); after = e;
     });
@@ -1720,7 +1905,7 @@
     for (const [w, ks] of weeks) {
       const all = ks.flatMap(k => days.get(k)), t = R.totals(all);
       const wkRev = ks.every(k => rv[k]), wkEnd = shiftDay(w, 6);
-      h += `<div class="week"><div class="weekh"><span class="wl">Week of ${esc(R.fmtDay(w))}${wkRev ? ' <i class="rvb">✎ Reviewed</i>' : ''}</span><span>H ${t.H.m} min/${t.H.u} u · C ${t.C.m} min/${t.C.u} u${t.cb.n ? ` · CB ${t.cb.m} min` : ''}${t.site.n ? ` · on site ${R.hmin(t.site.m)}` : ''} <button type="button" class="linkbtn sm" data-rvw="${w}|${wkEnd}">Review week</button></span></div>`;
+      h += `<div class="week"><div class="weekh"><span class="wl">Week of ${esc(R.fmtDay(w))}${wkRev ? ' <i class="rvb">✎ Reviewed</i>' : ''}</span><span>${esc(R.totLines(Object.assign({}, t, { perList: [] })).join(' · ') || 'No time logged')} <button type="button" class="linkbtn sm" data-rvw="${w}|${wkEnd}">Review week</button></span></div>`;
       for (const k of ks) {
         const l = days.get(k), hol = R.holidayName(k);
         h += `<div class="dayg" id="d-${k}"><div class="dayh"><span class="d">${esc(R.fmtDay(k))}</span>${hol ? `<i class="holb" title="${esc(hol)}">Holiday</i>` : ''}${rv[k] ? '<i class="rvb" title="Reviewed">✎ Reviewed</i>' : re[k] ? '<i class="rve" title="An entry changed after this day was reviewed">Edited after review</i>' : ''}<span class="sp"></span><button type="button" class="linkbtn sm" data-open-day="${k}">Open in Today</button><button type="button" class="linkbtn sm" data-tl="${k}">Timeline</button><button type="button" class="linkbtn sm" data-rv="${k}">Review</button><button type="button" class="linkbtn sm" data-rep="${k}" aria-label="Report or share ${esc(R.fmtDay(k))}">Report</button></div>`;
@@ -1746,8 +1931,9 @@
       $$(`[data-rm="${id}"]`).forEach(el => { el.textContent = fmtDur(ms); el.title = m + ' min'; });
       if (kindOf(e) !== 'shift') $$(`[data-ru="${id}"]`).forEach(el => { const u = String(R.units(m)); if (el.textContent !== u) el.textContent = u; const n = e.status === 'run' ? nextUnit(m) : null, tt = n ? `+1 unit at ${n} min` : ''; if (el.title !== tt) el.title = tt; });
       if (kindOf(e) !== 'shift') { const wl = warnLvl(e); $$(`.gr[data-id="${id}"]`).forEach(el => { el.classList.toggle('wa', wl === 'a'); el.classList.toggle('wr', wl === 'r'); }); } }
-    if (live) $$('table.grid').forEach(t => { const f = t.tFoot; if (!f) return; const g = gTotals(dayList(t.dataset.day, t.classList.contains('main'))), tm = f.querySelector('[data-tm]'), tu = f.querySelector('[data-tu]'), tdd = f.querySelector('[data-td]');
-      if (tm && tm.textContent !== String(g.m)) tm.textContent = g.m; if (tu && tu.textContent !== String(g.u)) tu.textContent = g.u; if (tdd && tdd.textContent !== g.det) tdd.textContent = g.det; });
+    if (live) $$('table.grid').forEach(t => { const f = t.tFoot; if (!f) return; const g = gTotals(dayList(t.dataset.day, t.classList.contains('main')), t.dataset.day), tm = f.querySelector('[data-tm]'), tu = f.querySelector('[data-tu]'), tdd = f.querySelector('[data-td]'), tl = f.querySelector('[data-tl]');
+      if (tl) { const hh = linesHtml(g.lines); if (tl.innerHTML !== hh) { tl.innerHTML = hh; tl.closest('tr').hidden = !g.lines.length; sumFit(t); } }
+      if (tm && tm.textContent !== g.mTxt) tm.textContent = g.mTxt; if (tu && tu.textContent !== String(g.u)) tu.textContent = g.u; if (tdd && tdd.textContent !== g.det) tdd.textContent = g.det; });
     renderPbar(); procTick();
     if (live && Date.now() - premTick > 5000) { premTick = Date.now(); renderPrem(); premCheck(); }
     if (S && activeShift()) renderOnsiteInfo();
@@ -1847,7 +2033,7 @@
     // keep seconds precision for unchanged segments
     const merged = segs.map((s, i) => keep[i] && dtLocal(keep[i].s) === dtLocal(s.s) && (keep[i].e == null ? s.e == null : dtLocal(keep[i].e) === dtLocal(s.e)) ? keep[i] : s);
     if (merged.some(s => s.s == null)) { $('#eSum').textContent = ''; return; }
-    const m = R.minsOf({ segs: merged }); $('#eSum').textContent = `Total ${m} min · ${R.units(m)} units`;
+    const m = R.minsOf({ segs: merged }); $('#eSum').textContent = `Total ${R.hmTxt(m)} · ${R.uTxt(R.units(m))}`;
     const ps = cur && cur.kind !== 'shift' ? R.periodSplit({ id: 'edit', kind: cur.kind, segs: merged }).parts : [];
     $('#ePer').textContent = ps.length ? 'Time periods: ' + R.perTxt(ps) : ''; $('#ePer').hidden = !ps.length;
     return merged;
@@ -2086,6 +2272,37 @@
     snack(`Added ${min} min to ${x.label || R.KIND[kindOf(x)]}`, undo);
     return { x, undo, msg: `Added ${min} min: ${how}.${ov ? ` Overlaps ${ov} other ${kindOf(x) === 'cb' ? 'call-back' : 'encounter'}${ov > 1 ? 's' : ''} (allowed).` : ''}` };
   }
+  // v9p: Same patient → a new row right under the patient's last row on that day sheet: name, MRN / PHN, facility #,
+  // functional centre and H/C copied (and the Minor / Obstetric flags); times, units, codes, Dx, modifiers and notes blank.
+  // Both rows are linked (e.pt); the new row is placed by e.at (just after the row above it) until an In time is typed.
+  // One Undo step removes it again.
+  let gAfter = null, spT = null;
+  function sameRow(e0) {
+    if (!S) return; const a0 = document.activeElement; if (a0 && a0.classList && a0.classList.contains('gc')) commitCell(a0);
+    return gEnq(async () => {
+      const e = S.encs.find(x => x.id === e0.id); if (!e || kindOf(e) === 'shift') return;
+      if (!ptName(e) && !ptMrn(e)) return toast('Type the patient name or MRN / PHN first', 3000);
+      const day = R.encDay(e), list = S.encs.filter(x => kindOf(x) !== 'shift' && R.encDay(x) === day).sort((a, b) => R.startOf(a) - R.startOf(b) || (a.created || 0) - (b.created || 0));
+      const tb = $(`#todayList table.grid[data-day="${day}"] tbody`) || $(`#histList table.grid[data-day="${day}"] tbody`);
+      const disp = tb ? [...tb.rows].map(r => list.find(x => x.id === r.dataset.id)).filter(Boolean) : list;
+      for (const x of list) if (!disp.includes(x)) disp.push(x);
+      const pk = ptKeys(list.concat(list.includes(e) ? [] : [e])), key = pk.get(e.id), anchor = disp.filter(x => pk.get(x.id) === key).pop() || e;
+      const sA = R.startOf(anchor), later = list.map(x => R.startOf(x)).filter(t => t > sA), nx = later.length ? Math.min(...later) : null;
+      const at = Math.round(sA + (nx == null ? 1000 : Math.min(1000, (nx - sA) / 2)));
+      const group = e.pt || e.id, now = Date.now();
+      const ne = { id: uid(), kind: 'enc', name: e.name || '', mrn: ptMrn(e), chart: ptMrn(e), label: '', initials: '', billingNote: '', setting: e.setting === 'C' ? 'C' : 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [], status: 'new', photos: [], links: [], pt: group, at, created: now, updated: now };
+      if (day !== today()) ne.late = true;
+      if (e.minor) { ne.minor = true; if (Number.isFinite(e.minorAge)) ne.minorAge = e.minorAge; }
+      if (e.obstetric) ne.obstetric = true;
+      if (facNoOf(e)) { ne.facNo = facNoOf(e); if (R.facNmTxt(e)) ne.facNm = R.facNmTxt(e); } if (fcenOf(e)) ne.fcen = fcenOf(e);
+      gAfter = { id: ne.id, after: anchor.id };
+      await saveEnc(ne, 'create', `Same patient: new encounter row added`);
+      if (!e.pt) { const src = clone(e); src.pt = group; await saveEnc(src, 'link', 'Linked: same patient, new encounter', true); }
+      if (tab === 'today') gSameFocus = ne.id;
+      toast(`New encounter for ${displayWho(e)} added below. Times and codes are blank.`, 3500);
+    });
+  }
+  let gSameFocus = null;
   // same patient, new encounter: room/label, initials and chart carried over; codes left blank; both entries linked
   async function samePatient(e) {
     if (!S || kindOf(e) === 'shift') return;
@@ -2144,7 +2361,7 @@
     rmEnt = e; const k = kindOf(e), st = e.status, started = (e.segs || []).length > 0;
     $('#rmTitle').textContent = k === 'shift' ? (e.facility ? e.facility.n : 'On site') : displayWho(e);
     $('#rmSub').textContent = [R.fmtDay(R.encDay(e)), started ? R.hm(R.startOf(e)) + (R.endOf(e) ? '–' + R.hm(R.endOf(e)) : ' (running)') : 'not started', ptMrn(e), (e.codes || []).map(c => c.c).join(', ')].filter(Boolean).join(' · ');
-    const ed = k !== 'shift', show = { start: !started && ed, pause: st === 'run' && ed, resume: started && ed && (st === 'pause' || st === 'done'), stop: st === 'run' || st === 'pause', time: started, same: ed, fee: ed, dx: ed, full: st === 'run' && ed };
+    const ed = k !== 'shift', show = { start: !started && ed, pause: st === 'run' && ed, resume: started && ed && (st === 'pause' || st === 'done'), stop: st === 'run' || st === 'pause', time: started, same: ed && !!(ptName(e) || ptMrn(e)), samerun: ed, fee: ed, mod: ed, dx: ed, full: st === 'run' && ed };
     $$('#rowMenu [data-rmi]').forEach(b => { if (b.dataset.rmi in show) b.hidden = !show[b.dataset.rmi]; });
     $('#rmResumeL').textContent = st === 'done' ? 'Continue timing (new segment)' : 'Resume';
     const d = $('#rowMenu'); if (!d.open) d.showModal();
@@ -2156,8 +2373,10 @@
     const a = b.dataset.rmi;
     if (a === 'start') return gridSave(e.id, 'tin', 'now');
     if (a === 'pause' || a === 'resume' || a === 'stop') return act(e, a);
-    if (a === 'same') return samePatient(e);
+    if (a === 'same') return sameRow(e);
+    if (a === 'samerun') return samePatient(e);
     if (a === 'fee' || a === 'dx') return pickInFeeDesk(e, a);
+    if (a === 'mod') return pickInFeeDesk(e, 'mod1');
     if (a === 'full') return openProc(e);
     if (a === 'del') return delEntry(e);
     openEdit(e, false, a === 'segs' ? { edit: true } : a === 'time' ? { panel: 'time' } : a === 'note' ? { panel: 'note' } : {});
@@ -2166,7 +2385,7 @@
     const ok = await ask({ title: 'Delete row', text: `Delete "${displayWho(e) || 'this entry'}"${(e.photos || []).length ? ' and its photos' : ''}? It disappears from your logs and reports, but a full copy stays in the encrypted audit log.`, ok: 'Delete', danger: true });
     const cur0 = ok && S && S.encs.find(x => x.id === e.id); if (!cur0) return;
     const gone = clone(cur0), ph = await deleteEnc(cur0, 'Deleted from the spreadsheet row menu', true); render();
-    const tm = setTimeout(() => { photoDel.delete(tm); ph.forEach(p => V.removePhoto(p)); }, 6000); photoDel.set(tm, ph);
+    const tm = -(++photoDelN); photoDel.set(tm, ph);   // v9p: photos removed at lock (Undo can bring them back until then)
     snack(`Deleted ${R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
   }
   async function closeEdit(saved) {
@@ -2265,7 +2484,7 @@
     if (!cur) return; const v = await ask({ title: 'Delete entry', text: `Delete "${cur.label || 'this entry'}"${cur.photos.length ? ' and its photos' : ''}? It disappears from your logs and reports, but a full copy stays in the encrypted audit log.`, ok: 'Delete', danger: true }); if (!v || !cur) return;
     for (const p of addedPhotos) await V.removePhoto(p);
     const gone = clone(S.encs.find(x => x.id === cur.id) || cur), ph = await deleteEnc(cur, '', true); addedPhotos = []; await closeEdit(true); render();
-    const tm = setTimeout(() => { photoDel.delete(tm); ph.forEach(p => V.removePhoto(p)); }, 6000); photoDel.set(tm, ph);
+    const tm = -(++photoDelN); photoDel.set(tm, ph);   // v9p: photos removed at lock (Undo can bring them back until then)
     snack(`Deleted ${R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
   };
   const blank = (k, s, e) => ({ id: uid(), kind: k, name: '', mrn: '', billingNote: '', label: '', initials: '', chart: '', setting: k === 'enc' ? S.settings.defSetting : 'H', facility: (activeShift() || {}).facility || S.settings.curFac || null, type: '', codes: [], notes: [], segs: [{ s, e }], status: e == null ? 'run' : 'done', photos: [], links: [], created: Date.now() });
@@ -2401,7 +2620,7 @@
       const d = $('#askDlg'); $('#askTitle').textContent = o.title; $('#askText').textContent = o.text || ''; $('#askErr').textContent = '';
       $('#askFields').innerHTML = (o.fields || []).map(f => f.type === 'select' ? `<label class="fld">${esc(f.label)}<select id="ask_${f.id}">${f.options.map(([v, l]) => `<option value="${esc(v)}"${v === f.value ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`
         : `<label class="fld">${esc(f.label)}<input id="ask_${f.id}" type="${f.type || 'password'}" ${f.type === 'password' || !f.type ? 'autocomplete="off" autocapitalize="off" spellcheck="false"' : ''} maxlength="128"></label>`).join('');
-      const ok = $('#askOk'); ok.textContent = o.ok || 'OK'; ok.className = o.danger ? 'dangerbtn' : 'primary';
+      const ok = $('#askOk'); ok.textContent = o.ok || 'OK'; ok.className = o.danger ? 'dangerbtn' : 'primary'; $('#askCancel').textContent = o.cancel || 'Cancel';
       const done = v => { d.close(); $('#askForm').onsubmit = null; $('#askCancel').onclick = null; d.oncancel = null; res(v); };
       $('#askForm').onsubmit = async ev => {
         ev.preventDefault(); const v = {}; (o.fields || []).forEach(f => { v[f.id] = $('#ask_' + f.id).value; });
@@ -2568,7 +2787,7 @@
     }
     const have = new Set((await V.photoIds()).map(p => p.id));
     for (const p of data.photos || []) if (!have.has(p.id)) { await V.restorePhoto(p); photos++; }
-    await migrateNotes(); premBase = null; render(); toast(`Imported: ${added} new, ${updated} updated, ${photos} photo(s)`, 3500);
+    await migrateNotes(); premBase = null; undoReset(); render(); toast(`Imported: ${added} new, ${updated} updated, ${photos} photo(s)`, 3500);
   });
   $('#wipe').onclick = async () => {
     const v = await ask({ title: 'Delete all data', text: 'This erases every encounter, arrival/departure, call-back, photo, the whole audit log, all settings and the passcode from this device. It cannot be undone and the developer cannot recover anything. Check your retention obligations and make an encrypted backup first. Enter your passcode and type DELETE ALL to confirm.', ok: 'Delete everything', danger: true, fields: [{ id: 'p', label: 'Passcode' }, { id: 'c', label: 'Type DELETE ALL', type: 'text' }],
@@ -2890,7 +3109,7 @@
     if (kindOf(e) === 'shift') return ''; const ps = R.periodSplit(e).parts.filter(p => !R.PBY[p.id].regular); if (!ps.length) return '';
     return `<small class="pt" title="${esc(R.perTxt(R.periodSplit(e).parts))}">${esc(R.PBY[ps[0].id].short)}${ps.length > 1 ? '+' : ''}</small>`;
   }
-  const perShort = t => t.perList && t.perList.length ? `<br><span class="pert">${t.perList.map(p => `${esc(R.PBY[p.id].short)} ${p.m}m/${p.u}u`).join(' · ')}</span>` : '';
+  const perShort = t => t.perList && t.perList.length ? `<br><span class="pert">${esc(R.perTxt(t.perList).replace(/; /g, ' · '))}</span>` : '';
   // ---- 6. undo snackbar (5 s) for delete and stop
   let snackT = null, snackFn = null; const photoDel = new Map();
   function snack(text, fn, ms, wrap, label) { $('#snackTxt').textContent = text; $('#snackUndo').textContent = label || 'Undo'; snackFn = fn; const n = $('#snack'); if (wrap) $('#toast').classList.remove('show'); n.classList.toggle('wrap', !!wrap); n.hidden = false; snackAvoidNav(); clearTimeout(snackT); snackT = setTimeout(hideSnack, ms || 5000); }
@@ -2899,6 +3118,7 @@
   function snackAvoidNav() { const n = $('#snack'), g = $('#gNav'); if (!n || n.hidden) return; n.style.bottom = '';
     if (g && !g.hidden) { const gr = g.getBoundingClientRect(), sr = n.getBoundingClientRect(); if (sr.bottom > gr.top - 6 && sr.top < gr.bottom) n.style.bottom = Math.round(innerHeight - gr.top + 8) + 'px'; } }
   $('#snackUndo').onclick = async () => { const f = snackFn; hideSnack(); if (f && S) { try { await f(); } catch (e) { toast('Could not undo: ' + e.message); } } };
+  let photoDelN = 0;
   function flushPhotoDel() { for (const [tm, ph] of photoDel) { clearTimeout(tm); ph.forEach(p => V.removePhoto(p)); } photoDel.clear(); }
   async function undoTo(prev, after, note) {   // only if nothing changed the entry since
     const now = S.encs.find(x => x.id === prev.id); if (!now || now.updated !== after.updated) return toast('Not undone: the entry changed');
@@ -2936,19 +3156,23 @@
   $('#procDlg').addEventListener('close', () => { procId = null; stopWake(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && $('#procDlg').open) keepAwake(); });
   // ---- time period tracker bar (Alberta periods per user, America/Edmonton time)
-  const leftTxt = ms => { const m = Math.max(0, Math.ceil(ms / 60000)); return m >= 60 ? `${Math.floor(m / 60)}h ${R.pad(m % 60)}m` : `${m} min`; };
+  const leftTxt = ms => R.hmTxt(Math.max(0, Math.ceil(ms / 60000)));
   function renderPbar() {
     if (!S) return; const now = Date.now(), a = R.periodAt(now), nx = R.periodAt(a.end + 1000), p = a.p; a.key0 = R.dayKey(now);
     $('#pbName').textContent = p.name + (a.holiday ? ' · ' + a.holiday : '');
     $('#pbHrs').textContent = R.pHours(p);
-    $('#pbLeft').textContent = `${leftTxt(a.end - now)} left → ${nx.p.name}`; $('#pbLeft').title = `Next: ${nx.p.name} from ${R.hm(a.end)}`;
+    const pn = R.perName(p.id, a.key0);
     $('#pbFill').style.width = Math.min(100, Math.max(0, (now - a.start) / (a.end - a.start) * 100)).toFixed(1) + '%';
     let logged = 0;
     for (const e of S.encs) { if (kindOf(e) === 'shift' || !e.segs.some(s => s.s < a.end && (s.e == null ? now : s.e) > a.start)) continue; for (const b of R.periodSplit(e, now).blocks) if (b.t >= a.start && b.t < a.end) logged++; }
     // v9o: premium periods show the 03.01AA modifier and the units logged against its daily maximum (e.g. "TEV 6/20 u")
     const pc = p.regular ? null : R.premCode(now), mx = pc ? premMax(pc) : 0, el = Math.min(p.units, Math.floor((now - a.start) / 900000));
     const ent = pc ? (R.premUnits(S.encs.filter(e => R.encDay(e) === a.key0)).get(a.key0 + '|' + pc) || 0) : 0;
-    $('#pbUnits').textContent = p.regular ? `no premium units · logged ${logged} u` : `${pc} ${ent}/${mx} u · logged ${logged} u`;
+    // v9p: plain words. Line 1: the period, then the modifier units entered today against the daily maximum ("TEV 18 of 20 units").
+    // Line 2: time logged in this period only (all rows, 15-minute units; the totals row adds up the whole day), then time left.
+    $('#pbUnits').textContent = p.regular ? 'No premium units' : `${pc} ${ent} of ${mx} units`;
+    $('#pbLeft').innerHTML = `${esc(pn)} time logged: <b>${R.uTxt(logged)}</b> · ${esc(leftTxt(a.end - now))} left<span class="pbnx"> → ${esc(nx.p.name)}</span>`;
+    $('#pbLeft').title = `${R.uTxt(logged)} of encounter time logged so far in this ${p.name.toLowerCase()} period (${R.pHours(p)}); the totals row under the spreadsheet counts the whole day. Next: ${nx.p.name} from ${R.hm(a.end)}`;
     $('#pbUnits').title = p.regular ? `Regular hours. Units logged in encounters this period: ${logged}` : `${R.PREM[pc].name} (${pc}; surcharge ${R.PREM[pc].surc}). ${ent} units entered on ${pc} modifiers today (daily maximum ${mx}); ${logged} units of logged time in this period. 03.01AA ${pc}${premMine(pc) ? ' (limit set by you)' : ''}. ${el} of the period's ${p.units} 15-minute blocks have passed.`;
     $('#pbar').className = 'pbar p-' + p.id + (p.regular ? '' : ' prem') + (pc && ent > mx ? ' pover' : pc && ent >= mx ? ' pfull' : '');
   }
@@ -3048,10 +3272,10 @@
     const sum = t => ({ m: t.H.m + t.C.m + t.cb.m, u: t.H.u + t.C.u + t.cb.u });
     const tw = sum(R.totals(days.flatMap(k => byd.get(k) || []))), ttl = R.totals(S.encs.filter(e => R.encDay(e) === td)), tt = sum(ttl), rv = S.settings.reviews || {};
     const cells = days.map((k, i) => { const l = byd.get(k) || [], t = sum(R.totals(l)), hol = R.holidayName(k), d = +k.slice(8);
-      return `<button type="button" class="wd${k === td ? ' today' : ''}${l.length ? '' : ' empty'}${hol ? ' hol' : ''}${i > 4 ? ' we' : ''}" data-day="${k}" title="${esc(R.fmtDay(k) + (hol ? ' · ' + hol : ''))}" aria-label="${esc(R.fmtDay(k))}: ${t.m} minutes, ${t.u} units"><span class="wn">${'MTWTFSS'[i]}${d}</span><b>${t.m ? t.m + 'm' : '–'}</b><small>${t.m ? t.u + 'u' : ''}${rv[k] ? ' ✓' : ''}</small></button>`; }).join('');
+      return `<button type="button" class="wd${k === td ? ' today' : ''}${l.length ? '' : ' empty'}${hol ? ' hol' : ''}${i > 4 ? ' we' : ''}" data-day="${k}" title="${esc(R.fmtDay(k) + (hol ? ' · ' + hol : ''))}" aria-label="${esc(R.fmtDay(k))}: ${R.hmTxt(t.m)}, ${R.uTxt(t.u)}"><span class="wn">${'MTWTFSS'[i]}${d}</span><b>${t.m ? (t.m < 60 ? t.m + 'm' : Math.floor(t.m / 60) + 'h' + R.pad(t.m % 60)) : '–'}</b><small>${t.m ? t.u + 'u' : ''}${rv[k] ? ' ✓' : ''}</small></button>`; }).join('');
     const lbl = wsOff[which] === 0 ? 'This week' : 'Week';
-    box.innerHTML = `<div class="wsh"><button type="button" class="wsnav" data-nav="-1" aria-label="Previous week">‹</button><span class="wsl">${esc(wkRange(days[0], days[6]))}</span><button type="button" class="wsnav" data-nav="1" aria-label="Next week">›</button><span class="wst"><button type="button" class="wstoday${wsOff[which] ? ' off' : ''}" data-today="1" title="Back to today and the current week" aria-label="Today: go back to today and the current week">Today</button> ${tt.m}m·${tt.u}u <b>${lbl}</b> ${tw.m}m·${tw.u}u</span></div><div class="wdays">${cells}</div>` +
-      (which === 'today' ? `<div class="wsx">H ${ttl.H.m} min · ${ttl.H.n} enc · ${ttl.H.u} u <span>|</span> C ${ttl.C.m} min · ${ttl.C.n} enc · ${ttl.C.u} u${ttl.cb.n ? ` <span>|</span> CB ${ttl.cb.n} · ${ttl.cb.m} min` : ''}${ttl.perList.length ? `<br>${ttl.perList.map(p => `${esc(R.PBY[p.id].short)} ${p.m}m/${p.u}u`).join(' · ')}` : ''}</div>` : '');
+    box.innerHTML = `<div class="wsh"><button type="button" class="wsnav" data-nav="-1" aria-label="Previous week">‹</button><span class="wsl">${esc(wkRange(days[0], days[6]))}</span><button type="button" class="wsnav" data-nav="1" aria-label="Next week">›</button><span class="wst"><button type="button" class="wstoday${wsOff[which] ? ' off' : ''}" data-today="1" title="Back to today and the current week" aria-label="Today: go back to today and the current week">Today</button> ${R.hmTxt(tt.m)} · ${tt.u} u <b>${lbl}</b> ${R.hmTxt(tw.m)} · ${tw.u} u</span></div><div class="wdays">${cells}</div>` +
+      (which === 'today' ? `<div class="wsx">${R.totLines(ttl, td).map(esc).join(' <span>|</span> ') || 'No time logged today'}</div>` : '');
     box.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => { wsOff[which] += +b.dataset.nav; renderStrip(which); });
     box.querySelectorAll('[data-day]').forEach(b => b.onclick = () => goDay(b.dataset.day));
     box.querySelector('[data-today]').onclick = () => goToday(which);

@@ -78,6 +78,10 @@
   function saveDraft(d) { const k = need(); return encJSON(k, d).then(o => put('meta', { id: 'draft', iv: o.iv, ct: o.ct })); }
   async function loadDraft() { const k = need(); const r = await get('meta', 'draft'); if (!r) return null; try { return await decJSON(k, r); } catch (e) { return null; } }
   const clearDraft = () => del('meta', 'draft');
+  // v9p: Undo / Redo history of the Today grid (copies of entries before / after each change), encrypted like the entries
+  function saveUndo(u) { const k = need(); return encJSON(k, u).then(o => put('meta', { id: 'undo', iv: o.iv, ct: o.ct })); }
+  async function loadUndo() { const k = need(); const r = await get('meta', 'undo'); if (!r) return null; try { return await decJSON(k, r); } catch (e) { return null; } }
+  const clearUndo = () => del('meta', 'undo');
   // photos (encrypted JPEG bytes)
   async function savePhoto(id, eid, bytes, meta) { const k = need(); const o = await encBytes(k, bytes); const mo = await encJSON(k, meta || {}); return put('photo', { id, eid, iv: o.iv, ct: o.ct, miv: mo.iv, mct: mo.ct }); }
   async function loadPhoto(id) { const k = need(); const r = await get('photo', id); if (!r) return null; return decBytes(k, r); }
@@ -132,13 +136,13 @@
   async function kind() { const m = await get('meta', 'vault'); return (m && m.kind) || ''; }
   async function rekey(oldPass, newPass, newKind) {
     const k0 = await verify(oldPass); if (!k0) return false;
-    const encs = await all('enc'), photos = await all('photo'), st = await get('meta', 'settings'), aud = await all('audit'), ah = await get('meta', 'auditHead'), ab = await get('meta', 'auditBase');
+    const encs = await all('enc'), photos = await all('photo'), st = await get('meta', 'settings'), aud = await all('audit'), ah = await get('meta', 'auditHead'), ab = await get('meta', 'auditBase'), un = await get('meta', 'undo');
     const salt = crypto.getRandomValues(new Uint8Array(16)), k1 = await derive(newPass, salt, ITER);
     const re = async o => { const b = await decBytes(k0, o); return encBytes(k1, b); };
     const nEnc = []; for (const r of encs) { const o = await re(r); nEnc.push({ id: r.id, iv: o.iv, ct: o.ct }); }
     const nPh = []; for (const r of photos) { const o = await re(r); const m = r.mct ? await re({ iv: r.miv, ct: r.mct }) : null; nPh.push({ id: r.id, eid: r.eid, iv: o.iv, ct: o.ct, miv: m && m.iv, mct: m && m.ct }); }
     const nSt = st ? await re(st) : null;
-    const nAud = []; for (const r of aud) { const o = await re(r); nAud.push({ id: r.id, iv: o.iv, ct: o.ct }); } const nAh = ah ? await re(ah) : null; const nAb = ab ? await re(ab) : null;
+    const nAud = []; for (const r of aud) { const o = await re(r); nAud.push({ id: r.id, iv: o.iv, ct: o.ct }); } const nAh = ah ? await re(ah) : null; const nAb = ab ? await re(ab) : null; const nUn = un ? await re(un).catch(() => null) : null;   // v9p: keep the undo history
     const chk = await encBytes(k1, te.encode(CHECK));
     await open();
     await new Promise((res, rej) => {
@@ -151,6 +155,7 @@
       for (const r of nAud) t.objectStore('audit').put(r);
       if (nAh) t.objectStore('meta').put({ id: 'auditHead', iv: nAh.iv, ct: nAh.ct });
       if (nAb) t.objectStore('meta').put({ id: 'auditBase', iv: nAb.iv, ct: nAb.ct });
+      if (nUn) t.objectStore('meta').put({ id: 'undo', iv: nUn.iv, ct: nUn.ct }); else t.objectStore('meta').delete('undo');
       t.objectStore('meta').delete('draft');
       t.objectStore('meta').delete('easy');   // v9e: easy unlock wraps the old key; it must be turned on again
     });
@@ -194,5 +199,5 @@
     key = null; if (db) { db.close(); db = null; }
     await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); });
   }
-  global.Vault = { kind, rawKey, unlockRaw, getEasy, putEasy, delEasy, saveDraft, loadDraft, clearDraft, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, autoBackup, headSeq, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
+  global.Vault = { kind, rawKey, unlockRaw, getEasy, putEasy, delEasy, saveDraft, loadDraft, clearDraft, saveUndo, loadUndo, clearUndo, exists, create, unlock, verify, lock, unlocked, loadAll, save, remove, loadSettings, saveSettings, savePhoto, loadPhoto, removePhoto, photoIds, rekey, backup, autoBackup, headSeq, openBackup, restorePhoto, wipe, appendAudit, loadAudit, verifyAudit, pruneAudit, sha, canon, ITER };
 })(window);
