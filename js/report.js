@@ -34,7 +34,31 @@
   // v9k: modifier codes, two free-text columns per entry (e.mod1, e.mod2), each may hold several codes. Older entries have none.
   const normMods = v => String(v == null ? '' : v).split(/[,;\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(', ');
   const modTxt = (e, n) => normMods(e && e['mod' + n]);
-  const modsTxt = e => [modTxt(e, 1) && 'Mod 1: ' + modTxt(e, 1), modTxt(e, 2) && 'Mod 2: ' + modTxt(e, 2)].filter(Boolean).join('; ');
+  // v9o: time-unit modifiers carry a unit count 01–20 per code per row (e.modU = { TEV: 4 }); one unit = 15 minutes (SURT: "payable
+  // in 15 minute blocks", GR 15.13.4; a further unit needs at least half of 15 minutes, GR 2.3.2 / 2.3.5). The 03.01AA after-hours
+  // codes (SURT) and the matching unscheduled-service surcharge names (SURC EV / NTPM / NTAM / WK) take units.
+  const MU_CODES = ['TEV', 'TNTP', 'TNTA', 'TWK', 'TST', 'TDES', 'EV', 'NTPM', 'NTAM', 'WK'];
+  const isMu = c => MU_CODES.includes(String(c || '').toUpperCase());
+  const p2 = n => String(n).padStart(2, '0');
+  const muOf = (e, c) => { const v = e && e.modU && e.modU[c]; return Number.isInteger(v) && v >= 1 && v <= 20 ? v : 0; };
+  const muCodes = (e, n) => modTxt(e, n).split(', ').filter(isMu);
+  const modUTxt = (e, n) => muCodes(e, n).filter(c => muOf(e, c)).map(c => `${c} ${p2(muOf(e, c))}`).join('; ');
+  const modFull = (e, n) => modTxt(e, n).split(', ').filter(Boolean).map(c => muOf(e, c) ? `${c} ×${p2(muOf(e, c))}` : c).join(', ');
+  const muMin = n => n * 15;   // minutes for n units (15 each)
+  const muFrom = n => n <= 0 ? 0 : (n - 1) * 15 + 8;   // least time logged that supports n units (remainder of at least half a unit, rounded up to whole minutes)
+  const modsTxt = e => [modTxt(e, 1) && 'Mod 1: ' + modFull(e, 1), modTxt(e, 2) && 'Mod 2: ' + modFull(e, 2)].filter(Boolean).join('; ');
+  // v9o: AHCIP Facility # (e.facNo, digits; e.facNm the facility name from the Alberta Health listing or typed by the doctor)
+  // and Functional centre (e.fcen, a code such as EMRG). Older entries have neither. Codes and names as in the Alberta Health
+  // "Facility and Functional Centre Definitions and Facility Listing" (July 2026): the five Med Access shows first, then the rest.
+  const FCEN = [['CLNC', 'Clinic'], ['D/N', 'Day/Night Care'], ['EMRG', 'Emergency'], ['MED', 'Medical'], ['SURG', 'Surgical']];
+  const FCEN_MORE = [['AACC', 'Advanced Ambulatory Care Ctr'], ['CLAB', 'Clinical Laboratory'], ['DIMG', 'Diagnostic Imaging'], ['ELEC', 'Electrodiagnosis'], ['EXRM', 'Examination Room'], ['HBOC', 'Hyperbaric Oxygen Chamber'], ['ICN1', 'ICU Neonatal - Level 1'], ['ICN2', 'ICU Neonatal - Level 2'], ['ICN3', 'ICU Neonatal - Level 3'], ['ICO2', 'ICU Obstetrics - Level 2'], ['ICO3', 'ICU Obstetrics - Level 3'], ['ICU1', 'Intensive Care Unit - Level 1'], ['ICU2', 'Intensive Care Unit - Level 2'], ['ICU3', 'Intensive Care Unit - Level 3'], ['LTC', 'Long Term Care'], ['OLAB', 'Other Diagnostic Laboratory'], ['PEMG', 'Pediatric Emergency'], ['PHYS', 'Physical Therapy'], ['PRGR', 'Patient Room/Group Room'], ['RDON', 'Radiation Oncology'], ['UCC', 'Urgent Care Center']];
+  const FCEN_ALL = FCEN.concat(FCEN_MORE), fcenName = c => { const x = FCEN_ALL.find(f => f[0] === c); return x ? x[1] : ''; };
+  const normFcen = v => { const s = String(v == null ? '' : v).trim().toUpperCase().replace(/\s+/g, ''); if (!s) return ''; const x = FCEN_ALL.find(f => f[0] === s || f[0].replace('/', '') === s.replace('/', '')); return x ? x[0] : s.slice(0, 8); };
+  const facNoTxt = e => (e && e.facNo != null ? String(e.facNo).trim() : '');
+  const facNmTxt = e => (facNoTxt(e) && e.facNm ? String(e.facNm).trim() : '');
+  const facNoFull = e => [facNoTxt(e), facNmTxt(e)].filter(Boolean).join(' ');
+  const fcenTxt = e => (e && e.fcen ? String(e.fcen) : '');
+  const fcenFull = e => fcenTxt(e) ? fcenTxt(e) + (fcenName(fcenTxt(e)) ? ' - ' + fcenName(fcenTxt(e)) : '') : '';
   const fmtDay = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }); };
 
   // ---------- Alberta billing time periods (v5). PER USER: verify against the current Alberta SOMB before relying on them.
@@ -44,7 +68,7 @@
   // off in Settings), plus a manual "today is a holiday" toggle. No fee codes are attached to periods.
   const PERIOD_CFG = {
     tz: 'America/Edmonton',
-    note: 'Time periods per user (Alberta, America/Edmonton local time). Statutory holidays are treated like weekends. Verify against the current SOMB.',
+    note: 'Alberta after-hours periods (America/Edmonton local time), as in the SOMB after-hours time premium (HSC 03.01AA, modifier SURT). Statutory holidays (GR 1.2) and the days designated in their place (GR 1.3) are treated like weekends.',
     weekday: [
       { id: 'wd_night', name: 'Weekday overnight', short: 'Night', from: 0, to: 7, units: 28 },
       { id: 'wd_day', name: 'Weekday daytime', short: 'Day', from: 7, to: 17, units: 0, regular: true },
@@ -54,11 +78,15 @@
       { id: 'we_night', name: 'Weekend/holiday overnight', short: 'WE night', from: 0, to: 7, units: 28 },
       { id: 'we_day', name: 'Weekend/holiday daytime', short: 'WE day', from: 7, to: 22, units: 60 },
       { id: 'we_late', name: 'Weekend/holiday late evening', short: 'WE late', from: 22, to: 24, units: 8 }],
-    holidays: [   // Alberta general holidays, calculated for any year: [id, name, rule]
-      ['newyear', "New Year's Day", 'Jan 1'], ['family', 'Alberta Family Day', '3rd Monday of February'], ['goodfri', 'Good Friday', 'Friday before Easter Sunday'],
-      ['victoria', 'Victoria Day', 'Monday before May 25'], ['canada', 'Canada Day', 'Jul 1'], ['heritage', 'Heritage Day (optional in Alberta)', '1st Monday of August'],
-      ['labour', 'Labour Day', '1st Monday of September'], ['ndtr', 'National Day for Truth and Reconciliation', 'Sep 30'], ['thanks', 'Thanksgiving Day', '2nd Monday of October'],
-      ['remem', 'Remembrance Day', 'Nov 11'], ['xmas', 'Christmas Day', 'Dec 25']]
+    // v9o: the AHCIP list for premium purposes, SOMB Medical Governing Rules (01 April 2026) GR 1.2: New Year's Day, Family Day,
+    // Good Friday, Victoria Day, Canada Day, Alberta Heritage Day, Labour Day, Thanksgiving Day, Remembrance Day, Christmas Day,
+    // Boxing Day. (Easter Monday and the National Day for Truth and Reconciliation are not on it; mark a day yourself if needed.)
+    // GR 1.3: when one falls on a Saturday or Sunday the Minister designates another day (see designated() below).
+    holidays: [   // [id, name, rule]
+      ['newyear', "New Year's Day", 'Jan 1'], ['family', 'Family Day', '3rd Monday of February'], ['goodfri', 'Good Friday', 'Friday before Easter Sunday'],
+      ['victoria', 'Victoria Day', 'Monday before May 25'], ['canada', 'Canada Day', 'Jul 1'], ['heritage', 'Alberta Heritage Day', '1st Monday of August'],
+      ['labour', 'Labour Day', '1st Monday of September'], ['thanks', 'Thanksgiving Day', '2nd Monday of October'],
+      ['remem', 'Remembrance Day', 'Nov 11'], ['xmas', 'Christmas Day', 'Dec 25'], ['boxing', 'Boxing Day', 'Dec 26']]
   };
   const PERIODS = PERIOD_CFG.weekday.concat(PERIOD_CFG.weekend), PBY = {}; PERIODS.forEach(p => { PBY[p.id] = p; });
   const hh = h => pad(h % 24) + ':00', pHours = p => `${hh(p.from)}–${pad((p.to - 1) % 24)}:59`;
@@ -82,13 +110,85 @@
     return ymd(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
   }
   const HOL_RULE = { newyear: y => ymd(y, 1, 1), family: y => nthMon(y, 2, 3), goodfri: goodFriday, victoria: y => { let d = 24; while (dow(y, 5, d) !== 1) d--; return ymd(y, 5, d); }, canada: y => ymd(y, 7, 1),
-    heritage: y => nthMon(y, 8, 1), labour: y => nthMon(y, 9, 1), ndtr: y => ymd(y, 9, 30), thanks: y => nthMon(y, 10, 2), remem: y => ymd(y, 11, 11), xmas: y => ymd(y, 12, 25) };
-  function holidaysOf(y) { return PERIOD_CFG.holidays.map(([id, name, rule]) => ({ id, name, rule, date: HOL_RULE[id](y) })); }
+    heritage: y => nthMon(y, 8, 1), labour: y => nthMon(y, 9, 1), thanks: y => nthMon(y, 10, 2), remem: y => ymd(y, 11, 11), xmas: y => ymd(y, 12, 25), boxing: y => ymd(y, 12, 26) };
+  // GR 1.3 designated days. Alberta Health announces them in AHCIP bulletins; the pattern it has used (GEN 80, 2011: Christmas on a
+  // Sunday → Tuesday Dec 27 because Monday was Boxing Day; New Year's Day on a Sunday → Monday Jan 2) is the next weekday that is
+  // not already a holiday or a designated day. DES_SEEN lists the designations seen in a published table; the others are expected
+  // dates (shown as such in Settings, each can be switched off there).
+  const DES_SEEN = { '2026-12-28': 'AMA “Claiming for after-hours work, December 2025 – December 2026” (GR 1.3): Monday, December 28, 2026, designated holiday for Boxing Day', '2011-12-27': 'Alberta Health AHCIP bulletin GEN 80 (Dec 2011)', '2012-01-02': 'Alberta Health AHCIP bulletin GEN 80 (Dec 2011)' };
+  const addD = (k, n) => { const t = new Date(Date.UTC(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10) + n)); return ymd(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()); };
+  const wdOf = k => dow(+k.slice(0, 4), +k.slice(5, 7), +k.slice(8, 10));
+  function designated(y, base) {
+    const taken = new Set(base.map(h => h.date)), out = [];
+    for (const h of base.slice().sort((a, b) => a.date < b.date ? -1 : 1)) {
+      const w = wdOf(h.date); if (w !== 0 && w !== 6) continue;
+      let d = addD(h.date, 1); while (wdOf(d) === 0 || wdOf(d) === 6 || taken.has(d)) d = addD(d, 1);
+      taken.add(d); out.push({ id: 'des_' + h.id, name: `Designated holiday for ${h.name}`, rule: `GR 1.3: ${h.name} falls on a ${w ? 'Saturday' : 'Sunday'}`, date: d, des: true, of: h.id, seen: DES_SEEN[d] || '' });
+    }
+    return out;
+  }
+  const holYr = new Map();
+  function holidaysOf(y) {   // statutory holidays (GR 1.2) plus the GR 1.3 designated days, in date order
+    if (!holYr.has(y)) { const base = PERIOD_CFG.holidays.map(([id, name, rule]) => ({ id, name, rule, date: HOL_RULE[id](y) })); holYr.set(y, base.concat(designated(y, base)).sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)); }
+    return holYr.get(y);
+  }
   let HOL = { off: new Set(), extra: new Set(), ver: 0 }; const holCache = new Map();
   function setHolidays(o) { HOL = { off: new Set((o && o.off) || []), extra: new Set((o && o.extra) || []), ver: HOL.ver + 1 }; holCache.clear(); splitCache.clear(); }
-  function holidayName(key) {   // name if this Edmonton day key is a holiday (built-in and switched on, or marked by the user)
-    if (!holCache.has(key)) { const h = holidaysOf(+key.slice(0, 4)).find(x => x.date === key && !HOL.off.has(x.id)); holCache.set(key, h ? h.name : (HOL.extra.has(key) ? 'Holiday (marked by you)' : '')); }
+  function holInfo(key) {   // {name, kind: 'stat' | 'des' | 'mine'} or null
+    if (!holCache.has(key)) { const h = holidaysOf(+key.slice(0, 4)).find(x => x.date === key && !HOL.off.has(x.id));
+      holCache.set(key, h ? { name: h.name, kind: h.des ? 'des' : 'stat' } : HOL.extra.has(key) ? { name: 'Holiday (marked by you)', kind: 'mine' } : null); }
     return holCache.get(key);
+  }
+  function holidayName(key) { const h = holInfo(key); return h ? h.name : ''; }   // name if this Edmonton day key is a holiday (built-in and switched on, or marked by the user)
+  const holidayKind = key => { const h = holInfo(key); return h ? h.kind : ''; };
+  // ---- v9o: after-hours time premium (HSC 03.01AA, modifier type SURT). Codes, hours and maximum units per day per physician from
+  // the Alberta Health Medical Price List as of 01 April 2026 (03.01AA: SURT TEV 1-20, TNTP 1-8, TNTA 1-28, TWK 1-60, TST 1-60,
+  // TDES 1-60 calls) and the Fee Modifier Definitions as of 01 April 2026 (SURT; payable in 15-minute blocks, maximum 4 per hour per
+  // physician, a block spanning two periods goes to the period holding most of it = GR 15.13.6). The unscheduled-service surcharges
+  // (SURC EV / NTPM / NTAM / WK) cover the same hours but are per service, without units, so they carry no unit limit.
+  const PREM = {
+    TNTA: { name: 'Night morning', when: 'any day 00:00–06:59', max: 28, surc: 'NTAM', calls: '1-28' },
+    TEV: { name: 'Weekday evening', when: 'Mon–Fri 17:00–21:59', max: 20, surc: 'EV', calls: '1-20' },
+    TNTP: { name: 'Night evening', when: 'any day 22:00–23:59', max: 8, surc: 'NTPM', calls: '1-8' },
+    TWK: { name: 'Weekend', when: 'Sat–Sun 07:00–21:59', max: 60, surc: 'WK', calls: '1-60' },
+    TST: { name: 'Statutory holiday', when: 'statutory holidays 07:00–21:59', max: 60, surc: 'WK', calls: '1-60' },
+    TDES: { name: 'Designated holiday', when: 'designated holidays 07:00–21:59', max: 60, surc: 'WK', calls: '1-60' } };
+  const PREM_SRC = 'Alberta Health, Medical Price List as of 01 April 2026 (HSC 03.01AA, modifiers TDES / TEV / TNTA / TNTP / TST / TWK), Fee Modifier Definitions as of 01 April 2026 (SURT) and Medical Governing Rules as of 01 April 2026 (GR 1.2, 1.3, 15.13). open.alberta.ca';
+  function premCode(t) {   // 03.01AA modifier for the 15-minute block whose middle is at t (null in weekday daytime)
+    const a = periodAt(t), id = a.p.id;
+    if (id === 'wd_night' || id === 'we_night') return 'TNTA';
+    if (id === 'wd_late' || id === 'we_late') return 'TNTP';
+    if (id === 'wd_eve') return 'TEV';
+    if (id === 'we_day') { const k = holidayKind(edm(t).key); return k === 'des' ? 'TDES' : k ? 'TST' : 'TWK'; }
+    return null;
+  }
+  function premDayCodes(key) {   // the three premium windows of an Edmonton day, in clock order
+    const w = wdOf(key), k = holidayKind(key), day = k === 'des' ? 'TDES' : k ? 'TST' : (w === 0 || w === 6) ? 'TWK' : 'TEV';
+    return ['TNTA', day, 'TNTP'];
+  }
+  function premBucket(code, key) {   // the 03.01AA maximum a modifier's units count toward on Edmonton day `key`
+    const c = String(code || '').toUpperCase();
+    if (c === 'TEV' || c === 'EV') return 'TEV'; if (c === 'TNTP' || c === 'NTPM') return 'TNTP'; if (c === 'TNTA' || c === 'NTAM') return 'TNTA';
+    if (c === 'TWK' || c === 'TST' || c === 'TDES') return c;
+    if (c === 'WK') { const k = holidayKind(key); return k === 'des' ? 'TDES' : k ? 'TST' : 'TWK'; }
+    return null;
+  }
+  function premUnits(encs) {   // Map 'YYYY-MM-DD|BUCKET' → units ENTERED on the modifiers (per entry day), { n, rows }
+    const out = new Map();
+    for (const e of encs) { if (!e || kindOf(e) === 'shift' || !e.modU) continue; const d = encDay(e); const seen = new Set();
+      for (const n of [1, 2]) for (const c of muCodes(e, n)) { const u = muOf(e, c); if (!u || seen.has(c)) continue; seen.add(c); const b = premBucket(c, d); if (!b) continue; const k = d + '|' + b; out.set(k, (out.get(k) || 0) + u); } }
+    return out;
+  }
+  function muSuggest(e, code, now) {   // units of this entry's logged time that fall in the code's window (a suggestion only)
+    if (!e || !e.segs || kindOf(e) === 'shift' || !isMu(code)) return 0; let n = 0;
+    for (const x of periodSplit(e, now).blocks) { const c = premCode(x.t); if (c && c === premBucket(code, edm(x.t).key)) n++; }
+    return Math.min(20, n);
+  }
+  function premCounts(encs, now) {   // Map 'YYYY-MM-DD|CODE' → units: every 15-minute unit logged (by time, same blocks as the units column)
+    const out = new Map();
+    for (const e of encs) { if (!e || kindOf(e) === 'shift') continue;
+      for (const b of periodSplit(e, now).blocks) { const c = premCode(b.t); if (!c) continue; const k = edm(b.t).key + '|' + c; out.set(k, (out.get(k) || 0) + 1); } }
+    return out;
   }
   function periodAt(t) {   // the period instance containing t: {p, start, end, weekend, holiday}
     const w = edm(t), hol = holidayName(w.key), we = w.wd === 0 || w.wd === 6 || !!hol;
@@ -154,21 +254,21 @@
   function row(e, now) {
     const m = minsOf(e, now), en = endOf(e);
     return { start: started(e) ? hm(startOf(e)) + lateMark(e) : '', end: !started(e) ? 'not started' : en == null ? (kindOf(e) === 'shift' ? 'on site' : 'running') : hm(en), min: String(m), units: String(units(m)), set: [SET[e.setting] || '', facTxt(e)].filter(Boolean).join(', '), name: ptName(e) || ptWho(e), mrn: ptMrn(e), room: e.label || '', init: e.initials || '', chart: ptMrn(e), type: e.type || '',
-      codes: (e.codes || []).map(c => c.c + (c.f ? ` (${c.f})` : '')).join('; '), mod1: modTxt(e, 1), mod2: modTxt(e, 2), dx: dxTxt(e), note: billingNoteOf(e), per: perTxt(periodSplit(e, now).parts, true), fac: facTxt(e), cbt: CBT[e.cbType] || '', called: e.called ? hm(e.called) : '', site: hmin(m) };
+      codes: (e.codes || []).map(c => c.c + (c.f ? ` (${c.f})` : '')).join('; '), mod1: modFull(e, 1), mod2: modFull(e, 2), fno: facNoTxt(e), fnoFull: facNoFull(e), fcen: fcenTxt(e), dx: dxTxt(e), note: billingNoteOf(e), per: perTxt(periodSplit(e, now).parts, true), fac: facTxt(e), cbt: CBT[e.cbType] || '', called: e.called ? hm(e.called) : '', site: hmin(m) };
   }
   // ---------- CSV
   const csvCell = v => { let s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   // one row per entry (CSV and the Excel "Entries" sheet share it)
   function table(encs, from, to, now, all, o) {
     o = o || {};
-    const head = ['date', 'kind', 'facility', 'zone', 'patient_name', 'mrn_phn', 'label', 'initials', 'chart', 'setting', 'type', 'callback_type', 'called', 'codes', 'modifier_1', 'modifier_2', 'diagnostic_code', 'billing_note', 'start', 'end', 'minutes', 'units', 'time_periods'].concat(PERIODS.flatMap(p => [p.id + '_min', p.id + '_units']), ['linked', 'same_patient', 'entered_later', 'last_edited']).concat(o.notes ? ['notes'] : []);
+    const head = ['date', 'kind', 'facility', 'zone', 'patient_name', 'mrn_phn', 'label', 'initials', 'chart', 'setting', 'type', 'callback_type', 'called', 'facility_number', 'facility_name', 'functional_centre', 'codes', 'modifier_1', 'modifier_1_units', 'modifier_2', 'modifier_2_units', 'diagnostic_code', 'billing_note', 'start', 'end', 'minutes', 'units', 'time_periods'].concat(PERIODS.flatMap(p => [p.id + '_min', p.id + '_units']), ['linked', 'same_patient', 'entered_later', 'last_edited']).concat(o.notes ? ['notes'] : []);
     const rows = [], iso = ts => { if (ts == null) return ''; const d = new Date(ts); return `${dayKey(ts)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
     const byId = new Map((all || encs).map(e => [e.id, e]));
     for (const e of select(encs, from, to)) {
       const m = minsOf(e, now), en = endOf(e), k = kindOf(e);
       const linked = (e.links || []).map(id => byId.get(id)).filter(Boolean).map(x => `${x.label} ${hm(startOf(x))}`).join('; ');
       const ps = periodSplit(e, now).parts, pv = PERIODS.flatMap(p => { const q = ps.find(x => x.id === p.id); return k === 'shift' ? ['', ''] : [q ? q.m : 0, q ? q.u : 0]; });
-      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', ptName(e) || ptWho(e), ptMrn(e), e.label, e.initials, e.chart || e.mrn || '', SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), codesTxt(e), modTxt(e, 1), modTxt(e, 2), dxTxt(e), billingNoteOf(e), started(e) ? iso(startOf(e)) : '', iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
+      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', ptName(e) || ptWho(e), ptMrn(e), e.label, e.initials, e.chart || e.mrn || '', SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), facNoTxt(e), facNmTxt(e), fcenTxt(e), codesTxt(e), modTxt(e, 1), modUTxt(e, 1), modTxt(e, 2), modUTxt(e, 2), dxTxt(e), billingNoteOf(e), started(e) ? iso(startOf(e)) : '', iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
     }
     return { head, rows };
   }
@@ -197,15 +297,15 @@
     blocks.push({ t: 'h1', text: title(from, to) });
     blocks.push({ t: 'small', text: `Generated ${new Date(now).toLocaleString()} by MedBilling Logs. ${CONF}` });
     blocks.push({ t: 'p', bold: true, text: 'Totals: ' + totTxt(totals(list, now)) });
-    const W = [600, 600, 460, 480, 700, 900, 600, 640, 1000, 640, 640, 980, 1000, 800];
+    const W = [540, 540, 420, 440, 560, 820, 520, 520, 700, 520, 900, 560, 560, 900, 840, 700];   // v9o: Facility # and Functional centre (same total width)
     const byId = new Map(encs.map(e => [e.id, e]));
     for (const [k, l] of byDay(list)) {
       blocks.push({ t: 'h2', text: fmtDay(k) });
       blocks.push({ t: 'small', text: totTxt(totals(l, now)) });
       const en = l.filter(e => kindOf(e) === 'enc'), cb = l.filter(e => kindOf(e) === 'cb'), sh = l.filter(e => kindOf(e) === 'shift');
       if (sh.length) { blocks.push({ t: 'p', bold: true, text: 'On site (arrival / departure)' }); blocks.push({ t: 'table', head: ['Facility', 'Setting', 'Arrival', 'Departure', 'Time on site'], widths: [5000, 1200, 1100, 1100, 1840], rows: sh.map(e => { const r = row(e, now); return [r.fac, SET[e.setting] || '', r.start, r.end, r.site]; }) }); }
-      if (en.length) { blocks.push({ t: 'p', bold: true, text: 'Encounters' }); blocks.push({ t: 'table', head: ['Start', 'End', 'Min', 'Units', 'Setting', 'Patient', 'MRN/PHN', 'Type', 'Codes', 'Modifier 1', 'Modifier 2', 'Diagnostic code', 'Billing note', 'Time periods'], widths: W, rows: en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.codes, r.mod1, r.mod2, r.dx, r.note, r.per]; }) }); }
-      if (cb.length) { blocks.push({ t: 'p', bold: true, text: 'Call-backs' }); blocks.push({ t: 'table', head: ['Type', 'Called', 'Arrival', 'Departure', 'Min', 'Units', 'Facility', 'Codes', 'Modifier 1', 'Modifier 2', 'Diagnostic code', 'Time periods', 'Linked encounters'], widths: [900, 560, 600, 650, 440, 480, 1000, 1000, 700, 700, 900, 1000, 1310], rows: cb.map(e => { const r = row(e, now); return [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.codes, r.mod1, r.mod2, r.dx, r.per, linkTxt(e, byId)]; }) }); }
+      if (en.length) { blocks.push({ t: 'p', bold: true, text: 'Encounters' }); blocks.push({ t: 'table', head: ['Start', 'End', 'Min', 'Units', 'Setting', 'Patient', 'MRN/PHN', 'Type', 'Facility #', 'Functional centre', 'Codes', 'Modifier 1', 'Modifier 2', 'Diagnostic code', 'Billing note', 'Time periods'], widths: W, rows: en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.fnoFull, r.fcen, r.codes, r.mod1, r.mod2, r.dx, r.note, r.per]; }) }); }
+      if (cb.length) { blocks.push({ t: 'p', bold: true, text: 'Call-backs' }); blocks.push({ t: 'table', head: ['Type', 'Called', 'Arrival', 'Departure', 'Min', 'Units', 'Facility', 'Facility #', 'Functional centre', 'Codes', 'Modifier 1', 'Modifier 2', 'Diagnostic code', 'Time periods', 'Linked encounters'], widths: [760, 560, 600, 650, 440, 480, 860, 640, 480, 880, 600, 600, 800, 880, 1010], rows: cb.map(e => { const r = row(e, now); return [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.fnoFull, r.fcen, r.codes, r.mod1, r.mod2, r.dx, r.per, linkTxt(e, byId)]; }) }); }
       const sp = l.filter(e => samePt(e, encs).length);
       if (sp.length) blocks.push({ t: 'small', text: 'Same patient: ' + sp.map(e => `${encCap(e)} ↔ ${samePtTxt(e, encs)}`).join(' · ') });
       if (o.notes) { const wn = l.filter(e => notesOf(e).length); if (wn.length) { blocks.push({ t: 'p', bold: true, text: 'Notes' }); for (const e of wn) for (const n of notesOf(e)) blocks.push({ t: 'small', text: `${encCap(e) || KIND[kindOf(e)]} · [${noteStamp(n)}] ${n.x}` }); } }
@@ -236,8 +336,8 @@
     text(`Generated ${new Date(now).toLocaleString()} by MedBilling Logs. ${CONF}`, 8, { color: [100, 116, 139], after: 6 });
     text('Totals: ' + totTxt(totals(list, now)), 10, { bold: true, after: 6 });
     const fit = cs => { const used = cs.reduce((a, c) => a + c[1], 0); cs[cs.length - 1][1] = PW - 2 * M - used; return cs; };
-    const C_ENC = fit([['Start', 34], ['End', 38], ['Min', 24], ['Units', 28], ['Setting', 54], ['Patient', 66], ['MRN/PHN', 54], ['Type', 36], ['Codes', 66], ['Mod 1', 44], ['Mod 2', 44], ['Dx', 50], ['Note', 58], ['Time periods', 0]]);
-    const C_CB = fit([['Type', 70], ['Called', 36], ['Arrival', 40], ['Departure', 48], ['Min', 28], ['Units', 30], ['Facility', 72], ['Codes', 70], ['Mod 1', 44], ['Mod 2', 44], ['Diagnostic code', 64], ['Time periods', 76], ['Linked', 0]]);
+    const C_ENC = fit([['Start', 34], ['End', 38], ['Min', 24], ['Units', 28], ['Setting', 50], ['Patient', 64], ['MRN/PHN', 52], ['Type', 32], ['Fac #', 34], ['FC', 30], ['Codes', 62], ['Mod 1', 40], ['Mod 2', 40], ['Dx', 48], ['Note', 56], ['Time periods', 0]]);   // v9o: Fac # / FC
+    const C_CB = fit([['Type', 58], ['Called', 36], ['Arrival', 40], ['Departure', 48], ['Min', 28], ['Units', 30], ['Facility', 62], ['Fac #', 34], ['FC', 30], ['Codes', 62], ['Mod 1', 40], ['Mod 2', 40], ['Diagnostic code', 56], ['Time periods', 70], ['Linked', 0]]);
     const C_SH = fit([['Facility', 220], ['Setting', 60], ['Arrival', 60], ['Departure', 60], ['Time on site', 0]]);
     let cols = C_ENC;
     const drawRow = (cells, head) => {
@@ -255,8 +355,8 @@
     for (const [k, l] of byDay(list)) {
       need(60); y += 6; text(fmtDay(k), 12, { bold: true, color: [17, 94, 89], after: 0 }); text(totTxt(totals(l, now)), 8, { color: [100, 116, 139], after: 3 });
       section('On site (arrival / departure)', C_SH, l.filter(e => kindOf(e) === 'shift'), (r, e) => [r.fac, SET[e.setting] || '', r.start, r.end, r.site]);
-      section('Encounters', C_ENC, l.filter(e => kindOf(e) === 'enc'), r => [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.codes, r.mod1, r.mod2, r.dx, r.note, r.per]);
-      section('Call-backs', C_CB, l.filter(e => kindOf(e) === 'cb'), (r, e) => [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.codes, r.mod1, r.mod2, r.dx, r.per, linkTxt(e, byId)]);
+      section('Encounters', C_ENC, l.filter(e => kindOf(e) === 'enc'), r => [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.fno, r.fcen, r.codes, r.mod1, r.mod2, r.dx, r.note, r.per]);
+      section('Call-backs', C_CB, l.filter(e => kindOf(e) === 'cb'), (r, e) => [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.fno, r.fcen, r.codes, r.mod1, r.mod2, r.dx, r.per, linkTxt(e, byId)]);
       const sp = l.filter(e => samePt(e, encs).length);
       if (sp.length) text('Same patient: ' + sp.map(e => `${encCap(e)} <-> ${samePtTxt(e, encs)}`).join(' · '), 7.5, { color: [100, 116, 139], after: 3 });
       if (o.notes) { const wn = l.filter(e => notesOf(e).length); if (wn.length) { need(30); text('Notes', 9, { bold: true, after: 1 }); for (const e of wn) for (const n of notesOf(e)) text(`${encCap(e) || KIND[kindOf(e)]} · [${noteStamp(n)}] ${n.x}`, 8, { after: 1 }); y += 4; } }
@@ -290,8 +390,8 @@
       out.push('', `## ${fmtDay(k)}`, '', `_${totTxt(totals(l, now))}_`);
       const sh = l.filter(e => kindOf(e) === 'shift'), en = l.filter(e => kindOf(e) === 'enc'), cb = l.filter(e => kindOf(e) === 'cb');
       if (sh.length) out.push('', '### On site (arrival / departure)', '', mdTable(['Facility', 'Setting', 'Arrival', 'Departure', 'Time on site'], sh.map(e => { const r = row(e, now); return [r.fac, SET[e.setting] || '', r.start, r.end, r.site]; })));
-      if (en.length) out.push('', '### Encounters', '', mdTable(['Start', 'End', 'Min', 'Units', 'Setting', 'Patient', 'MRN/PHN', 'Type', 'Codes', 'Modifier 1', 'Modifier 2', 'Diagnostic code', 'Billing note', 'Time periods'], en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.codes, r.mod1, r.mod2, r.dx, r.note, r.per]; })));
-      if (cb.length) out.push('', '### Call-backs', '', mdTable(['Type', 'Called', 'Arrival', 'Departure', 'Min', 'Units', 'Facility', 'Codes', 'Modifier 1', 'Modifier 2', 'Diagnostic code', 'Time periods', 'Linked encounters'], cb.map(e => { const r = row(e, now); return [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.codes, r.mod1, r.mod2, r.dx, r.per, linkTxt(e, byId)]; })));
+      if (en.length) out.push('', '### Encounters', '', mdTable(['Start', 'End', 'Min', 'Units', 'Setting', 'Patient', 'MRN/PHN', 'Type', 'Facility #', 'Functional centre', 'Codes', 'Modifier 1', 'Modifier 2', 'Diagnostic code', 'Billing note', 'Time periods'], en.map(e => { const r = row(e, now); return [r.start, r.end, r.min, r.units, r.set, r.name, r.mrn, r.type, r.fnoFull, r.fcen, r.codes, r.mod1, r.mod2, r.dx, r.note, r.per]; })));
+      if (cb.length) out.push('', '### Call-backs', '', mdTable(['Type', 'Called', 'Arrival', 'Departure', 'Min', 'Units', 'Facility', 'Facility #', 'Functional centre', 'Codes', 'Modifier 1', 'Modifier 2', 'Diagnostic code', 'Time periods', 'Linked encounters'], cb.map(e => { const r = row(e, now); return [r.cbt, r.called, r.start, r.end, r.min, r.units, r.fac, r.fnoFull, r.fcen, r.codes, r.mod1, r.mod2, r.dx, r.per, linkTxt(e, byId)]; })));
       const sp = l.filter(e => samePt(e, encs).length);
       if (sp.length) out.push('', 'Same patient: ' + mdc(sp.map(e => `${encCap(e)} <-> ${samePtTxt(e, encs)}`).join(' · ')));
       if (o.notes) { const wn = l.filter(e => notesOf(e).length); if (wn.length) { out.push('', '### Notes', ''); for (const e of wn) for (const n of notesOf(e)) out.push(`- ${mdc(encCap(e) || KIND[kindOf(e)])} · [${noteStamp(n)}] ${mdc(n.x)}`); } }
@@ -312,14 +412,14 @@
     const tt = totals(list, now); daily.push(['TOTAL', tt.H.n, tt.H.m, tt.H.u, tt.C.n, tt.C.m, tt.C.u, tt.cb.n, tt.cb.m, tt.cb.u, tt.site.m, perTxt(tt.perList || [])]);
     const about = [['MedBilling Logs'], [title(from, to)], [`Generated ${new Date(now).toLocaleString()}`], [CONF], [o.notes ? 'Notes are included (column "notes" on the Entries sheet).' : NOTES_OFF], [UNITS_NOTE], [perLegend()]].concat((o.credits || []).map(c => [c]));
     const bytes = global.XlsxLite.build({ title: title(from, to), sheets: [
-      { name: 'Entries', rows: [t.head].concat(t.rows.map(r => r.map(num))), widths: t.head.map(h => h === 'notes' ? 60 : h === 'codes' || h === 'modifier_1' || h === 'modifier_2' || h === 'facility' || h === 'time_periods' || h === 'linked' || h === 'same_patient' ? 28 : 12) },
+      { name: 'Entries', rows: [t.head].concat(t.rows.map(r => r.map(num))), widths: t.head.map(h => h === 'notes' ? 60 : h === 'codes' || h === 'facility_name' || h === 'modifier_1' || h === 'modifier_2' || h === 'modifier_1_units' || h === 'modifier_2_units' || h === 'facility' || h === 'time_periods' || h === 'linked' || h === 'same_patient' ? 28 : 12) },
       { name: 'Daily totals', rows: daily, widths: [12, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 40] },
       { name: 'About', rows: about, widths: [120], header: false, wrap: true }] });
     return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }
   // ---------- audit log export
   const ACT = { create: 'Created', start: 'Started', pause: 'Paused', resume: 'Resumed', stop: 'Stopped', arrive: 'Arrived', depart: 'Departed', edit: 'Edited', delete: 'Deleted', import: 'Imported', purge: 'Removed (retention)', 'prune-log': 'Log trimmed (retention)', review: 'Reviewed', unreview: 'Review cleared', restore: 'Restored (undo)', undo: 'Undone', 'fav-add': 'Code set saved', 'fav-remove': 'Code set removed', holiday: 'Holiday settings changed', addtime: 'Time added', 'note-add': 'Note added', 'note-edit': 'Note edited', 'note-delete': 'Note deleted', link: 'Linked (same patient)', migrate: 'Upgraded (notes)', 'backup-settings': 'Backup settings changed', backup: 'Backup', 'backup-fail': 'Backup failed' };
-  const summ = o => o ? [KIND[kindOf(o)], ptName(o) || o.label || facTxt(o), o.initials, ptMrn(o), (o.segs || []).map(s => hm(s.s) + '-' + (s.e == null ? '…' : hm(s.e))).join(' '), codesTxt(o), modsTxt(o), dxTxt(o) && 'Dx ' + dxTxt(o), (o.billingNote || notesOf(o).length) && 'note', o.pt && 'same-patient group'].filter(Boolean).join(' | ') : '';
+  const summ = o => o ? [KIND[kindOf(o)], ptName(o) || o.label || facTxt(o), o.initials, ptMrn(o), (o.segs || []).map(s => hm(s.s) + '-' + (s.e == null ? '…' : hm(s.e))).join(' '), facNoTxt(o) && 'Fac# ' + facNoTxt(o), fcenTxt(o) && 'FC ' + fcenTxt(o), codesTxt(o), modsTxt(o), dxTxt(o) && 'Dx ' + dxTxt(o), (o.billingNote || notesOf(o).length) && 'note', o.pt && 'same-patient group'].filter(Boolean).join(' | ') : '';
   function diff(b, a, hideNotes) {
     if (!b || !a) return [];
     const keys = ['name', 'mrn', 'label', 'initials', 'chart', 'billingNote', 'setting', 'type', 'cbType', 'called', 'status', 'minor', 'minorAge', 'obstetric', 'late'], out = [];
@@ -328,7 +428,10 @@
     const st = o => (o.segs || []).map(s => `${dayKey(s.s)} ${hm(s.s)}-${s.e == null ? 'open' : hm(s.e)}`).join(', ');
     if (st(b) !== st(a)) out.push(`times: ${st(b)} -> ${st(a)}`);
     if (codesTxt(b) !== codesTxt(a)) out.push(`codes: ${codesTxt(b)} -> ${codesTxt(a)}`);
+    if (facNoFull(b) !== facNoFull(a)) out.push(`facility #: ${facNoFull(b)} -> ${facNoFull(a)}`);   // v9o
+    if (fcenTxt(b) !== fcenTxt(a)) out.push(`functional centre: ${fcenTxt(b)} -> ${fcenTxt(a)}`);
     for (const n of [1, 2]) if (modTxt(b, n) !== modTxt(a, n)) out.push(`modifier ${n}: ${modTxt(b, n)} -> ${modTxt(a, n)}`);
+    for (const n of [1, 2]) if (modUTxt(b, n) !== modUTxt(a, n)) out.push(`modifier ${n} units: ${modUTxt(b, n)} -> ${modUTxt(a, n)}`);   // v9o
     if (dxTxt(b) !== dxTxt(a)) out.push(`diagnostic codes: ${dxTxt(b)} -> ${dxTxt(a)}`);
     if (facTxt(b) !== facTxt(a)) out.push(`facility: ${facTxt(b)} -> ${facTxt(a)}`);
     if ((b.photos || []).length !== (a.photos || []).length) out.push(`photos: ${(b.photos || []).length} -> ${(a.photos || []).length}`);
@@ -383,5 +486,5 @@
     return t;
   }
   const RET_RULE = 'Retention: 10 years from the last entry; minors: the longer of 10 years or 2 years after age 18 (CPSA); obstetric: 10 years after the infant reaches majority (CMPA). Nothing is removed without your confirmation.';
-  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, setHolidays, dxList, dxExtra, dxShort, dxTxt, codesTxt, normMods, modTxt, modsTxt, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, hmEdm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
+  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, holidayKind, setHolidays, PREM, PREM_SRC, premCode, premDayCodes, premCounts, premUnits, premBucket, muSuggest, MU_CODES, isMu, muOf, muCodes, modUTxt, modFull, muMin, muFrom, p2, dxList, dxExtra, dxShort, dxTxt, codesTxt, normMods, modTxt, modsTxt, FCEN, FCEN_MORE, FCEN_ALL, fcenName, normFcen, facNoTxt, facNmTxt, facNoFull, fcenTxt, fcenFull, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, hmEdm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
 })(window);

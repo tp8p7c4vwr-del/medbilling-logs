@@ -42,7 +42,8 @@
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Date.now().toString(36) + '-' + Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, '0')).join('');
   const DEF = { defSetting: 'H', autolock: 2, prov: 'AB', curFac: null, favFac: [], customFac: [], bkEvery: 30, lastBackup: 0, bkSnooze: 0, abOn: false, abEvery: 60, abKeep: 24, abFmts: [], abZip: true, abPwMode: 'passcode', abNotes: false, abLoc: '',
-    warnA: 60, warnR: 180, favSets: [], reviews: {}, revEdited: {}, holOff: [], holExtra: [] };   // v5: timer warnings, code sets, review marks, holidays
+    warnA: 60, warnR: 180, favSets: [], reviews: {}, revEdited: {}, holOff: [], holExtra: [],
+    favFno: [], recFno: [], customFno: [], favFcen: [], fcCarry: true, fcLast: null, premWarn: true, premMax: {} };   // v9o: Facility # / Functional centre favourites, recent, carry-down   // v5: timer warnings, code sets, review marks, holidays
   const kindOf = R.kindOf, clone = o => JSON.parse(JSON.stringify(o));
   let FAC = null;
   let S = null;            // in-memory decrypted state while unlocked: {encs, settings}
@@ -81,16 +82,16 @@
     if (!S && document.body.classList.contains('locked')) return;
     if (cur && $('#editDlg').open) { try { V.saveDraft(editSnapshot()).catch(() => {}); } catch (e) { /* locked already */ } }
     else { const nd = nedDraft(); if (nd && S) { try { V.saveDraft({ note: nd }).catch(() => {}); } catch (e) { /* locked already */ } } }
-    nedDraft(); nTipShow(null);
+    nedDraft(); nTipShow(null); if (fpk) { fpk.onPick = null; fpk.onDone = null; fpkClose(); }
     hideSnack(); flushPhotoDel(); stopWake();
     if (S && S.settings.abOn && abLocOk && abMode() !== 'manual' && V.unlocked()) { try { runBackup('lock', abSnapshot()); } catch (e) { /* never block locking */ } }
-    V.lock(); S = null; cur = null; sessPass = null; xpPw = null; xpAckSess = false; xpJob = null; gCell = null; viewDay = null;
+    V.lock(); S = null; premBase = null; premSeen.clear(); cur = null; sessPass = null; xpPw = null; xpAckSess = false; xpJob = null; gCell = null; viewDay = null;
     $$('dialog[open]').forEach(d => { if (d.id !== 'manDlg') d.close(); });   // the user manual holds no patient data; it stays open over the lock screen
     for (const u of blobUrls) URL.revokeObjectURL(u); blobUrls = [];
     ['#todayList', '#todayTotals', '#histList', '#ePhotos', '#eCodes', '#eCodeRes', '#eDxRes', '#credits', '#osList', '#deletedList', '#auditStatus', '#eLinks', '#facList', '#histBody', '#osInfo', '#lastBk', '#retInfo', '#eNotes', '#eSummary', '#rmSub'].forEach(s => { const el = $(s); if (el) el.innerHTML = ''; });
     $$('input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]), textarea').forEach(i => { i.value = ''; });
     $('#pReady').hidden = true; repFile = null;
-    showLock(msg || 'Locked.');
+    placeFoot(); showLock(msg || 'Locked.');
   }
   $('#setupForm').addEventListener('submit', async ev => {
     ev.preventDefault(); const a = $('#sPass').value, b = $('#sPass2').value, err = $('#sErr'), kind = sKind();
@@ -229,7 +230,7 @@
     R.setHolidays({ off: settings.holOff, extra: settings.holExtra });
     $('#defSetting').value = settings.defSetting; $('#autolock').value = String(settings.autolock); $('#warnA').value = String(settings.warnA); $('#warnR').value = String(settings.warnR);
     fillProv($('#defProv'), settings.prov); euRender();
-    renderCredits(); setQuick(); render(); renderRetention(); checkBackupDue(); renderPeriodSettings(); abInit().catch(() => {});
+    renderCredits(); setQuick(); render(); renderRetention(); fpSetUi(); premSetUi(); checkBackupDue(); renderPeriodSettings(); abInit().catch(() => {});
     if (first) toast('Passcode set. Your logs are encrypted on this device.', 3500);
     else { const d = await V.loadDraft().catch(() => null); if (d && d.cur) { await V.clearDraft(); restoreDraft(d); toast('Restored your unsaved entry', 3000); } else if (d && d.note) { await V.clearDraft(); nedRestore(d.note); } else checkLongTimers(); }
     await pickApply();
@@ -262,6 +263,7 @@
   // ------------------------------------------------------------ persistence
   async function saveEnc(e, action, note, quiet) {
     const i = S.encs.findIndex(x => x.id === e.id), before = i < 0 ? null : clone(S.encs[i]);
+    premDirty(before); premDirty(e);   // v9o: time-premium counts to re-check
     e.kind = kindOf(e); e.updated = Date.now();
     if (i < 0) S.encs.push(e); else S.encs[i] = e;
     await V.save(e);
@@ -272,7 +274,7 @@
   async function deleteEnc(e, note, defer) {
     const before = S.encs.find(x => x.id === e.id), ph = (before && before.photos) || [];
     if (!defer) for (const p of ph) await V.removePhoto(p);
-    await V.remove(e.id); S.encs = S.encs.filter(x => x.id !== e.id);
+    premDirty(before || e); await V.remove(e.id); S.encs = S.encs.filter(x => x.id !== e.id);
     await V.appendAudit({ action: 'delete', eid: e.id, kind: kindOf(e), before: before ? clone(before) : null, after: null, note: [note, ph.length ? `${ph.length} photo(s) removed with the entry` : ''].filter(Boolean).join('. ') || undefined });
     await reviewTouch([before], 'entry deleted after review');
     return ph;
@@ -296,8 +298,9 @@
   // One component: a real <table class="grid"> with a grey header row, grey row numbers, gridlines on every cell, blank rows
   // below the real ones (typing in one creates the encounter), a totals row, and Sheets-style keyboard navigation.
   // Name / MRN / notes / codes are encrypted with the entry (saveEnc). Never put them in URLs or console logs.
-  const COLS = [['rn', '#'], ['name', 'Patient name'], ['mrn', 'MRN / PHN'], ['hc', 'H/C'], ['tin', 'In'], ['tout', 'Out'], ['min', 'Min'], ['u', 'Units'], ['fee', 'Fee code(s)'], ['mod1', 'Modifier code 1'], ['mod2', 'Modifier code 2'], ['dx', 'Dx (ICD-9)'], ['note', 'Billing notes'], ['act', '']];
-  const NAV = ['name', 'mrn', 'hc', 'tin', 'tout', 'fee', 'mod1', 'mod2', 'dx', 'note'];
+  const COLS = [['rn', '#'], ['name', 'Patient name'], ['mrn', 'MRN / PHN'], ['hc', 'H/C'], ['tin', 'In'], ['tout', 'Out'], ['min', 'Min'], ['u', 'Units'], ['fno', 'Facility #'], ['fcen', 'Functional centre'], ['fee', 'Fee code(s)'], ['mod1', 'Modifier code 1'], ['mod2', 'Modifier code 2'], ['dx', 'Dx (ICD-9)'], ['note', 'Billing notes'], ['act', '']];
+  const NAV = ['name', 'mrn', 'hc', 'tin', 'tout', 'fno', 'fcen', 'fee', 'mod1', 'mod2', 'dx', 'note'];   // v9o: Facility #, Functional centre before Fee code(s)
+  const FPC = { fno: 1, fcen: 1 };   // v9o picker cells (Facility #, Functional centre)
   // v9k: two modifier-code columns after Fee code(s); each cell may hold several codes (stored normalised: "CMGP, BMI")
   const modOf = (e, n) => R.modTxt(e, n), MOD_MAX = 200, CODE_MAX = 200;   // v9m: room for 10+ codes with separators (was 80 / 60)
   const MIN_BLANK = 15;
@@ -325,7 +328,7 @@
     const h = +m[1], mi = m[2] ? +m[2] : 0; return h > 23 || mi > 59 ? null : [h, mi];
   }
   const gColgroup = '<colgroup>' + COLS.map(c => `<col class="c-${c[0]}">`).join('') + '</colgroup>';
-  const gHead = '<thead><tr>' + COLS.map(c => `<th scope="col" class="h-${c[0]}" data-h="${c[0]}"${c[0] === 'act' ? ' aria-label="Row actions"' : ''}${/^mod/.test(c[0]) ? ' title="Modifier code(s); separate several with a comma or space"' : ''}>${esc(c[1])}</th>`).join('') + '</tr></thead>';
+  const gHead = '<thead><tr>' + COLS.map(c => `<th scope="col" class="h-${c[0]}" data-h="${c[0]}"${c[0] === 'act' ? ' aria-label="Row actions"' : ''}${/^mod/.test(c[0]) ? ' title="Modifier code(s); separate several with a comma or space"' : c[0] === 'fno' ? ' title="AHCIP facility number (Alberta Health facility listing). Tap to pick; favourites first"' : c[0] === 'fcen' ? ' title="Functional centre (CLNC, D/N, EMRG, MED, SURG…). Tap to pick"' : ''}>${esc(c[1])}</th>`).join('') + '</tr></thead>';
   // v9f: name, fee, dx and notes wrap (auto-growing textarea, height set by autoH after the widths are fitted), the rest stay one line.
   // Every editor has enterkeyhint="next": the phone's return key moves to the next cell, exactly like Tab / Enter.
   const WRAP = { name: 1, fee: 1, mod1: 1, mod2: 1, dx: 1 };   // v9i: Billing notes is a preview + notes editor; v9k: modifiers wrap too
@@ -333,7 +336,7 @@
   // v9i: Billing notes shows a one-line preview; tapping / clicking it (or typing on it) opens the notes editor.
   // On narrow screens Patient name is a one-line field (ellipsis); the full name shows in a bubble while it has focus.
   const notePrev = v => String(v || '').replace(/\s*\n+\s*/g, ' ↵ ');
-  const gInp = (c, val, o) => c === 'note' ? `<div class="gc nprev" data-c="note" tabindex="0" role="button" aria-label="${esc(o.lbl)}. Opens the notes editor" data-v="${esc(val)}">${esc(notePrev(val))}</div>`
+  const gInp = (c, val, o) => FPC[c] ? fpCell(c, o.e || null, o.lbl) : c === 'note' ? `<div class="gc nprev" data-c="note" tabindex="0" role="button" aria-label="${esc(o.lbl)}. Opens the notes editor" data-v="${esc(val)}">${esc(notePrev(val))}</div>`
     : WRAP[c] && !(c === 'name' && NARROWQ.matches) ? `<textarea rows="1" ${gAttrs(c, o)}>${esc(val)}</textarea>`
     : `<input ${gAttrs(c, o)} value="${esc(val)}">`;
   const hcBtn = (v, lbl) => `<button type="button" class="gc hc" data-c="hc" aria-label="${esc(lbl)}: ${R.SET[v]}. Tap to switch" title="${R.SET[v]} (tap, or type H / C)">${v}</button>`;
@@ -353,7 +356,7 @@
       + `<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="Pick a fee code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick fee code in Fee Desk">↗</button>${feeVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="fee" data-at="${esc((cs[cs.length - 1] && (cs[cs.length - 1].k || cs[cs.length - 1].c)) || '')}" tabindex="-1" title="Open ${esc(cs[cs.length - 1] && cs[cs.length - 1].c)} in Fee Desk (pick another code there to add it)" aria-label="Open fee code in Fee Desk">ⓘ</button>` : ''}` : '';
     const dxc = ed ? gInp('dx', dxVal, { lbl: 'Diagnostic code(s), ICD-9', mono: 1, max: CODE_MAX, cap: 'characters', title: dx.map(v => v + (dxDesc(v) ? ' ' + dxDesc(v) : '')).join('; ') })
       + `<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="Pick an ICD-9 code in Fee Desk (tap a code there and it comes back to this cell)" aria-label="Pick diagnostic code in Fee Desk">↗</button>${dxVal ? `<button type="button" class="cbtn hov fdmini pickfd" data-kind="dx" data-at="${esc(dx[dx.length - 1])}" tabindex="-1" title="Open ${esc(dx[dx.length - 1])} in Fee Desk (pick another code there to add it)" aria-label="Open diagnostic code in Fee Desk">ⓘ</button>` : ''}` : '';
-    const modc = n => ed ? gInp('mod' + n, modOf(e, n), { lbl: 'Modifier code(s) ' + n, mono: 1, max: MOD_MAX, cap: 'characters' }) : '';
+    const modc = n => { if (!ed) return ''; const inp = gInp('mod' + n, modOf(e, n), { lbl: 'Modifier code(s) ' + n, mono: 1, max: MOD_MAX, cap: 'characters' }), ch = muChips(e, n); return `<div class="cw mucw">${inp}${ch}</div>`; };   // v9o: always wrapped, so a units chip can appear beside a focused cell
     const wl = warnLvl(e);
     return `<tr class="gr ${st} k-${k}${wl ? ' w' + wl : ''}" data-key="${id}" data-id="${id}">`
       + `<th scope="row" class="rn" title="Row ${i}. Right-click or press and hold for actions">${st === 'run' || st === 'pause' ? `<i class="dot ${st}" aria-label="${st === 'run' ? 'Running' : 'Paused'}"></i>` : ''}${i}</th>`
@@ -364,16 +367,24 @@
       + `<td class="c-tout"><div class="cw">${tout}</div></td>`
       + `<td class="num c-min${open ? ' live' : ''}" data-rm="${id}" title="${started ? (k === 'shift' ? 'Hours on site' : m + ' min') : 'Not started'}">${started ? (open ? fmtDur(ms) : durTxt(e, m)) : ''}</td>`
       + `<td class="num c-u" data-ru="${id}">${started && ed ? R.units(m) : ''}</td>`
+      + `<td class="c-fno">${ed ? gInp('fno', '', { e, lbl: 'Facility #' }) : ''}</td><td class="c-fcen">${ed ? gInp('fcen', '', { e, lbl: 'Functional centre' }) : ''}</td>`
       + `<td class="c-fee"><div class="cw">${fee}</div></td>`
       + `<td class="c-mod1">${modc(1)}</td><td class="c-mod2">${modc(2)}</td>`
       + `<td class="c-dx"><div class="cw">${dxc}</div></td>`
       + `<td class="c-note">${ed ? gInp('note', billingNoteOf(e), { lbl: 'Billing notes', max: 500 }) : ''}</td>`
       + `<td class="c-act"><button type="button" class="rmore" data-a="more" tabindex="-1" aria-label="Row actions" title="Timer, add time, segments and photos, same patient, delete">⋯</button></td></tr>`;
   }
+  // v9o: unit count chip(s) beside a time-unit modifier (TEV, TNTP, TNTA, TWK, TST, TDES, EV, NTPM, NTAM, WK)
+  function muChips(e, n) {
+    const cs = R.muCodes(e, n); if (!cs.length) return '';
+    return cs.map(c => { const u = R.muOf(e, c), sg = R.muSuggest(e, c), hi = u && R.muFrom(u) > R.minsOf(e);
+      const tt = (u ? `${c}: ${R.p2(u)} unit${u === 1 ? '' : 's'} = ${R.muMin(u)} min` : `${c}: no units yet`) + (sg ? `. Suggested from In / Out: ${R.p2(sg)}` : '') + (hi ? `. More units than the ${R.minsOf(e)} min logged` : '') + '. Tap to pick 01–20 (or F4 / Alt+↓ in the cell)';
+      return `<button type="button" class="cbtn mub${u ? ' set' : ' need'}${hi ? ' hiu' : ''}" data-mu="${c}" data-mn="${n}" tabindex="-1" title="${esc(tt)}" aria-label="${esc(tt)}">${cs.length > 1 ? c + ' ' : ''}${u ? '×' + R.p2(u) : 'u?'}</button>`; }).join('');
+  }
   const perTxtOf = e => { const p = R.periodSplit(e).parts.filter(x => !R.PBY[x.id].regular); return p.length ? R.perTxt(p, true) : ''; };
   // v9h: rows far below the work area are "light": the same cells without editors (hundreds of empty textareas would slow
   // every keystroke). A light row gets its editors the moment the cursor moves to it or it is tapped (lightUp).
-  const lightRow = i => `<tr class="gr blank light" data-key="r${i}" data-blank="1" data-light="1"><th scope="row" class="rn">${i}</th><td class="c-name"></td><td class="c-mrn"></td><td class="c-hc dim"></td><td class="c-tin"></td><td class="c-tout"></td><td class="num c-min"></td><td class="num c-u"></td><td class="c-fee"></td><td class="c-mod1"></td><td class="c-mod2"></td><td class="c-dx"></td><td class="c-note"></td><td class="c-act"></td></tr>`;
+  const lightRow = i => `<tr class="gr blank light" data-key="r${i}" data-blank="1" data-light="1"><th scope="row" class="rn">${i}</th><td class="c-name"></td><td class="c-mrn"></td><td class="c-hc dim"></td><td class="c-tin"></td><td class="c-tout"></td><td class="num c-min"></td><td class="num c-u"></td><td class="c-fno"></td><td class="c-fcen"></td><td class="c-fee"></td><td class="c-mod1"></td><td class="c-mod2"></td><td class="c-dx"></td><td class="c-note"></td><td class="c-act"></td></tr>`;
   function lightUp(tr) {
     if (!tr || !tr.dataset.light) return tr;
     const tpl = document.createElement('template'); tpl.innerHTML = '<table><tbody>' + blankRow(tr.sectionRowIndex + 1, false) + '</tbody></table>';
@@ -392,9 +403,10 @@
       + `<td class="c-tin"><div class="cw">${gInp('tin', '', { lbl: 'Time in (new row)', mono: 1, max: 5, im: 'numeric', ph: first ? 'HH:MM' : '' })}<button type="button" class="cbtn now${first ? '' : ' hov'}" data-a="now" tabindex="-1" title="New row, start the clock now" aria-label="New row, start now">▶</button></div></td>`
       + `<td class="c-tout">${gInp('tout', '', { lbl: 'Time out (new row)', mono: 1, max: 5, im: 'numeric' })}</td>`
       + '<td class="num c-min"></td><td class="num c-u"></td>'
+      + `<td class="c-fno">${gInp('fno', '', { lbl: 'Facility # (new row)' })}</td><td class="c-fcen">${gInp('fcen', '', { lbl: 'Functional centre (new row)' })}</td>`
       + `<td class="c-fee"><div class="cw">${gInp('fee', '', { lbl: 'Fee code(s) (new row)', mono: 1, max: CODE_MAX, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="fee" tabindex="-1" title="New row: pick a fee code in Fee Desk (it comes back to this cell)" aria-label="New row, pick fee code in Fee Desk">↗</button></div></td>`
-      + `<td class="c-mod1">${gInp('mod1', '', { lbl: 'Modifier code(s) 1 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</td>`
-      + `<td class="c-mod2">${gInp('mod2', '', { lbl: 'Modifier code(s) 2 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</td>`
+      + `<td class="c-mod1"><div class="cw mucw">${gInp('mod1', '', { lbl: 'Modifier code(s) 1 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</div></td>`
+      + `<td class="c-mod2"><div class="cw mucw">${gInp('mod2', '', { lbl: 'Modifier code(s) 2 (new row)', mono: 1, max: MOD_MAX, cap: 'characters' })}</div></td>`
       + `<td class="c-dx"><div class="cw">${gInp('dx', '', { lbl: 'Diagnostic code(s) (new row)', mono: 1, max: CODE_MAX, cap: 'characters' })}<button type="button" class="cbtn hov pickfd" data-kind="dx" tabindex="-1" title="New row: pick an ICD-9 code in Fee Desk (it comes back to this cell)" aria-label="New row, pick diagnostic code in Fee Desk">↗</button></div></td>`
       + `<td class="c-note">${gInp('note', '', { lbl: 'Billing notes (new row)', max: 500 })}</td><td class="c-act"></td></tr>`;
   }
@@ -404,7 +416,7 @@
   }
   function gFoot(list) {
     const t = gTotals(list);
-    return `<tfoot><tr class="gt"><th scope="row" class="rn" aria-label="Totals">Σ</th><td class="c-name"><span class="gtxt" data-tn>${t.n} encounter${t.n === 1 ? '' : 's'}</span></td><td></td><td></td><td></td><td class="tl"><span class="gtxt">Total</span></td><td class="num" data-tm title="Total minutes">${t.m}</td><td class="num" data-tu title="Total units">${t.u}</td><td colspan="5" class="tdet"><span class="gtxt" data-td>${esc(t.det)}</span></td><td></td></tr></tfoot>`;
+    return `<tfoot><tr class="gt"><th scope="row" class="rn" aria-label="Totals">Σ</th><td class="c-name"><span class="gtxt" data-tn>${t.n} encounter${t.n === 1 ? '' : 's'}</span></td><td></td><td></td><td></td><td class="tl"><span class="gtxt">Total</span></td><td class="num" data-tm title="Total minutes">${t.m}</td><td class="num" data-tu title="Total units">${t.u}</td><td colspan="7" class="tdet"><span class="gtxt" data-td>${esc(t.det)}</span></td><td></td></tr></tfoot>`;
   }
   function sheetHtml(list, o) {
     let rows = '';
@@ -426,6 +438,7 @@
       const y = oc[i]; if (!y) return o.appendChild(x);
       if (y === act) { for (const a of [...x.attributes]) if (a.name !== 'value' && a.name !== 'class' && y.getAttribute(a.name) !== a.value) y.setAttribute(a.name, a.value);
         if (act.tagName === 'DIV') { if (act.textContent !== x.textContent) act.textContent = x.textContent; return; }   // v9i note preview
+        if (act.tagName === 'BUTTON') { if (act.className !== x.className) act.className = x.className; if (act.innerHTML !== x.innerHTML) act.innerHTML = x.innerHTML; return; }   // v9o: a units chip that has focus
         const nv = x.tagName === 'TEXTAREA' ? x.defaultValue : (x.getAttribute('value') || ''); if (act.value === act.defaultValue && nv !== act.defaultValue) { const s0 = act.selectionStart, e0 = act.selectionEnd, all = s0 === 0 && e0 === act.value.length; act.defaultValue = nv; act.value = nv; if (all && act.select) act.select(); else if (act.setSelectionRange) { const n = Math.min(nv.length, e0 || 0); act.setSelectionRange(n, n); } } return; }
       if (y.contains(act)) { syncKids(y, x, act); for (const a of [...x.attributes]) if (y.getAttribute(a.name) !== a.value) y.setAttribute(a.name, a.value); return; }
       if (!sameEl(y, x)) y.replaceWith(x);
@@ -469,7 +482,9 @@
     const isName = td.classList.contains('c-name');
     if (!isName) { if (r.left < wr.left + lw) w.scrollLeft -= wr.left + lw - r.left; else if (r.right > wr.right) w.scrollLeft += Math.min(r.right - wr.right, r.left - (wr.left + lw)); }
     else if (w.scrollLeft && r.left < wr.left + (rn ? rn.offsetWidth : 0)) w.scrollLeft = 0;   // back to the patient name: show the start of the row again
-    if (w.classList.contains('main')) { const pr = w.getBoundingClientRect(); if (pr.bottom > innerHeight) td.scrollIntoView({ block: 'nearest' }); }
+    // v9o: never scroll the page here (v9n called td.scrollIntoView, which also scrolled the window and slid the top of the
+    // grid, header row and rows 1–5 under the pinned app bar / tabs, where a drag inside the grid could not bring them back)
+    if (w.classList.contains('main')) pagePin();
   }
   const COARSE = () => matchMedia('(pointer:coarse)').matches, FINE = () => matchMedia('(pointer:fine)').matches;
   // keyboard / Next-button arrival: select the cell on a computer (type to replace, like Sheets); caret at the end on touch
@@ -492,7 +507,29 @@
   let gPendN = 0;
   const gEnq = fn => { gPendN++; return (gQ = gQ.then(fn).catch(er => { toast('Could not save: ' + (er && er.message || er)); }).then(() => { if (--gPendN === 0) render(true); })); };
   // apply one cell's value to a (cloned) entry; returns an audit note, null when nothing changed, throws uerr() for bad input
+  let eMU = {};
+  function eMuShow() {   // v9o: edit form: a 01–20 list for each time-unit modifier typed in Modifier code 1 / 2
+    const box = $('#eModU'); if (!box) return; const codes = [...new Set([1, 2].flatMap(n => R.normMods($('#eMod' + n).value).split(', ').filter(R.isMu)))];
+    box.hidden = !codes.length;
+    box.innerHTML = codes.map(c => `<label class="fld mu">${c} units<select data-emu="${c}"><option value="">–</option>${Array.from({ length: 20 }, (_, i) => i + 1).map(n => `<option value="${n}"${eMU[c] === n ? ' selected' : ''}>${R.p2(n)} · ${R.muMin(n)} min</option>`).join('')}</select></label>`).join('') + (codes.length ? '<p class="small muted mun">1 unit = 15 min with the patient (GR 15.13.4); a further unit needs at least half of 15 min.</p>' : '');
+    $$('#eModU [data-emu]').forEach(sl => sl.onchange = () => { const v = parseInt(sl.value, 10); if (v) eMU[sl.dataset.emu] = v; else delete eMU[sl.dataset.emu]; });
+  }
+  ['#eMod1', '#eMod2'].forEach(id => { const el = document.querySelector(id); if (el) el.addEventListener('input', () => eMuShow()); });
+  function pruneMu(e) {   // keep units only for time-unit modifiers still in Modifier code 1 / 2
+    if (!e.modU) return; const keep = new Set([1, 2].flatMap(n => R.muCodes(e, n))), m = {};
+    for (const [c, u] of Object.entries(e.modU)) if (keep.has(c) && Number.isInteger(u) && u >= 1 && u <= 20) m[c] = u;
+    if (Object.keys(m).length) e.modU = m; else delete e.modU;
+  }
+  function applyMu(e, o) {
+    if (!o || !R.isMu(o.code)) return null; const c = String(o.code).toUpperCase(), n = o.n == null ? 0 : Math.max(0, Math.min(20, parseInt(o.n, 10) || 0));
+    if (R.muOf(e, c) === n) return null; const m = Object.assign({}, e.modU || {}); if (n) m[c] = n; else delete m[c];
+    if (Object.keys(m).length) e.modU = m; else delete e.modU;
+    return n ? `Units for ${c} set to ${R.p2(n)} (${R.muMin(n)} min) in spreadsheet` : `Units for ${c} cleared in spreadsheet`;
+  }
   async function applyCell(e, f, raw, day) {
+    if (f === 'fno') return applyFno(e, raw);     // v9o: {no, n} from the picker, or a typed number; null / '' clears
+    if (f === 'fcen') return applyFcen(e, raw);
+    if (f === 'mu') return applyMu(e, raw);       // v9o: { code, n } units for a time-unit modifier (n null / 0 clears)
     const v = String(raw == null ? '' : raw).trim();
     if (f === 'name') { if ((e.name || '') === v) return null; e.name = v; return 'Patient name edited in spreadsheet'; }
     if (f === 'mrn') { if (ptMrn(e) === v) return null; setMrn(e, v); return 'MRN/PHN edited in spreadsheet'; }
@@ -500,9 +537,15 @@
     if (f === 'hc') { const nv = v === 'C' ? 'C' : 'H'; if (e.setting === nv) return null; e.setting = nv; return `Setting changed to ${R.SET[nv]} in spreadsheet`; }
     if (f === 'tin' || f === 'tout') return applyTime(e, f, v, day);
     if (f === 'mod1' || f === 'mod2') {   // v9k: several codes per cell, separated by commas or spaces; saved upper-case, no duplicates
-      const nv = R.normMods(v).slice(0, MOD_MAX); if (modOf(e, f.slice(3)) === nv) return null;
+      // v9o: "TEV04", "TEV:4" or "TEV ×04" also sets the units (01–20) of a time-unit modifier
+      const typedU = {}, toks = v.replace(/[×x*](?=\d)/gi, '').split(/[,;\s]+/).filter(Boolean).map(t => { const m = /^([A-Za-z]+):?(\d{1,2})$/.exec(t); if (m && R.isMu(m[1]) && +m[2] >= 1 && +m[2] <= 20) { typedU[m[1].toUpperCase()] = +m[2]; return m[1]; } return t; });
+      const mm = /^([A-Za-z]+)$/; for (let i = 1; i < toks.length; i++) if (/^\d{1,2}$/.test(toks[i]) && mm.test(toks[i - 1]) && R.isMu(toks[i - 1]) && +toks[i] >= 1 && +toks[i] <= 20) { typedU[toks[i - 1].toUpperCase()] = +toks[i]; toks[i] = ''; }
+      const nv = R.normMods(toks.join(' ')).slice(0, MOD_MAX), beforeU = JSON.stringify(e.modU || {}), beforeM = modOf(e, f.slice(3));
       if (nv) e[f] = nv; else delete e[f];
-      return `Modifier code(s) ${f.slice(3)} edited in spreadsheet`;
+      for (const [c, u] of Object.entries(typedU)) e.modU = Object.assign({}, e.modU || {}, { [c]: u });
+      pruneMu(e);
+      if (beforeM === nv && beforeU === JSON.stringify(e.modU || {})) return null;
+      return `Modifier code(s) ${f.slice(3)} edited in spreadsheet` + (Object.keys(typedU).length ? ' (' + Object.entries(typedU).map(([c, u]) => `${c} ${R.p2(u)} units`).join(', ') + ')' : '');
     }
     if (f === 'fee') {
       const parts = v.split(/[,;\s]+/).map(s => s.trim()).filter(Boolean), prev = (e.codes || []).map(c => c.c).join(', ');
@@ -583,7 +626,8 @@
       let note;
       try { note = await applyCell(e, f, v, day); } catch (er) { if (!er.user) throw er; toast(er.message, 3500); tr.dataset.blank = '1'; tr.dataset.key = key; delete tr.dataset.id; return; }
       if (!ptName(e) && !ptMrn(e)) e.label = `Encounter ${n}`;
-      await saveEnc(e, 'create', ['Created in the spreadsheet', note].filter(Boolean).join('. '));
+      const cn = carryFac(e, day);
+      await saveEnc(e, 'create', ['Created in the spreadsheet', note, cn].filter(Boolean).join('. '));
     });
     // keep at least MIN_BLANK blank rows below, even before the save lands
     const tb = tr.parentNode, nb = tb.querySelectorAll('tr[data-blank]').length;
@@ -603,7 +647,8 @@
     gEnq(async () => {
       for (const [f, v] of Object.entries(vals)) { try { await applyCell(e, f, v, day); } catch (er) { if (!er.user) throw er; } }
       if (!ptName(e) && !ptMrn(e)) e.label = `Encounter ${n}`;
-      await saveEnc(e, 'create', 'Created in the spreadsheet to pick a code in Fee Desk');
+      const cn = carryFac(e, day);
+      await saveEnc(e, 'create', ['Created in the spreadsheet to pick a code in Fee Desk', cn].filter(Boolean).join('. '));
     });
     return e;
   }
@@ -631,8 +676,9 @@
   }
   function growNear(c) {
     const tr = c && c.closest && c.closest('tbody tr'), t = tr && tr.closest('table.grid'); if (!t) return;
-    if (tr.parentNode.rows.length - 1 - tr.sectionRowIndex <= GROW_NEAR) growGrid(t);
+    if (tr.parentNode.rows.length - 1 - tr.sectionRowIndex <= GROW_NEAR) { growGrid(t); scrollCap.set(t, tr.parentNode.rows.length); }
   }
+  const scrollCap = new WeakMap(), SCROLL_MORE = 30;
   // scrolled near the bottom of a grid that has empty rows (the Today grid scrolls inside its frame; the page may scroll too)
   let growRaf = 0;
   function growOnScroll() {
@@ -641,7 +687,10 @@
       for (const t of $$('#todayList table.grid')) {
         const tb = t.tBodies[0], last = tb && tb.rows[tb.rows.length - 1]; if (!last || !tb.querySelector('tr[data-blank]') || !t.offsetParent) continue;
         const w = t.closest('.gwrap'), rh = last.offsetHeight || 30, bottom = Math.min(innerHeight, w ? w.getBoundingClientRect().bottom : innerHeight);
-        let guard = 0; while (guard++ < 5 && tb.rows[tb.rows.length - 1].getBoundingClientRect().top < bottom + GROW_NEAR * rh) growGrid(t);
+        // v9o: scrolling alone adds up to SCROLL_MORE empty rows past those already there, then the footer shows after the last
+        // row; the cursor (Tab / Enter / Next near the end) keeps adding rows without limit and the footer moves down with them
+        if (!scrollCap.has(t)) scrollCap.set(t, tb.rows.length); const cap = scrollCap.get(t) + SCROLL_MORE;
+        let guard = 0; while (guard++ < 5 && tb.rows.length < cap && tb.rows[tb.rows.length - 1].getBoundingClientRect().top < bottom + GROW_NEAR * rh) growGrid(t);
       }
     });
   }
@@ -666,7 +715,7 @@
     });
     root.addEventListener('focusout', ev => {
       const c = ev.target.closest && ev.target.closest('.gc'); if (c) { commitCell(c); if (c === nTipFor) nTipShow(null); }
-      setTimeout(() => { if (!root.contains(document.activeElement) && !ned) { setActive(null); gNavShow(false); if (root.id === 'histList' && histDirty) { histDirty = false; renderHistory(); } if (root.id === 'todayList' && todayResort) { todayResort = false; render(true); } } }, 0);
+      setTimeout(() => { if (!root.contains(document.activeElement) && !ned && !fpk) { setActive(null); gNavShow(false); if (root.id === 'histList' && histDirty) { histDirty = false; renderHistory(); } if (root.id === 'todayList' && todayResort) { todayResort = false; render(true); } } }, 0);
     });
     root.addEventListener('input', ev => {
       const c = ev.target.closest('.gc'); if (!c || c.tagName === 'BUTTON' || c.tagName === 'DIV') return; gEdit = true; if (c === nTipFor) nTipShow(c);
@@ -690,10 +739,21 @@
         ev.preventDefault(); commitCell(c); return gMove(c, 0, ev.shiftKey ? -1 : 1, true);   // Enter = next cell to the right (Shift+Enter = left)
       }
       if (k === 'Escape') { if (isIn && (c.value !== c.defaultValue || gEdit)) { ev.preventDefault(); ev.stopPropagation(); c.value = c.defaultValue; gEdit = false; c.select(); fitSoon(c.closest('table.grid')); } return; }
+      if ((k === 'F4' || (k === 'ArrowDown' && ev.altKey)) && (c.dataset.c === 'mod1' || c.dataset.c === 'mod2')) {   // v9o: units picker
+        ev.preventDefault(); const tr = c.closest('tr'), id = tr && tr.dataset.id, root2 = c.closest('#todayList, #histList'), n = c.dataset.c.slice(3);
+        const go = () => { const r2 = id && root2 && [...root2.querySelectorAll('tbody tr')].find(x => x.dataset.id === id), b = r2 && r2.querySelector(`td.c-mod${n} .mub`); if (b) muCell(b); else toast('Units are for time-unit modifiers (TEV, TNTP, TNTA, TWK, TST, TDES, EV, NTPM, NTAM, WK)'); };
+        if (isIn && c.value !== c.defaultValue) { commitCell(c); setTimeout(go, 450); } else go(); return;
+      }
       // ↑ ↓ change rows only before you start editing (just arrived with Tab / Enter); while editing they stay in the text
       if ((k === 'ArrowUp' || k === 'ArrowDown') && (!isIn || !gEdit)) { ev.preventDefault(); commitCell(c); return gMove(c, k === 'ArrowUp' ? -1 : 1, 0); }
       // ← → always move the cursor inside the text and never leave the cell (only the H/C button uses them to move)
       if (k === 'ArrowLeft' || k === 'ArrowRight') { if (!isIn) { ev.preventDefault(); return gMove(c, 0, k === 'ArrowLeft' ? -1 : 1, false); } gEdit = true; return; }
+      if (c.classList.contains('fpv')) {   // v9o: Facility # / Functional centre: Space, F2 or Alt+↓ opens the list; typing searches it; Delete clears
+        if (k === 'F2' || k === ' ' || (k === 'ArrowDown' && ev.altKey)) { ev.preventDefault(); return fpkCell(c); }
+        if (k === 'Backspace' || k === 'Delete') { ev.preventDefault(); return fpkClearCell(c); }
+        if (k.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { ev.preventDefault(); return fpkCell(c, k); }
+        return;
+      }
       if (c.classList.contains('nprev')) {   // v9i: the notes preview (typing replaces, like any cell; Cancel puts it back)
         if (k === 'F2' || k === ' ') { ev.preventDefault(); return nedOpen(c); }
         if (k === 'Backspace' || k === 'Delete') { ev.preventDefault(); return nedOpen(c, ''); }
@@ -704,14 +764,22 @@
       if (k.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) gEdit = true;
       if (k === 'Backspace' || k === 'Delete') gEdit = true;
     });
+    // v9o: leaving an edited cell can redraw the rows between mouse-down and mouse-up, so the click lands on the table
+    // instead of the Facility # / Functional centre cell; remember where the press started and open that cell's list.
+    let fpDown = null;
+    root.addEventListener('pointerdown', ev => { const td = ev.target.closest && ev.target.closest('td.c-fno, td.c-fcen'), tr = td && td.closest('tr'); fpDown = td && tr ? { key: tr.dataset.key || '', id: tr.dataset.id || '', c: td.classList.contains('c-fno') ? 'fno' : 'fcen', t: Date.now() } : null; });
     root.addEventListener('click', ev => {
       const t = ev.target;
+      if (fpDown && Date.now() - fpDown.t < 1500 && !(t.closest && t.closest('td'))) { const d = fpDown; fpDown = null; const tr = [...root.querySelectorAll('tbody tr')].find(x => (d.id && x.dataset.id === d.id) || (d.key && x.dataset.key === d.key)), c = tr && tr.querySelector(`.gc[data-c="${d.c}"]`); if (c) return fpkCell(c); }
+      fpDown = null;
       // touch: the browser's tap targeting can leave the text caret in the neighbouring cell while focus is in this one,
       // so typing would go nowhere. Put the caret back inside the tapped cell (at the end).
       const ed = t.closest && t.closest('input.gc, textarea.gc');
       if (ed && document.activeElement === ed) { const s = getSelection(), td = ed.closest('td'); if (s && s.anchorNode && td && !td.contains(s.anchorNode)) { const n = ed.value.length; ed.setSelectionRange(n, n); } }
       const hc = t.closest('.gc.hc'); if (hc) return hcToggle(hc);
       const np = t.closest('.gc.nprev'); if (np) return nedOpen(np);
+      const mb = t.closest('.mub'); if (mb) return muCell(mb);   // v9o: units 01–20 of a time-unit modifier
+      const fp = t.closest('.gc.fpv'); if (fp) return fpkCell(fp);
       const pk = t.closest('.pickfd'); if (pk) { const tr = pk.closest('tr'), e = tr && tr.dataset.blank ? blankForPick(tr) : entryOf(pk); if (e) pickInFeeDesk(e, pk.dataset.kind, pk.dataset.at); return; }
       const a = t.closest('[data-a]');
       if (a) {
@@ -726,6 +794,7 @@
       const ltr = td0.closest('tr'), ci = [...ltr.cells].indexOf(td0); if (ltr.dataset.light) lightUp(ltr);
       const td = ltr.cells[ci] || td0;
       if (td.classList.contains('c-note') && !td.classList.contains('rn')) { const np2 = td.querySelector('.gc.nprev'); if (np2) return nedOpen(np2); }
+      if ((td.classList.contains('c-fno') || td.classList.contains('c-fcen')) && !td.classList.contains('rn')) { const fp2 = td.querySelector('.gc.fpv'); if (fp2) return fpkCell(fp2); }
       const c = td.querySelector('.gc') || (td.classList.contains('rn') && td.parentNode.querySelector('.gc')); if (c) { gMouse = (c.tagName === 'INPUT' || c.tagName === 'TEXTAREA') && !td.classList.contains('rn') ? c : null; c.focus(); if (!gMouse && c.select) c.select(); }
     });
     root.addEventListener('dblclick', ev => { const rn = ev.target.closest('tbody .rn'); if (rn) { const e = entryOf(rn); if (e) openEdit(e); } });
@@ -737,7 +806,7 @@
   // text, 16 px+ (no iPhone zoom). Done / Ctrl+Enter / Tab save like any cell (encrypted entry, audit-logged); Cancel / Esc
   // put the note back. Tapping outside counts as Done (nothing typed is lost).
   let ned = null;
-  const nedIn = t => !!(ned && t && ned.root.contains(t) && t.dataset.day === ned.day);   // the editor counts as working in that grid
+  const nedIn = t => [ned, fpk && fpk.grid].some(o => !!(o && t && o.root.contains(t) && t.dataset.day === o.day));   // the editor (or v9o picker) counts as working in that grid
   const SHEET = () => matchMedia('(max-width:767px)').matches;
   function nedFind(o) {
     let tr = o.id ? o.root.querySelector(`tr[data-id="${CSS.escape(o.id)}"]`) : null;
@@ -813,6 +882,306 @@
     cell.scrollIntoView({ block: 'center', inline: 'nearest' }); nedOpen(cell, d.v);
     toast('Restored your unsaved billing note. Tap Done to save it.', 4000);
   }
+  // ============================================================ v9o Facility # and Functional centre
+  // Facility #: the AHCIP facility number of the hospital / clinic. Official numbers and names only, from Alberta Health's
+  // "Facility and Functional Centre Definitions and Facility Listing" (data/ahcip-facilities.json: number, name as printed,
+  // city, facility type, functional centres; source, version and date inside the file). Favourites first, then recent, then
+  // search by number, name or city. A number that is not in the listing can be typed (optional name) and is marked as yours.
+  // Functional centre: like Med Access: "Type something to search...", "Select Favourite...", "Edit/Search...", then
+  // CLNC - Clinic, D/N - Day/Night Care, EMRG - Emergency, MED - Medical, SURG - Surgical (Edit/Search... lists every code in
+  // the listing). Stored encrypted with the entry: e.facNo ('44'), e.facNm (name), e.fcen ('EMRG'); older entries have none.
+  // A bottom sheet on phones (like the notes editor), a popover beside the cell on a computer; text follows Settings → Display.
+  let AHF = null, AHF_BY = new Map(), fpk = null;
+  async function loadAhf() {
+    if (AHF) return AHF;
+    try { const r = await fetch('data/ahcip-facilities.json'); if (!r.ok) throw new Error(r.status); AHF = await r.json(); } catch (e) { AHF = { f: [], source: null, count: 0, types: {}, failed: true }; }
+    AHF_BY = new Map(AHF.f.map(x => [x[0], x])); return AHF;
+  }
+  const facNoOf = e => R.facNoTxt(e), fcenOf = e => R.fcenTxt(e);
+  const ahfSrc = () => { const s = AHF && AHF.source; return s ? `Source: Alberta Health, ${s.title.replace(/ - .*$/, '')} (${s.version}; effective ${s.effective}, published ${s.published}), open.alberta.ca. ${AHF.count} facilities, numbers and names as listed.` : 'The Alberta Health facility listing could not be loaded; you can still type a facility number.'; };
+  const fpView = (c, e) => { const v = c === 'fno' ? facNoOf(e) : fcenOf(e); if (!v) return ''; const nm = c === 'fno' ? R.facNmTxt(e) : R.fcenName(v); return `<b>${esc(v)}</b>${nm ? `<span class="fpn"> · ${esc(nm)}</span>` : ''}`; };
+  function fpCell(c, e, lbl) {
+    const v = c === 'fno' ? facNoOf(e) : fcenOf(e), full = c === 'fno' ? R.facNoFull(e) : R.fcenFull(e);
+    return `<div class="gc mono fpv${v ? '' : ' fpe'}" data-c="${c}" tabindex="0" role="button" aria-haspopup="dialog" data-v="${esc(v)}" aria-label="${esc(lbl + ': ' + (full || 'empty') + '. Opens the list')}"${full ? ` title="${esc(full)}"` : ''}>${fpView(c, e)}</div>`;
+  }
+  function applyFno(e, x) {
+    let no = '', nm = '';
+    if (x && typeof x === 'object') { no = String(x.no || '').trim(); nm = String(x.n || '').trim(); } else no = String(x == null ? '' : x).trim();
+    if (no && !/^\d{1,8}$/.test(no)) throw uerr('A facility number is digits only (up to 8)');
+    if (no && AHF_BY.has(no) && !(x && x.mine)) nm = AHF_BY.get(no)[1];
+    nm = nm.slice(0, 80);
+    if (facNoOf(e) === no && R.facNmTxt(e) === (no ? nm : '')) return null;
+    if (no) { e.facNo = no; if (nm) e.facNm = nm; else delete e.facNm; } else { delete e.facNo; delete e.facNm; }
+    return no ? `Facility # ${no}${nm ? ' (' + nm + ')' : ''} set in spreadsheet` : 'Facility # cleared in spreadsheet';
+  }
+  function applyFcen(e, x) {
+    const c = R.normFcen(x);
+    if (c && !R.FCEN_ALL.some(f => f[0] === c)) throw uerr('Pick a functional centre from the list (CLNC, D/N, EMRG, MED, SURG…)');
+    if (fcenOf(e) === c) return null;
+    if (c) e.fcen = c; else delete e.fcen;
+    return c ? `Functional centre ${c} set in spreadsheet` : 'Functional centre cleared in spreadsheet';
+  }
+  // carry-down: a new row starts with the Facility # / Functional centre picked last on that day (Settings can turn it off)
+  function fcLastFor(day) {
+    const l = S.settings.fcLast, out = l && l.day === day ? { no: l.no || '', n: l.n || '', fcen: l.fcen || '' } : { no: '', n: '', fcen: '' };
+    if (!out.no || !out.fcen) {   // nothing picked yet today on this device: the row of that day changed last that has them
+      const src = S.encs.filter(x => kindOf(x) !== 'shift' && R.encDay(x) === day).sort((a, b) => (b.updated || b.created || 0) - (a.updated || a.created || 0));
+      if (!out.no) { const x = src.find(y => facNoOf(y)); if (x) { out.no = facNoOf(x); out.n = R.facNmTxt(x); } }
+      if (!out.fcen) { const x = src.find(y => fcenOf(y)); if (x) out.fcen = fcenOf(x); }
+    }
+    return out;
+  }
+  function carryFac(e, day) {
+    if (!S || S.settings.fcCarry === false || kindOf(e) === 'shift') return '';
+    const l = fcLastFor(day), got = [];
+    if (!facNoOf(e) && l.no) { e.facNo = l.no; if (l.n) e.facNm = l.n; else delete e.facNm; got.push('Facility # ' + l.no); }
+    if (!fcenOf(e) && l.fcen) { e.fcen = l.fcen; got.push('Functional centre ' + l.fcen); }
+    return got.length ? got.join(' and ') + ' carried down from the last pick that day' : '';
+  }
+  async function fcRemember(day, kind, v) {
+    const st = S.settings; let l = st.fcLast && st.fcLast.day === day ? Object.assign({}, st.fcLast) : { day };
+    if (kind === 'fno') { if (v) { l.no = v.no; l.n = v.n || ''; st.recFno = [v.no].concat((st.recFno || []).filter(x => x !== v.no)).slice(0, 8); if (v.mine) st.customFno = [{ no: v.no, n: v.n || '' }].concat((st.customFno || []).filter(x => x.no !== v.no)).slice(0, 20); } else { delete l.no; delete l.n; } }
+    else if (v) l.fcen = v; else delete l.fcen;
+    st.fcLast = l; await saveSettings(); fpSetUi();
+  }
+  // H/C tie-in: H/C is the two-way Hospital / Clinic switch (never empty, used for the H and C totals), so it is never
+  // overwritten with a name. A new row whose H/C was not chosen takes it from the official facility type (hospital → H,
+  // community clinic → C); on an existing row a different H/C is only offered (one tap), never changed by itself.
+  const ahfSet = no => { const x = AHF_BY.get(no); return !x ? '' : (x[3] === 'A' || x[3] === 'X') ? 'H' : (x[3] === 'C' || x[3] === 'M') ? 'C' : ''; };
+  const facInfo = no => { const x = AHF_BY.get(no); return x ? { no: x[0], n: x[1], city: x[2], type: (AHF.types || {})[x[3]] || '', fc: x[4] || [] } : null; };
+  const customNm = no => { const c = (S.settings.customFno || []).find(x => x.no === no); return c ? c.n : ''; };
+
+  // ---- the picker (one <dialog>, so it also works on top of the edit form)
+  const FPK_T = { fno: 'Facility #', fcen: 'Functional centre', mu: 'Units' };
+  const MU_SRC = 'One unit = 15 minutes with the patient (after-hours time premium, modifier SURT: payable in 15-minute blocks, maximum 4 per hour; GR 15.13.4). A further unit needs at least half of 15 minutes (GR 2.3.2 / 2.3.5), so 02 = 30 min, claimable from 23 min. Alberta Health Fee Modifier Definitions and Medical Governing Rules as of 01 April 2026.';
+  function fpkOpen(o) {
+    if (fpk) fpkClose();
+    fpk = Object.assign({ view: 'main', hi: -1, items: [] }, o);
+    const d = $('#fpk'), sheet = SHEET(); d.classList.toggle('sheet', sheet); d.classList.toggle('pop', !sheet); d.dataset.kind = o.kind;
+    $('#fpkT').textContent = FPK_T[o.kind]; $('#fpkSub').textContent = o.sub || '';
+    const q = $('#fpkQ'); q.value = o.q || ''; q.placeholder = o.kind === 'fno' ? 'Type a number, name or city…' : o.kind === 'mu' ? 'Type 1–20…' : 'Type something to search...';
+    q.setAttribute('inputmode', 'search'); $('#fpkMan').hidden = true; $('#fpkManNo').value = ''; $('#fpkManNm').value = '';
+    $('#fpkSrc').textContent = o.kind === 'fno' ? ahfSrc() : o.kind === 'mu' ? MU_SRC : 'Functional centre codes: Alberta Health facility listing (definitions and codes). The codes valid for a facility are listed with it.';
+    $('#fpkClear').hidden = !o.cur || o.manage;
+    if (!d.open) d.showModal();
+    document.body.classList.add('fpkopen');
+    fpkRender(); fpkSize();
+    // a computer (or a typed first letter) goes straight to the search box; on a phone the list stays in view (no keyboard)
+    if (o.q || FINE() || !COARSE()) { q.focus({ preventScroll: true }); const n = q.value.length; q.setSelectionRange(n, n); }
+    else { const b = $('#fpkList .fpo.cur .pk') || $('#fpkList .pk'); (b || $('#fpkCancel')).focus({ preventScroll: true }); }
+    if (o.kind === 'fno' && !AHF) loadAhf().then(() => { if (fpk && fpk.kind === 'fno') { $('#fpkSrc').textContent = ahfSrc(); fpkRender(); } });
+  }
+  function fpkClose(v, move) {   // v === undefined: cancelled
+    if (!fpk) return; const o = fpk; fpk = null; document.body.classList.remove('fpkopen');
+    const d = $('#fpk'); if (d.open) d.close(); d.style.top = ''; d.style.left = ''; d.style.bottom = ''; d.style.maxHeight = '';
+    if (v !== undefined && o.onPick) o.onPick(v);
+    if (o.onDone) o.onDone(v, move);
+  }
+  const fold = s => MBSearch.fold(String(s || ''));
+  function fpkItems() {
+    const o = fpk, q = $('#fpkQ').value.trim(), fq = fold(q), st = S.settings, out = [];
+    if (o.kind === 'mu') {   // v9o: 01–20 units
+      const qn = q.replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+      if (o.sugg && !qn) out.push({ v: o.sugg, code: R.p2(o.sugg), name: `${R.muMin(o.sugg)} min`, sub: `Suggested from this row's In / Out times (${o.mins} min logged)`, sec: 'Suggestion' });
+      for (let n = 1; n <= 20; n++) { if (qn && !String(n).startsWith(qn)) continue; out.push({ v: n, code: R.p2(n), name: `${R.muMin(n)} min`, sub: `claimable from ${R.muFrom(n)} min with the patient`, sec: 'Units (1 unit = 15 min)' }); }
+      if (!out.length) out.push({ note: 'Type a number from 1 to 20.' });
+      return out;
+    }
+    if (o.kind === 'fcen') {
+      const fav = new Set(st.favFcen || []), m = f => !fq || fold(f[0] + ' ' + f[1]).includes(fq) || fold(f[0].replace('/', '')).startsWith(fq.replace('/', ''));
+      const add = (f, sec) => out.push({ v: f[0], code: f[0], name: f[1], fav: fav.has(f[0]), sec });
+      if (!o.manage) { out.push({ meta: 'fav', label: 'Select Favourite…' }); out.push({ meta: 'all', label: 'Edit/Search…' }); }
+      if (o.view === 'fav') { R.FCEN_ALL.filter(f => fav.has(f[0]) && m(f)).forEach(f => add(f, 'Favourites')); if (!out.some(x => !x.meta)) out.push({ note: fav.size ? 'No favourite matches.' : 'No favourites yet. Tap ☆ beside a functional centre to add it.' }); }
+      else if (o.view === 'all') { R.FCEN_ALL.filter(m).forEach(f => add(f, 'All functional centre codes (Alberta Health listing)')); if (!out.some(x => !x.meta)) out.push({ note: 'No functional centre matches.' }); }
+      else {
+        const main = R.FCEN.filter(m); main.forEach(f => add(f, '')); const cur = o.cur && !R.FCEN.some(f => f[0] === o.cur) ? R.FCEN_ALL.find(f => f[0] === o.cur) : null;
+        if (cur && !fq) add(cur, 'Current');
+        if (fq) R.FCEN_MORE.filter(m).forEach(f => add(f, 'More codes'));
+        if (!out.some(x => !x.meta)) out.push({ note: 'No match. Tap Edit/Search… to see every code.' });
+      }
+      return out;
+    }
+    // Facility #
+    const fav = st.favFno || [], favS = new Set(fav), rec = (st.recFno || []).filter(n => !favS.has(n)), list = AHF ? AHF.f : [];
+    const it = (no, sec) => { const x = facInfo(no); return x ? { v: { no: x.no, n: x.n }, code: x.no, name: x.n, city: x.city, type: x.type, fav: favS.has(no), sec } : { v: { no, n: customNm(no), mine: true }, code: no, name: customNm(no), city: '', type: 'Not in the Alberta Health listing (typed by you)', mine: true, fav: favS.has(no), sec }; };
+    const mt = x => !fq || x.code.startsWith(q) || fold(x.name + ' ' + x.city + ' ' + (x.mine ? 'mine' : x.type)).includes(fq);
+    fav.map(n => it(n, 'Favourites')).filter(mt).forEach(x => out.push(x));
+    if (!o.manage) rec.map(n => it(n, 'Recent')).filter(mt).forEach(x => out.push(x));
+    const seen = new Set(out.map(x => x.code));
+    if (!fq) {
+      if (!out.length) out.push({ note: 'Tap ☆ on a facility to keep it at the top. Type a number, name or city to search the Alberta Health listing.' });
+      list.slice(0, 60).forEach(f => { if (!seen.has(f[0])) out.push(it(f[0], `All facilities, A–Z by city (first 60 of ${list.length}; type to search)`)); });
+    } else {
+      const digits = /^\d+$/.test(q), hits = [];
+      for (const f of list) { if (seen.has(f[0])) continue; const ex = digits && f[0] === q, pre = digits && f[0].startsWith(q), tx = !digits && fold(f[1] + ' ' + f[2] + ' ' + ((AHF.types || {})[f[3]] || '')).includes(fq);
+        if (ex || pre || tx) hits.push([ex ? 0 : pre ? 1 : fold(f[1]).startsWith(fq) ? 2 : 3, f]); }
+      hits.sort((a, b) => a[0] - b[0] || (a[0] === 1 ? a[1][0].length - b[1][0].length : 0) || a[1][1].localeCompare(b[1][1]));
+      hits.slice(0, 60).forEach(h => out.push(it(h[1][0], 'Alberta Health listing')));
+      for (const c of st.customFno || []) if (!seen.has(c.no) && !out.some(x => x.code === c.no) && (c.no.startsWith(q) || fold(c.n).includes(fq))) out.push(it(c.no, 'Typed by you'));
+      if (digits && q.length <= 8 && !AHF_BY.has(q) && !out.some(x => x.code === q && !x.meta)) out.unshift({ meta: 'man', label: `Use ${q} (not in the Alberta Health listing)…`, no: q });
+      if (!out.some(x => !x.meta && !x.note)) out.push({ note: digits ? 'No facility with that number in the listing.' : 'No facility matches. Check the spelling, or type the number.' });
+    }
+    if (!o.manage) out.push({ meta: 'man', label: 'Enter a number not in the list…', no: '' });
+    return out;
+  }
+  function fpkRender() {
+    if (!fpk) return; const o = fpk, items = fpkItems(); o.items = items;
+    const pickable = items.map((x, i) => (x.note ? -1 : i)).filter(i => i >= 0);
+    if (!pickable.includes(o.hi)) { const q = $('#fpkQ').value.trim(); const firstReal = pickable.find(i => !items[i].meta); o.hi = q && firstReal != null ? firstReal : pickable.find(i => !items[i].meta && items[i].code === o.cur) ?? (firstReal ?? pickable[0] ?? 0); }
+    const facHint = o.kind === 'fcen' && o.rowFac && AHF_BY.has(o.rowFac) ? AHF_BY.get(o.rowFac)[4] || [] : null;
+    let h = '', sec = null;
+    items.forEach((x, i) => {
+      if (x.sec !== undefined && x.sec !== sec && !x.meta && !x.note) { sec = x.sec; if (sec) h += `<div class="fpsec" role="presentation">${esc(sec)}</div>`; }
+      if (x.note) { h += `<p class="fpnote">${esc(x.note)}</p>`; return; }
+      if (x.meta) { h += `<div class="fpo meta${i === o.hi ? ' hi' : ''}${x.meta === o.view ? ' on' : ''}" data-i="${i}"><button type="button" class="pk" role="option" aria-selected="${i === o.hi}" data-i="${i}">${esc(x.label)}</button></div>`; return; }
+      const cur = x.code === o.cur, warn = facHint && !facHint.includes(x.code) ? ' <small class="fpw">not listed for facility ' + esc(o.rowFac) + '</small>' : '';
+      const sub = o.kind === 'fno' ? [x.city, x.type].filter(Boolean).join(' · ') : o.kind === 'mu' ? x.sub || '' : '';
+      h += `<div class="fpo${cur ? ' cur' : ''}${i === o.hi ? ' hi' : ''}${x.mine ? ' mine' : ''}" data-i="${i}"><button type="button" class="pk" role="option" aria-selected="${i === o.hi}" data-i="${i}"><span class="fpc">${esc(x.code)}</span><span class="fpd"><span class="fpnm">${o.kind === 'fcen' ? '- ' : ''}${esc(x.name || (x.mine ? '(no name)' : ''))}${warn}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</span>${cur ? '<span class="fpck" aria-label="current">✓</span>' : ''}</button>` + (o.kind === 'mu' ? '</div>' : '')
+        + (o.kind === 'mu' ? '' : `<button type="button" class="star${x.fav ? ' on' : ''}" data-star="${i}" aria-pressed="${!!x.fav}" aria-label="${x.fav ? 'Remove ' + esc(x.code) + ' from' : 'Add ' + esc(x.code) + ' to'} favourites" title="${x.fav ? 'Remove from favourites' : 'Add to favourites'}">${x.fav ? '★' : '☆'}</button></div>`);
+    });
+    const L = $('#fpkList'); L.innerHTML = h;
+    const hi = L.querySelector('.fpo.hi'); if (hi && $('#fpkQ').value) hi.scrollIntoView({ block: 'nearest' });
+  }
+  async function fpkStar(i) {
+    const x = fpk && fpk.items[i]; if (!x || x.meta || fpk.kind === 'mu') return; const st = S.settings, key = fpk.kind === 'fno' ? 'favFno' : 'favFcen', l = st[key] || [];
+    st[key] = l.includes(x.code) ? l.filter(c => c !== x.code) : l.concat(x.code);
+    if (fpk.kind === 'fno' && x.mine && !l.includes(x.code)) st.customFno = [{ no: x.code, n: x.name || '' }].concat((st.customFno || []).filter(c => c.no !== x.code)).slice(0, 20);
+    await saveSettings(); fpkRender(); fpSetUi();
+    if (fpk && (FINE() || !COARSE())) $('#fpkQ').focus({ preventScroll: true });   // keep typing into the search after starring
+    toast(l.includes(x.code) ? `${x.code} removed from favourites` : `${x.code} added to favourites`);
+  }
+  function fpkChoose(i, move) {
+    const x = fpk && fpk.items[i]; if (!x || x.note) return;
+    if (x.meta === 'fav' || x.meta === 'all') { fpk.view = fpk.view === x.meta ? 'main' : x.meta; fpk.hi = -1; fpkRender(); if (x.meta === 'all') $('#fpkQ').focus(); return; }
+    if (x.meta === 'man') { $('#fpkMan').hidden = false; $('#fpkManNo').value = x.no || ''; $('#fpkManNm').value = ''; fpkSize(); (x.no ? $('#fpkManNm') : $('#fpkManNo')).focus(); return; }
+    fpkClose(x.v, move);
+  }
+  function fpkManUse() {
+    const no = $('#fpkManNo').value.trim(), nm = $('#fpkManNm').value.trim().slice(0, 80);
+    if (!/^\d{1,8}$/.test(no)) { toast('Type the facility number (digits only, up to 8)'); return $('#fpkManNo').focus(); }
+    if (AHF_BY.has(no)) { toast(`${no} is in the Alberta Health listing: ${AHF_BY.get(no)[1]}`); return fpkClose({ no, n: AHF_BY.get(no)[1] }); }
+    fpkClose({ no, n: nm, mine: true });
+  }
+  function fpkSize() {
+    if (!fpk) return; const d = $('#fpk'), vv = window.visualViewport, vh = vv ? vv.height : innerHeight, vt = vv ? vv.offsetTop : 0;
+    if (d.classList.contains('sheet')) { d.style.top = ''; d.style.left = ''; d.style.bottom = Math.max(0, Math.round(innerHeight - (vt + vh))) + 'px'; d.style.maxHeight = Math.round(vh * (vh < 500 ? 0.94 : 0.8)) + 'px'; return; }
+    const a = fpk.anchor && fpk.anchor.isConnected ? fpk.anchor.getBoundingClientRect() : null, w = d.offsetWidth;
+    const below = a ? innerHeight - a.bottom - 12 : innerHeight * 0.7, above = a ? a.top - 12 : 0, room = Math.max(below, above), mh = Math.max(240, Math.min(innerHeight * 0.7, room, 560));
+    d.style.maxHeight = Math.round(mh) + 'px'; const h = Math.min(d.offsetHeight, mh);
+    const top = !a ? (innerHeight - h) / 3 : below >= h || below >= above ? a.bottom + 4 : Math.max(8, a.top - 4 - h);
+    d.style.bottom = ''; d.style.top = Math.round(Math.max(8, Math.min(top, innerHeight - h - 8))) + 'px';
+    d.style.left = Math.round(Math.max(8, Math.min(a ? a.left : (innerWidth - w) / 2, innerWidth - w - 8))) + 'px';
+  }
+  $('#fpkQ').addEventListener('input', () => { if (!fpk) return; fpk.hi = -1; fpkRender(); });
+  $('#fpkQ').addEventListener('keydown', ev => {
+    if (!fpk || ev.isComposing) return; const it = fpk.items, k = ev.key;
+    const step = dir => { let i = fpk.hi; for (let n = 0; n < it.length; n++) { i = (i + dir + it.length) % it.length; if (!it[i].note) break; } fpk.hi = i; fpkRender(); };
+    if (k === 'ArrowDown') { ev.preventDefault(); return step(1); }
+    if (k === 'ArrowUp') { ev.preventDefault(); return step(-1); }
+    if (k === 'Enter') { ev.preventDefault(); return fpkChoose(fpk.hi); }
+    if (k === 'Tab') { ev.preventDefault(); const x = it[fpk.hi]; if ($('#fpkQ').value.trim() && x && !x.meta && !x.note) return fpkChoose(fpk.hi, ev.shiftKey ? -1 : 1); return fpkClose(undefined, ev.shiftKey ? -1 : 1); }
+  });
+  $('#fpkList').addEventListener('click', ev => { const st = ev.target.closest('[data-star]'); if (st) return fpkStar(+st.dataset.star); const b = ev.target.closest('.pk'); if (b) fpkChoose(+b.dataset.i); });
+  $('#fpkManUse').addEventListener('click', fpkManUse);
+  [$('#fpkManNo'), $('#fpkManNm')].forEach(el => el.addEventListener('keydown', ev => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); fpkManUse(); } }));
+  $('#fpkCancel').addEventListener('click', () => fpkClose());
+  $('#fpkClose').addEventListener('click', () => fpkClose());
+  $('#fpkClear').addEventListener('click', () => fpkClose(null));
+  $('#fpk').addEventListener('cancel', ev => { ev.preventDefault(); fpkClose(); });
+  $('#fpk').addEventListener('click', ev => { if (ev.target === $('#fpk')) fpkClose(); });   // the backdrop
+  window.addEventListener('resize', () => { if (fpk) { const sh = SHEET(), d = $('#fpk'); d.classList.toggle('sheet', sh); d.classList.toggle('pop', !sh); fpkSize(); } });
+  if (window.visualViewport) visualViewport.addEventListener('resize', () => { if (fpk) fpkSize(); });
+
+  // ---- grid cells
+  function fpkFind(g) { return nedFind(g); }
+  function fpkCell(cell, q) {
+    if (!S || !cell) return; let tr = cell.closest('tr'); if (!tr) return; const kind = cell.dataset.c;
+    if (tr.dataset.light) { lightUp(tr); cell = tr.querySelector(`.gc[data-c="${kind}"]`); if (!cell) return; }
+    if (ned) nedClose(true);
+    const root = cell.closest('#todayList, #histList'), t = cell.closest('table.grid'), e = entryOf(cell);
+    gCell = cell; setActive(cell); gNavShow(false); nTipShow(null);
+    const grid = { root, day: t ? t.dataset.day : today(), key: tr.dataset.key, id: tr.dataset.id || '' };
+    const open = () => fpkOpen({ kind, q, cur: cell.dataset.v || '', sub: 'Row ' + (tr.sectionRowIndex + 1) + (e && ptName(e) ? ' · ' + ptName(e) : ''), anchor: cell.closest('td'), grid, rowFac: e ? facNoOf(e) : '',
+      onPick: v => fpkGridPick(grid, kind, v), onDone: (v, move) => { const tr2 = fpkFind(grid), c2 = tr2 && tr2.querySelector(`.gc[data-c="${kind}"]`); if (c2 && S) { if (move) gMove(c2, 0, move, true); else focusCell(c2); } } });
+    if (kind === 'fno' && !AHF) loadAhf().then(() => { if (!fpk) open(); }); else open();
+  }
+  function muCell(btn) {   // v9o: the 01–20 units picker for one time-unit modifier on a row
+    if (!S || !btn) return; const tr = btn.closest('tr'), e = entryOf(btn); if (!tr || !e) return; const code = btn.dataset.mu, n = btn.dataset.mn;
+    if (ned) nedClose(true); gNavShow(false); nTipShow(null);
+    const mc = tr.querySelector(`.gc[data-c="mod${n}"]`); if (mc && document.activeElement !== mc) { gCell = mc; mc.focus({ preventScroll: true }); setActive(mc); }   // the picker hands focus back to the cell, not the chip
+    const grid = { root: btn.closest('#todayList, #histList'), key: tr.dataset.key, id: tr.dataset.id || '' }, u = R.muOf(e, code);
+    fpkOpen({ kind: 'mu', code, cur: u ? R.p2(u) : '', sugg: R.muSuggest(e, code), mins: R.minsOf(e), sub: `${code} · Row ${tr.sectionRowIndex + 1}${ptName(e) ? ' · ' + ptName(e) : ''}`, anchor: btn.closest('td'), grid,
+      onPick: v => gridSave(e.id, 'mu', { code, n: v }),
+      onDone: () => { setTimeout(() => { const tr2 = fpkFind(grid), c2 = tr2 && tr2.querySelector(`.gc[data-c="mod${n}"]`); if (c2 && S) focusCell(c2); }, 60); } });
+  }
+  function fpkPaint(cell, kind, v) {
+    if (!cell) return; const e = kind === 'fno' ? (v ? { facNo: v.no, facNm: v.n } : {}) : (v ? { fcen: v } : {});
+    const lbl = (cell.getAttribute('aria-label') || '').split(':')[0] || FPK_T[kind];
+    const tpl = document.createElement('template'); tpl.innerHTML = fpCell(kind, e, lbl); const n = tpl.content.firstElementChild;
+    cell.innerHTML = n.innerHTML; for (const a of ['data-v', 'aria-label', 'title', 'class']) { if (n.hasAttribute(a)) cell.setAttribute(a, n.getAttribute(a)); else cell.removeAttribute(a); }
+    fitSoon(cell.closest('table.grid'));
+  }
+  function fpkGridPick(g, kind, v) {
+    if (!S) return; const tr = fpkFind(g), cell = tr && tr.querySelector(`.gc[data-c="${kind}"]`);
+    if (v && kind === 'fno') { const nm = AHF_BY.has(v.no) ? AHF_BY.get(v.no)[1] : v.n; v = Object.assign({}, v, { n: nm || '' }); }
+    if (!tr) { if (g.id) gridSave(g.id, kind, v); return; }
+    if (tr.dataset.blank) {
+      if (v == null) return;
+      let setMsg = '';
+      if (kind === 'fno' && !blankSet[tr.dataset.key]) { const s2 = ahfSet(v.no); if (s2 && s2 !== quickSet) { blankSet[tr.dataset.key] = s2; const hb = tr.querySelector('.gc.hc'); if (hb) hb.textContent = s2; setMsg = ` H/C set to ${s2} (${R.SET[s2]}) from the facility type.`; } }
+      fpkPaint(cell, kind, v); createFromBlank(tr, kind, v); g.id = tr.dataset.id || g.id; g.key = tr.dataset.key; fcRemember(g.day, kind, v);
+      toast(`${FPK_T[kind]} ${kind === 'fno' ? v.no : v} added.${setMsg}`, setMsg ? 3800 : 2200);
+      return;
+    }
+    fpkPaint(cell, kind, v); gridSave(tr.dataset.id, kind, v); fcRemember(g.day, kind, v);
+    if (kind === 'fno' && v) {   // offer (never force) the H/C that matches the official facility type
+      const e = S.encs.find(x => x.id === tr.dataset.id), s2 = ahfSet(v.no);
+      if (e && s2 && (e.setting === 'C' ? 'C' : 'H') !== s2) snack(`${v.no} is listed as ${s2 === 'H' ? 'a hospital' : 'a community clinic'}. Row is ${e.setting === 'C' ? 'C' : 'H'}.`, async () => { const b = tr.isConnected && tr.querySelector('.gc.hc'); if (b) hcToggle(b, s2); else gridSave(e.id, 'hc', s2); toast(`H/C set to ${s2}`); }, 7000, false, `Set ${s2}`);
+    }
+  }
+  function fpkClearCell(cell) {
+    const tr = cell.closest('tr'); if (!tr || tr.dataset.blank || !cell.dataset.v) return; const kind = cell.dataset.c, prev = cell.dataset.v, e0 = entryOf(cell);
+    const pv = kind === 'fno' && e0 ? { no: facNoOf(e0), n: R.facNmTxt(e0), mine: !AHF_BY.has(facNoOf(e0)) } : prev;
+    fpkPaint(cell, kind, null); gridSave(tr.dataset.id, kind, null);
+    snack(`${FPK_T[kind]} cleared`, async () => { const id = tr.dataset.id; gridSave(id, kind, pv); if (tr.isConnected) fpkPaint(tr.querySelector(`.gc[data-c="${kind}"]`), kind, pv); });
+  }
+
+  // ---- edit form fields and Settings
+  let eFno = null, eFcen = '';
+  function eFpShow() {
+    const a = $('#eFno'), b = $('#eFcen');
+    a.innerHTML = eFno ? `<b>${esc(eFno.no)}</b>${eFno.n ? ' · ' + esc(eFno.n) : ''}${eFno.mine ? ' <small class="muted">(not in listing)</small>' : ''}` : '<span class="muted">Choose…</span>';
+    b.innerHTML = eFcen ? `<b>${esc(eFcen)}</b>${R.fcenName(eFcen) ? ' - ' + esc(R.fcenName(eFcen)) : ''}` : '<span class="muted">Choose…</span>';
+  }
+  function eFpOpen(kind) {
+    const go = () => fpkOpen({ kind, cur: kind === 'fno' ? (eFno ? eFno.no : '') : eFcen, sub: 'This entry', anchor: kind === 'fno' ? $('#eFno') : $('#eFcen'), rowFac: eFno ? eFno.no : '',
+      onPick: v => { if (kind === 'fno') eFno = v ? { no: v.no, n: AHF_BY.has(v.no) ? AHF_BY.get(v.no)[1] : (v.n || ''), mine: !AHF_BY.has(v.no) } : null; else eFcen = v || ''; eFpShow(); if (v && cur) fcRemember(R.encDay(cur), kind, kind === 'fno' ? eFno : v); },
+      onDone: () => { const b = kind === 'fno' ? $('#eFno') : $('#eFcen'); if (b && $('#editDlg').open) b.focus(); } });
+    if (kind === 'fno' && !AHF) loadAhf().then(go); else go();
+  }
+  $('#eFno').addEventListener('click', () => eFpOpen('fno'));
+  $('#eFcen').addEventListener('click', () => eFpOpen('fcen'));
+  function fpSetUi() {
+    if (!S || !$('#fpCard')) return; const st = S.settings;
+    $('#fcCarry').checked = st.fcCarry !== false;
+    const fRow = (no, sec) => { const x = facInfo(no), nm = x ? x.n : customNm(no); return `<div class="fpsrow"><span><b>${esc(no)}</b> ${esc(nm || '')}${x ? ` <small class="muted">${esc(x.city)}</small>` : ' <small class="muted">not in listing</small>'}</span><button type="button" class="linkbtn sm" data-${sec}="${esc(no)}">${sec === 'unfav' ? 'Remove' : '☆ Favourite'}</button></div>`; };
+    const fav = st.favFno || [], rec = (st.recFno || []).filter(n => !fav.includes(n));
+    $('#fnoFavList').innerHTML = fav.length ? fav.map(n => fRow(n, 'unfav')).join('') : '<p class="small muted">None yet. Tap ☆ beside a facility in the Facility # list, or Add….</p>';
+    $('#fnoRecList').innerHTML = rec.length ? rec.map(n => fRow(n, 'fav')).join('') : '<p class="small muted">Facilities you pick show here.</p>';
+    const ff = new Set(st.favFcen || []);
+    $('#fcenFavList').innerHTML = R.FCEN.concat(R.FCEN_MORE.filter(f => ff.has(f[0]))).map(f => `<button type="button" class="chipbtn${ff.has(f[0]) ? ' on' : ''}" data-fcen="${esc(f[0])}" aria-pressed="${ff.has(f[0])}">${ff.has(f[0]) ? '★' : '☆'} ${esc(f[0])} - ${esc(f[1])}</button>`).join('');
+    $('#fpSrc').textContent = AHF ? ahfSrc() : 'Facility numbers and names: Alberta Health facility listing (loads when first used).';
+  }
+  $('#fcCarry').addEventListener('change', async () => { S.settings.fcCarry = $('#fcCarry').checked; await saveSettings(); });
+  $('#fpCard').addEventListener('click', async ev => {
+    const t = ev.target, st = S && S.settings; if (!st) return;
+    if (t.dataset.unfav) { st.favFno = (st.favFno || []).filter(n => n !== t.dataset.unfav); await saveSettings(); return fpSetUi(); }
+    if (t.dataset.fav) { st.favFno = (st.favFno || []).filter(n => n !== t.dataset.fav).concat(t.dataset.fav); await saveSettings(); return fpSetUi(); }
+    const fc = t.closest('[data-fcen]'); if (fc) { const c = fc.dataset.fcen, l = st.favFcen || []; st.favFcen = l.includes(c) ? l.filter(x => x !== c) : l.concat(c); await saveSettings(); return fpSetUi(); }
+    if (t.id === 'fnoRecClear') { st.recFno = []; await saveSettings(); return fpSetUi(); }
+    if (t.id === 'fnoFavAdd') { await loadAhf(); fpkOpen({ kind: 'fno', manage: false, cur: '', sub: 'Add a favourite', anchor: t, onPick: async v => { if (!v) return; st.favFno = (st.favFno || []).filter(n => n !== v.no).concat(v.no); if (v.mine) st.customFno = [{ no: v.no, n: v.n || '' }].concat((st.customFno || []).filter(c => c.no !== v.no)).slice(0, 20); await saveSettings(); fpSetUi(); toast(`${v.no} added to favourites`); }, onDone: () => { if ($('#fnoFavAdd')) $('#fnoFavAdd').focus(); } }); }
+  });
+
   // ---- v9i: full patient name in a small bubble while a narrow (one-line, ellipsis) name cell has focus
   let nTipFor = null;
   function nTipShow(c) {
@@ -844,14 +1213,45 @@
   TOUCHQ.addEventListener('change', () => { dispApply(); if (S) fitAll(); });
   NARROWQ.addEventListener('change', () => { if (S) render(true); });
   $('#todayList').addEventListener('scroll', growOnScroll, { capture: true, passive: true });
-  window.addEventListener('scroll', () => { if (tab === 'today') growOnScroll(); }, { passive: true });
+  window.addEventListener('scroll', () => { if (tab === 'today') { growOnScroll(); pagePinSoon(); } }, { passive: true });
+  // v9o: on Today the page itself never stays scrolled: the grid is the only vertical scroller (header row pinned at its top,
+  // footer after its last row). iOS may pan the page while the keyboard is up to show the cell; once it closes, back to the top.
+  function kbUp() { return !!(window.visualViewport && visualViewport.height < innerHeight - 120); }
+  function pagePin() { if (tab === 'today' && document.body.classList.contains('footin') && window.scrollY > 0 && !kbUp()) window.scrollTo(0, 0); }
+  function pagePinSoon() { clearTimeout(pagePinSoon.t); pagePinSoon.t = setTimeout(pagePin, 120); }
+  if (window.visualViewport) visualViewport.addEventListener('resize', pagePinSoon);
+  document.addEventListener('focusout', pagePinSoon);
+  // v9o: at the very end of the Today grid (footer in view), keep scrolling — mouse wheel / trackpad, or drag up on a phone —
+  // and GROW_BY more empty rows are added each time, without limit; the footer moves down after the new last row.
+  const gEnd = w => w.scrollTop + w.clientHeight >= w.scrollHeight - 2;
+  let gEndSince = 0, gTouch = null;
+  $('#todayList').addEventListener('scroll', ev => { const w = ev.target; if (!w.classList || !w.classList.contains('main')) return; if (gEnd(w)) { if (!gEndSince) gEndSince = Date.now(); } else gEndSince = 0; }, { capture: true, passive: true });
+  function growPast(w) {
+    const t = w.querySelector('table.grid'); if (!t || !gEndSince || Date.now() - gEndSince < 350) return;
+    gEndSince = 0; growGrid(t);   // the scroll-alone cap is not raised, so the footer stays reachable
+  }
+  $('#todayList').addEventListener('wheel', ev => { const w = ev.target.closest && ev.target.closest('.gwrap.main'); if (w && ev.deltaY > 0 && gEnd(w)) growPast(w); }, { passive: true });
+  $('#todayList').addEventListener('touchstart', ev => { const w = ev.target.closest && ev.target.closest('.gwrap.main'); gTouch = w && gEnd(w) && ev.touches.length === 1 ? { w, y: ev.touches[0].clientY } : null; }, { passive: true });
+  $('#todayList').addEventListener('touchmove', ev => { if (gTouch && ev.touches.length === 1 && gTouch.y - ev.touches[0].clientY > 40) { const w = gTouch.w; gTouch = null; if (gEnd(w)) growPast(w); } }, { passive: true });
   // the Today grid fills the window below the toolbar (it scrolls inside, like Sheets, with the header and totals pinned)
+  // v9o: the grid reaches the bottom of the screen (above the iPhone home indicator); the footer (units rule, disclaimers,
+  // links, manual) lives inside the grid's scroll area after the last row, so it shows only when you scroll past the rows.
+  const SAB = () => { let p = $('#sabProbe'); if (!p) { p = document.createElement('div'); p.id = 'sabProbe'; p.style.cssText = 'position:fixed;left:0;bottom:0;width:0;height:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none'; document.body.appendChild(p); } return p.offsetHeight || 0; };
   function sizeGrid() {
     const w = $('#todayList .gwrap'); if (!w || tab !== 'today' || document.body.classList.contains('locked')) return;
-    const top = w.getBoundingClientRect().top + window.scrollY, h = Math.max(300, Math.floor(window.innerHeight - top - 8));
+    const top = w.getBoundingClientRect().top + window.scrollY, h = Math.max(300, Math.floor(window.innerHeight - top - 4 - SAB()));
     if (w.style.height !== h + 'px') w.style.height = h + 'px';
+    const g = w.querySelector(':scope > .gfoot'); if (g && g.style.width !== w.clientWidth + 'px') g.style.width = w.clientWidth + 'px';
   }
-  window.addEventListener('resize', () => { sizeGrid(); if (S && tab === 'today' && fillRows() !== fillRows.last) render(true); else if (S) fitAll(); });
+  function placeFoot() {
+    const FOOT = placeFoot.f || (placeFoot.f = document.querySelector('footer.foot')); if (!FOOT) return; const w = S && tab === 'today' && !document.body.classList.contains('locked') ? $('#todayList .gwrap.main') : null;
+    if (w) {
+      let g = w.querySelector(':scope > .gfoot'); if (!g) { g = document.createElement('div'); g.className = 'gfoot'; }
+      if (w.lastElementChild !== g) w.appendChild(g); if (FOOT.parentNode !== g) g.appendChild(FOOT);
+      g.style.width = w.clientWidth + 'px'; document.body.classList.add('footin');
+    } else { const m = $('#main'); if (m && FOOT.previousElementSibling !== m) m.after(FOOT); document.body.classList.remove('footin'); }
+  }
+  window.addEventListener('resize', () => { sizeGrid(); placeFoot(); if (S && tab === 'today' && fillRows() !== fillRows.last) render(true); else if (S) fitAll(); });
   function fillRows() {
     const w = $('#todayList .gwrap'), r = w && w.querySelector('tbody tr'), rh = (r && r.offsetHeight) || 30;
     const h = w ? (parseFloat(w.style.height) || w.clientHeight) : window.innerHeight - 200;
@@ -882,7 +1282,7 @@
     else if (w) { const st = w.scrollTop, sl = w.scrollLeft, same = old && old.dataset.day === day; w.innerHTML = html; if (same) { w.scrollTop = st; w.scrollLeft = sl; } }
     else { box.innerHTML = `<div class="gwrap main">${html}</div>`; w = box.firstElementChild; }
     fitCols(w.querySelector('table.grid'));
-    sizeGrid();
+    sizeGrid(); placeFoot();
   }
   // ---- v9f dynamic column widths: each column fits its longest content (header and cells) between a minimum and a maximum;
   // past the maximum, name / codes / notes wrap and the row grows. Measured with a canvas in the cells' own fonts.
@@ -893,11 +1293,12 @@
   // characters next to their ↗ ⓘ buttons, the two Modifier columns ~15 characters, before anything wraps; the cell being
   // edited is at least two lines tall (CSS) and every code cell wraps and grows the row instead of clipping.
   const CODEC = { fee: 1, mod1: 1, mod2: 1, dx: 1 };
-  const FIT = { name: [22, 13, 34], mrn: [12.5, 12.5, 26], fee: [24.5, 25.5, 46], mod1: [18, 18, 38], mod2: [18, 18, 38], dx: [24.5, 25.5, 46], note: [30, 28, 44] };
+  const FIT = { name: [22, 13, 34], mrn: [12.5, 12.5, 26], fno: [10, 10, 30], fcen: [8.5, 8.5, 22], fee: [24.5, 25.5, 46], mod1: [18, 18, 38], mod2: [18, 18, 38], dx: [24.5, 25.5, 46], note: [30, 28, 44] };
   function fitPx(key, need, ch, ww, touch) {
     const cfg = FIT[key], mn = cfg[touch ? 1 : 0] * ch; let max = cfg[2] * ch;
     if (key === 'name' && ww < 700) max = Math.min(max, Math.max(mn, ww * 0.30));
-    else if (CODEC[key] && ww < 700) max = Math.min(max, Math.max(mn, ww * 0.62));   // v9k phone: a code column never takes the whole screen; long lists wrap
+    else if (CODEC[key] && ww < 700) max = Math.min(max, Math.max(mn, ww * 0.62));
+    else if (FPC[key] && ww < 700) max = Math.min(max, Math.max(mn, ww * (key === 'fno' ? 0.42 : 0.36)));   // v9o phone: the code / number always shows, the name where room   // v9k phone: a code column never takes the whole screen; long lists wrap
     return Math.ceil(Math.min(Math.max(need, mn), Math.max(max, mn)));
   }
   const txtOf = el => el.tagName === 'DIV' ? el.textContent : (el.value || el.placeholder || '');
@@ -1279,7 +1680,7 @@
     renderToday();
     $('#unitsNote').textContent = R.UNITS_NOTE;
     if (tab === 'history') { histStale = false; renderHistory(); } else histStale = true;   // v9g: History (1,000s of rows) is drawn when shown
-    renderRetention(); renderPbar(); renderPeriodSettings();
+    renderRetention(); renderPbar(); renderPeriodSettings(); renderPrem(); premCheck();
     if ($('#revDlg').open) renderReview(); if ($('#tlDlg').open) renderTimeline();
     $('#storeInfo').textContent = `${S.encs.length} entr${S.encs.length === 1 ? 'y' : 'ies'} and ${S.encs.reduce((a, e) => a + (e.photos || []).length, 0)} photo(s) stored encrypted on this device.`;
   }
@@ -1348,12 +1749,13 @@
     if (live) $$('table.grid').forEach(t => { const f = t.tFoot; if (!f) return; const g = gTotals(dayList(t.dataset.day, t.classList.contains('main'))), tm = f.querySelector('[data-tm]'), tu = f.querySelector('[data-tu]'), tdd = f.querySelector('[data-td]');
       if (tm && tm.textContent !== String(g.m)) tm.textContent = g.m; if (tu && tu.textContent !== String(g.u)) tu.textContent = g.u; if (tdd && tdd.textContent !== g.det) tdd.textContent = g.det; });
     renderPbar(); procTick();
+    if (live && Date.now() - premTick > 5000) { premTick = Date.now(); renderPrem(); premCheck(); }
     if (S && activeShift()) renderOnsiteInfo();
     if (render.day !== today()) { const was = render.day; render.day = today(); if (was && viewDay === was) viewDay = null; if (tab === 'today' && !$('#todayList').contains(document.activeElement)) render(); }
   }, 1000);
 
   // ------------------------------------------------------------ tabs
-  function showTab() { $$('#tabs button').forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); }); $$('main .panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; }); document.body.dataset.tab = tab;
+  function showTab() { $$('#tabs button').forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); }); $$('main .panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; }); document.body.dataset.tab = tab; placeFoot();
     if (tab === 'history') histNow();
     if (S) requestAnimationFrame(() => { if (tab === 'today') { sizeGrid(); if (fillRows() !== fillRows.last) renderToday(); } fitAll($('#tab-' + tab) || document); }); }
   $$('#tabs button').forEach(b => b.addEventListener('click', () => { tab = b.dataset.tab; showTab(); if (tab === 'history' && !$('#rFrom').value) { $('#rTo').value = today(); const d = new Date(); d.setDate(d.getDate() - 6); $('#rFrom').value = R.dayKey(d.getTime()); } }));
@@ -1587,7 +1989,8 @@
     opt = opt || {};
     isNew = !!fresh; calledTouched = !fresh; cur = clone(e); cur.kind = kindOf(cur); cur.codes = cur.codes || []; cur.photos = cur.photos || []; cur.links = cur.links || []; cur.notes = clone(R.notesOf(cur)); delete cur.note; addedPhotos = []; removedPhotos = []; overlapOk = false;
     $('#eKind').hidden = !fresh;
-    $('#eName').value = cur.name || ''; $('#eLabel').value = cur.label || ''; $('#eInit').value = cur.initials || ''; $('#eChart').value = ptMrn(cur); $('#eBillNote').value = cur.billingNote || ''; $('#eMod1').value = modOf(cur, 1); $('#eMod2').value = modOf(cur, 2);
+    $('#eName').value = cur.name || ''; $('#eLabel').value = cur.label || ''; $('#eInit').value = cur.initials || ''; $('#eChart').value = ptMrn(cur); $('#eBillNote').value = cur.billingNote || ''; $('#eMod1').value = modOf(cur, 1); $('#eMod2').value = modOf(cur, 2); eMU = Object.assign({}, cur.modU || {}); eMuShow();
+    eFno = facNoOf(cur) ? { no: facNoOf(cur), n: R.facNmTxt(cur), mine: !AHF_BY.has(facNoOf(cur)) } : null; eFcen = fcenOf(cur); eFpShow(); if (!AHF && eFno) loadAhf().then(() => { if (cur && eFno) { eFno.mine = !AHF_BY.has(eFno.no); eFpShow(); } });   // v9o
     $('#eSetting').value = cur.setting || 'H'; $('#eSetting2').value = cur.setting || 'H'; $('#eType').value = cur.type || '';
     $('#eCbType').value = cur.cbType || 'return'; $('#eCalled').value = dtLocal(cur.called);
     eFac = cur.facility || null; showFac($('#eFacName'), eFac);
@@ -1636,6 +2039,7 @@
     if (k !== 'shift') {
       const cs = e.codes || [];
       rows.push(['Codes', cs.length ? cs.map(c => `<span class="sc"><b>${esc(c.c)}</b>${c.dx ? ` <span class="dxc">Dx ${esc(c.dx)}</span>` : ''}${c.d ? ` <span class="muted">${esc(c.d.length > 60 ? c.d.slice(0, 60) + '…' : c.d)}</span>` : ''}</span>`).join('') + (e.dx ? `<span class="sc"><span class="dxc">Dx ${esc(e.dx)}</span></span>` : '') + dxxHtml(e) : (e.dx || R.dxExtra(e).length ? (e.dx ? `<span class="dxc">Dx ${esc(e.dx)}</span>` : '') + dxxHtml(e) : '<span class="muted">None yet. Tap Edit to add fee and diagnostic codes.</span>')]);
+      if (facNoOf(e) || fcenOf(e)) rows.push(['Facility # · Functional centre', [facNoOf(e) && `<span class="sc"><b>${esc(facNoOf(e))}</b>${R.facNmTxt(e) ? ` <span class="muted">${esc(R.facNmTxt(e))}</span>` : ''}</span>`, fcenOf(e) && `<span class="sc"><b>${esc(fcenOf(e))}</b>${R.fcenName(fcenOf(e)) ? ` <span class="muted">${esc(R.fcenName(fcenOf(e)))}</span>` : ''}</span>`].filter(Boolean).join('')]);   // v9o
       if (modOf(e, 1) || modOf(e, 2)) rows.push(['Modifiers', [1, 2].filter(n => modOf(e, n)).map(n => `<span class="sc"><span class="muted">${n}:</span> <b>${esc(modOf(e, n))}</b></span>`).join('')]);
       if (k === 'cb' && (e.links || []).length) rows.push(['Linked', (e.links || []).map(id => S.encs.find(x => x.id === id)).filter(Boolean).map(x => `<button type="button" class="linkbtn sm" data-open="${esc(x.id)}">${esc(x.label || 'Encounter')} ${R.hm(R.startOf(x))}</button>`).join(' ')]);
       const fl = [e.minor && ('Minor' + (Number.isFinite(e.minorAge) ? ` (age ${e.minorAge})` : '')), e.obstetric && 'Obstetric'].filter(Boolean);
@@ -1693,6 +2097,7 @@
     const ne = { id: uid(), kind: 'enc', name: e.name || '', mrn: ptMrn(e), chart: ptMrn(e), billingNote: '', label: e.label && kindOf(e) === 'enc' ? e.label : (e.label && e.label !== 'Call-back' ? e.label : ''), initials: e.initials || '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], links: [], pt: group, ptFrom: e.id, created: now, updated: now };
     if (e.minor) { ne.minor = true; if (Number.isFinite(e.minorAge)) ne.minorAge = e.minorAge; }
     if (e.obstetric) ne.obstetric = true;
+    if (facNoOf(e)) { ne.facNo = facNoOf(e); if (R.facNmTxt(e)) ne.facNm = R.facNmTxt(e); } if (fcenOf(e)) ne.fcen = fcenOf(e); carryFac(ne, R.encDay(ne));   // v9o: same place as the prior encounter
     await saveEnc(ne, 'create', `Same patient as prior encounter ${R.hm(R.startOf(e))} (linked). Name, MRN, label and initials carried over; codes left blank.`);
     tab = 'today'; showTab(); render();
     snack(`Started same patient`, async () => {
@@ -1815,7 +2220,9 @@
     else { cur.setting = $('#eSetting2').value; }
     if (k === 'cb') { cur.cbType = $('#eCbType').value; cur.called = called; cur.links = $$('#eLinks input:checked').map(i => i.value); cur.label = cur.label || 'Call-back'; }
     if (k !== 'shift') for (const n of [1, 2]) { const v = R.normMods($('#eMod' + n).value).slice(0, MOD_MAX); if (v) cur['mod' + n] = v; else delete cur['mod' + n]; }   // v9k
-    if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; delete cur.dxx; delete cur.mod1; delete cur.mod2; }
+    if (k !== 'shift') { const m = {}; for (const c of [1, 2].flatMap(n => R.muCodes(cur, n))) if (eMU[c]) m[c] = eMU[c]; if (Object.keys(m).length) cur.modU = m; else delete cur.modU; } else delete cur.modU;   // v9o units
+    if (k !== 'shift') { if (eFno && eFno.no) { cur.facNo = eFno.no; if (eFno.n) cur.facNm = eFno.n; else delete cur.facNm; } else { delete cur.facNo; delete cur.facNm; } if (eFcen) cur.fcen = eFcen; else delete cur.fcen; }   // v9o
+    if (k === 'shift') { cur.codes = []; cur.photos.forEach(p => removedPhotos.push(p)); cur.photos = []; cur.label = ''; delete cur.dx; delete cur.dxx; delete cur.mod1; delete cur.mod2; delete cur.facNo; delete cur.facNm; delete cur.fcen; }
     else applyPendingDx(cur);
     const open = segs.length > 0 && segs[segs.length - 1].e == null;
     cur.status = !segs.length ? 'new' : open ? 'run' : (cur.status === 'run' ? 'pause' : (isNew || cur.status === 'new' ? 'done' : cur.status));
@@ -1840,7 +2247,7 @@
     if (segs.length && segs.every(x => x.s != null)) c.segs = sumSegs() || segs;
     c.facility = eFac; c.notes = clone(cur.notes || []); if ($('#eNoteText').value.trim()) c.noteDraft = $('#eNoteText').value;
     if (k === 'enc') { c.name = $('#eName') ? $('#eName').value : ''; c.label = $('#eLabel').value; c.initials = $('#eInit').value; c.mrn = $('#eChart').value; c.chart = $('#eChart').value; c.billingNote = $('#eBillNote') ? $('#eBillNote').value : ''; c.setting = $('#eSetting').value; c.type = $('#eType').value; } else c.setting = $('#eSetting2').value;
-    if (k !== 'shift') { c.minor = $('#eMinor').checked; c.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); c.minorAge = Number.isFinite(ag) ? ag : undefined; c.dx = $('#eDxQ').value; c.mod1 = $('#eMod1').value; c.mod2 = $('#eMod2').value; }
+    if (k !== 'shift') { c.minor = $('#eMinor').checked; c.obstetric = $('#eObs').checked; const ag = parseInt($('#eAge').value, 10); c.minorAge = Number.isFinite(ag) ? ag : undefined; c.dx = $('#eDxQ').value; c.mod1 = $('#eMod1').value; c.mod2 = $('#eMod2').value; if (Object.keys(eMU).length) c.modU = Object.assign({}, eMU); else delete c.modU; if (eFno) { c.facNo = eFno.no; c.facNm = eFno.n || ''; } else { delete c.facNo; delete c.facNm; } if (eFcen) c.fcen = eFcen; else delete c.fcen; }
     if (k === 'cb') { c.cbType = $('#eCbType').value; c.called = parseLocal($('#eCalled').value); c.links = $$('#eLinks input:checked').map(i => i.value); }
     return { cur: c, isNew, addedPhotos, removedPhotos, at: Date.now(), mode: $('#editDlg').dataset.mode };
   }
@@ -1862,8 +2269,8 @@
     snack(`Deleted ${R.KIND[kindOf(gone)]} (kept in audit log)`, async () => { clearTimeout(tm); photoDel.delete(tm); if (S.encs.some(x => x.id === gone.id)) return; await saveEnc(gone, 'restore', 'Delete undone'); render(); toast('Restored'); });
   };
   const blank = (k, s, e) => ({ id: uid(), kind: k, name: '', mrn: '', billingNote: '', label: '', initials: '', chart: '', setting: k === 'enc' ? S.settings.defSetting : 'H', facility: (activeShift() || {}).facility || S.settings.curFac || null, type: '', codes: [], notes: [], segs: [{ s, e }], status: e == null ? 'run' : 'done', photos: [], links: [], created: Date.now() });
-  $('#manualBtn').onclick = () => { const d = curDay(), s = d === today() ? Date.now() - 30 * 60000 : edmAt(d, 12, 0); const e = blank('enc', s, s + 30 * 60000); e.late = true; openEdit(e, true); };
-  $('#cbBtn').onclick = () => { const now = Date.now(); const e = blank('cb', now, null); e.called = now; e.cbType = 'return'; e.setting = 'H'; openEdit(e, true); };
+  $('#manualBtn').onclick = () => { const d = curDay(), s = d === today() ? Date.now() - 30 * 60000 : edmAt(d, 12, 0); const e = blank('enc', s, s + 30 * 60000); e.late = true; carryFac(e, d); openEdit(e, true); };
+  $('#cbBtn').onclick = () => { const now = Date.now(); const e = blank('cb', now, null); e.called = now; e.cbType = 'return'; e.setting = 'H'; carryFac(e, today()); openEdit(e, true); };
   // entry history (from the audit log)
   async function showHistory(eid, title) {
     const recs = (await V.loadAudit()).filter(r => r.eid === eid);
@@ -2161,7 +2568,7 @@
     }
     const have = new Set((await V.photoIds()).map(p => p.id));
     for (const p of data.photos || []) if (!have.has(p.id)) { await V.restorePhoto(p); photos++; }
-    await migrateNotes(); render(); toast(`Imported: ${added} new, ${updated} updated, ${photos} photo(s)`, 3500);
+    await migrateNotes(); premBase = null; render(); toast(`Imported: ${added} new, ${updated} updated, ${photos} photo(s)`, 3500);
   });
   $('#wipe').onclick = async () => {
     const v = await ask({ title: 'Delete all data', text: 'This erases every encounter, arrival/departure, call-back, photo, the whole audit log, all settings and the passcode from this device. It cannot be undone and the developer cannot recover anything. Check your retention obligations and make an encrypted backup first. Enter your passcode and type DELETE ALL to confirm.', ok: 'Delete everything', danger: true, fields: [{ id: 'p', label: 'Passcode' }, { id: 'c', label: 'Type DELETE ALL', type: 'text' }],
@@ -2486,7 +2893,7 @@
   const perShort = t => t.perList && t.perList.length ? `<br><span class="pert">${t.perList.map(p => `${esc(R.PBY[p.id].short)} ${p.m}m/${p.u}u`).join(' · ')}</span>` : '';
   // ---- 6. undo snackbar (5 s) for delete and stop
   let snackT = null, snackFn = null; const photoDel = new Map();
-  function snack(text, fn, ms, wrap) { $('#snackTxt').textContent = text; snackFn = fn; const n = $('#snack'); if (wrap) $('#toast').classList.remove('show'); n.classList.toggle('wrap', !!wrap); n.hidden = false; snackAvoidNav(); clearTimeout(snackT); snackT = setTimeout(hideSnack, ms || 5000); }
+  function snack(text, fn, ms, wrap, label) { $('#snackTxt').textContent = text; $('#snackUndo').textContent = label || 'Undo'; snackFn = fn; const n = $('#snack'); if (wrap) $('#toast').classList.remove('show'); n.classList.toggle('wrap', !!wrap); n.hidden = false; snackAvoidNav(); clearTimeout(snackT); snackT = setTimeout(hideSnack, ms || 5000); }
   function hideSnack() { clearTimeout(snackT); snackFn = null; const n = $('#snack'); if (n) { n.hidden = true; n.style.bottom = ''; } }
   // v9l: on a phone the cell Next/Done bar sits at the bottom while a cell has the cursor; keep the snackbar (and its Undo) above it
   function snackAvoidNav() { const n = $('#snack'), g = $('#gNav'); if (!n || n.hidden) return; n.style.bottom = '';
@@ -2505,6 +2912,7 @@
     const n = S.encs.filter(x => R.encDay(x) === today() && kindOf(x) === 'enc').length + 1;
     const qn = ($('#qName') && $('#qName').value || '').trim(), qm = ($('#qMrn') && $('#qMrn').value || '').trim();
     const ne = { id: uid(), kind: 'enc', name: qn, mrn: qm, chart: qm, billingNote: '', label: (!qn && !qm) ? `Encounter ${n}` : '', initials: '', setting: e.setting || 'H', facility: e.facility || null, type: '', codes: [], notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
+    if (facNoOf(e)) { ne.facNo = facNoOf(e); if (R.facNmTxt(e)) ne.facNm = R.facNmTxt(e); } if (fcenOf(e)) ne.fcen = fcenOf(e); carryFac(ne, today());   // v9o
     await saveEnc(ne, 'create', 'Started by one-tap patient switch'); if ($('#qName')) $('#qName').value = ''; if ($('#qMrn')) $('#qMrn').value = ''; render();
     snack(`Switched to ${ne.label}`, async () => {
       const a = S.encs.find(x => x.id === st.id), b = S.encs.find(x => x.id === ne.id);
@@ -2530,17 +2938,105 @@
   // ---- time period tracker bar (Alberta periods per user, America/Edmonton time)
   const leftTxt = ms => { const m = Math.max(0, Math.ceil(ms / 60000)); return m >= 60 ? `${Math.floor(m / 60)}h ${R.pad(m % 60)}m` : `${m} min`; };
   function renderPbar() {
-    if (!S) return; const now = Date.now(), a = R.periodAt(now), nx = R.periodAt(a.end + 1000), p = a.p;
+    if (!S) return; const now = Date.now(), a = R.periodAt(now), nx = R.periodAt(a.end + 1000), p = a.p; a.key0 = R.dayKey(now);
     $('#pbName').textContent = p.name + (a.holiday ? ' · ' + a.holiday : '');
     $('#pbHrs').textContent = R.pHours(p);
     $('#pbLeft').textContent = `${leftTxt(a.end - now)} left → ${nx.p.name}`; $('#pbLeft').title = `Next: ${nx.p.name} from ${R.hm(a.end)}`;
     $('#pbFill').style.width = Math.min(100, Math.max(0, (now - a.start) / (a.end - a.start) * 100)).toFixed(1) + '%';
     let logged = 0;
     for (const e of S.encs) { if (kindOf(e) === 'shift' || !e.segs.some(s => s.s < a.end && (s.e == null ? now : s.e) > a.start)) continue; for (const b of R.periodSplit(e, now).blocks) if (b.t >= a.start && b.t < a.end) logged++; }
-    $('#pbUnits').textContent = p.regular ? `no premium units · logged ${logged} u` : `${Math.min(p.units, Math.floor((now - a.start) / 900000))}/${p.units} u · logged ${logged} u`;
-    $('#pbUnits').title = p.regular ? `Regular hours. Units logged in encounters this period: ${logged}` : `${p.units} units in this period; elapsed so far ${Math.min(p.units, Math.floor((now - a.start) / 900000))}; logged in encounters ${logged}`;
-    $('#pbar').className = 'pbar p-' + p.id + (p.regular ? '' : ' prem');
+    // v9o: premium periods show the 03.01AA modifier and the units logged against its daily maximum (e.g. "TEV 6/20 u")
+    const pc = p.regular ? null : R.premCode(now), mx = pc ? premMax(pc) : 0, el = Math.min(p.units, Math.floor((now - a.start) / 900000));
+    const ent = pc ? (R.premUnits(S.encs.filter(e => R.encDay(e) === a.key0)).get(a.key0 + '|' + pc) || 0) : 0;
+    $('#pbUnits').textContent = p.regular ? `no premium units · logged ${logged} u` : `${pc} ${ent}/${mx} u · logged ${logged} u`;
+    $('#pbUnits').title = p.regular ? `Regular hours. Units logged in encounters this period: ${logged}` : `${R.PREM[pc].name} (${pc}; surcharge ${R.PREM[pc].surc}). ${ent} units entered on ${pc} modifiers today (daily maximum ${mx}); ${logged} units of logged time in this period. 03.01AA ${pc}${premMine(pc) ? ' (limit set by you)' : ''}. ${el} of the period's ${p.units} 15-minute blocks have passed.`;
+    $('#pbar').className = 'pbar p-' + p.id + (p.regular ? '' : ' prem') + (pc && ent > mx ? ' pover' : pc && ent >= mx ? ' pfull' : '');
   }
+  // ---- v9o: after-hours time premium (HSC 03.01AA, SURT modifiers) running counts and the limit pop-up.
+  // Units are counted by time, exactly like the units column and the header: every 15-minute unit of every encounter / call-back
+  // goes to the period holding the middle of that block (= GR 15.13.6, majority of the block), per Edmonton calendar day. The
+  // limits are the Alberta Health Price List maximums per day (TEV 20, TNTP 8, TNTA 28, TWK / TST / TDES 60); a limit can be
+  // changed in Settings (shown as "set by you"). Warnings only: nothing is ever blocked.
+  let premBase = null, premTick = 0; const premDays = new Set(), premSeen = new Map();
+  function premDirty(e) { if (!e || !e.segs || !e.segs.length) return; const k = R.encDay(e); premDays.add(k); premDays.add(shiftDay(k, 1)); }
+  const premOver = c => { const v = ((S && S.settings.premMax) || {})[c]; return v != null && v !== '' && +v > 0 ? Math.floor(+v) : null; };
+  const premMax = c => premOver(c) || R.PREM[c].max;
+  const premMine = c => premOver(c) != null && premOver(c) !== R.PREM[c].max;
+  function premFor(days) {
+    const ks = new Set(days), near = new Set(); days.forEach(k => { near.add(k); near.add(shiftDay(k, -1)); });
+    const m = R.premUnits(S.encs.filter(e => ks.has(R.encDay(e)))), out = new Map();   // units ENTERED on the modifiers
+    for (const [k, v] of m) if (ks.has(k.slice(0, 10))) out.set(k, v);
+    return out;
+  }
+  function premTime(d) {   // units of logged time per window (for the tooltip and suggestions)
+    const near = new Set([d, shiftDay(d, -1)]), m = R.premCounts(S.encs.filter(e => near.has(R.encDay(e))), Date.now()), out = new Map();
+    for (const [k, v] of m) if (k.startsWith(d + '|')) out.set(k, v); return out;
+  }
+  const premLvl = (n, mx) => n > mx ? 'over' : n >= mx ? 'full' : n >= mx * 0.8 ? 'near' : n ? 'some' : '';
+  function renderPrem() {
+    const box = $('#premStrip'); if (!box) return; if (!S) { box.hidden = true; return; }
+    const d = curDay(), cnt = premFor([d]), hol = R.holidayName(d), tc = premTime(d);
+    box.hidden = false;
+    box.innerHTML = `<span class="pl">03.01AA${hol ? ' · ' + esc(hol) : ''}</span>` + R.premDayCodes(d).map(c => { const n = cnt.get(d + '|' + c) || 0, mx = premMax(c);
+      return `<span class="pi ${premLvl(n, mx)}" data-pc="${c}" title="${esc(`${R.PREM[c].name}, ${R.PREM[c].when} (surcharge ${R.PREM[c].surc}): ${n} of ${mx} units entered${premMine(c) ? ' (limit set by you)' : ''}; ${tc.get(d + '|' + c) || 0} units of logged time in this window`)}">${c} <b>${n}</b>/${mx}${premMine(c) ? '*' : ''}</span>`; }).join('');
+    box.setAttribute('aria-label', `After-hours time premium, ${R.fmtDay(d)}: ` + R.premDayCodes(d).map(c => `${c} ${cnt.get(d + '|' + c) || 0} of ${premMax(c)} units`).join(', ') + '. Opens the details');
+  }
+  function premCheck() {
+    if (!S) return;
+    if (!premBase) { premBase = R.premUnits(S.encs); premDays.clear(); return; }   // after unlock / import: today's state is the baseline, no pop-up
+    const days = new Set(premDays); premDays.clear(); days.add(today());
+    for (const e of S.encs) if (e.status === 'run') { const k = R.encDay(e); days.add(k); days.add(shiftDay(k, 1)); }
+    const cur = premFor([...days]), hits = [];
+    for (const d of days) {
+      const codes = new Set(R.premDayCodes(d)); for (const k of cur.keys()) if (k.startsWith(d + '|')) codes.add(k.slice(11)); for (const k of premBase.keys()) if (k.startsWith(d + '|')) codes.add(k.slice(11));
+      for (const c of codes) { const k = d + '|' + c, a = premBase.get(k) || 0, b = cur.get(k) || 0, mx = premMax(c);
+        if (b) premBase.set(k, b); else premBase.delete(k);
+        if (b <= a || b < mx || S.settings.premWarn === false) continue;
+        const lvl = b > mx ? 'over' : 'full', was = premSeen.get(k);
+        if (lvl === 'full' || (lvl === 'over' && was !== 'over')) { premSeen.set(k, lvl); hits.push({ d, c, n: b, mx }); }
+        else toast(`${c}: ${b} of ${mx} units on ${R.fmtDay(d)}. Over the limit.`, 3500);
+      }
+    }
+    if (hits.length) premPop(hits);
+  }
+  function premLine(h) { const p = R.PREM[h.c], when = h.d === today() ? 'today' : 'on ' + R.fmtDay(h.d);
+    return h.n > h.mx ? `Over the limit for ${h.c} (${p.name.toLowerCase()}, ${p.surc}): ${h.n} of ${h.mx} units ${when}.` : `Limit reached for ${h.c} (${p.name.toLowerCase()}, ${p.surc}): ${h.n} of ${h.mx} units ${when}.`; }
+  let premQ = [];
+  function premPop(hits) {
+    const d = $('#premDlg'); premQ = (d.open ? premQ : []).concat(hits);
+    const over = premQ.some(h => h.n > h.mx);
+    $('#premT').textContent = over ? 'Time-premium limit exceeded' : 'Time-premium limit reached';
+    $('#premList').innerHTML = premQ.map(h => `<li class="${h.n > h.mx ? 'over' : 'full'}">${esc(premLine(h))}</li>`).join('');
+    $('#premWhy').textContent = `Alberta Health pays HSC 03.01AA (after-hours time premium) up to ${[...new Set(premQ.map(h => `${h.mx} ${h.c}`))].join(', ')} units per day per physician${premQ.some(h => premMine(h.c)) ? ' (a limit marked * is set by you)' : ''}, and no more than 4 units per hour. Counted from the units you entered on the modifiers (EV, NTPM, NTAM and WK count toward TEV, TNTP, TNTA and TWK / TST / TDES). Nothing was blocked: check the units and claim only direct patient-care time.`;
+    $('#premSrc').textContent = 'Source: ' + R.PREM_SRC + '.';
+    if (!d.open) d.showModal();
+    V.appendAudit({ action: 'premium-limit', note: premQ.map(premLine).join(' ') }).catch(() => {});
+  }
+  $('#premOk').onclick = () => { $('#premDlg').close(); premQ = []; };
+  $('#premSet').onclick = () => { $('#premDlg').close(); premQ = []; $('#tabs [data-tab="data"]').click(); setTimeout(() => { const c = $('#premCard'); if (c) c.scrollIntoView({ block: 'start' }); }, 50); };
+  $('#premDlg').addEventListener('close', () => { premQ = []; });
+  $('#premStrip').addEventListener('click', () => {   // details for the day shown
+    if (!S) return; const d = curDay(), cnt = premFor([d]);
+    $('#premT').textContent = `After-hours time premium · ${R.fmtDay(d)}`; premQ = [];
+    $('#premList').innerHTML = R.premDayCodes(d).map(c => { const n = cnt.get(d + '|' + c) || 0, mx = premMax(c); return `<li class="${premLvl(n, mx)}"><b>${c}</b> ${esc(R.PREM[c].name)} · ${esc(R.PREM[c].when)} · <b>${n}</b> of ${mx} units${premMine(c) ? ' (limit set by you)' : ''}</li>`; }).join('');
+    const tc = premTime(d); $('#premList').insertAdjacentHTML('beforeend', `<li class="muted">Logged time in these windows: ${R.premDayCodes(d).map(c => `${c} ${tc.get(d + '|' + c) || 0} u`).join(' · ')}</li>`);
+    $('#premWhy').textContent = `Units entered on Modifier code 1 / 2 (01–20 per modifier per row), per day. Daily maximums for HSC 03.01AA per physician; also no more than 4 units per hour. ${R.holidayName(d) ? R.holidayName(d) + ': daytime is billed with ' + R.premDayCodes(d)[1] + '. ' : ''}A pop-up appears when a day reaches a limit; entry is never blocked.`;
+    $('#premSrc').textContent = 'Source: ' + R.PREM_SRC + '.';
+    $('#premDlg').showModal();
+  });
+  function premSetUi() {
+    if (!S || !$('#premRows')) return; const st = S.settings; $('#premWarn').checked = st.premWarn !== false;
+    $('#premRows').innerHTML = Object.keys(R.PREM).map(c => { const p = R.PREM[c], o = premOver(c);
+      return `<tr><td><b>${c}</b><br><span class="muted">${p.surc}</span></td><td>${esc(p.when)}</td><td>${p.max}</td><td><input type="number" min="1" max="96" step="1" inputmode="numeric" data-pmax="${c}" value="${o != null ? o : ''}" placeholder="${p.max}" aria-label="Your limit for ${c} (blank = official ${p.max})">${premMine(c) ? '<small class="mine">set by you</small>' : ''}</td></tr>`; }).join('');
+    $('#premSrcS').textContent = 'Official maximums: ' + R.PREM_SRC + '. Leave “Your limit” blank to use the official number.';
+    $$('#premRows [data-pmax]').forEach(i => i.onchange = async () => {
+      const c = i.dataset.pmax, v = i.value.trim(), m = Object.assign({}, st.premMax || {});
+      if (v === '' || !(+v > 0)) delete m[c]; else m[c] = Math.min(96, Math.floor(+v));
+      st.premMax = m; await saveSettings(); await V.appendAudit({ action: 'settings', note: `Time-premium limit for ${c}: ${m[c] ? m[c] + ' (set by you)' : 'official ' + R.PREM[c].max}` });
+      premBase = null; premSetUi(); render();
+    });
+  }
+  $('#premWarn').onchange = async () => { S.settings.premWarn = $('#premWarn').checked; await saveSettings(); };
   // ---- 4. week strip with daily totals + Today / This week
   const wsOff = { today: 0, hist: 0 };
   const wkRange = (f, t) => { const o = { month: 'short', day: 'numeric' }, a = new Date(f + 'T12:00'), b = new Date(t + 'T12:00'); return a.getMonth() === b.getMonth() ? `${a.toLocaleDateString(undefined, o)}–${b.getDate()}` : `${a.toLocaleDateString(undefined, o)}–${b.toLocaleDateString(undefined, o)}`; };
@@ -2599,7 +3095,8 @@
     const now = Date.now(), n = S.encs.filter(x => R.encDay(x) === today() && kindOf(x) === 'enc').length + 1, sh = activeShift();
     const qn = ($('#qName') && $('#qName').value || '').trim(), qm = ($('#qMrn') && $('#qMrn').value || '').trim();
     const e = { id: uid(), kind: 'enc', name: qn, mrn: qm, chart: qm, billingNote: '', label: (!qn && !qm) ? `Encounter ${n}` : '', initials: '', setting: c.set || 'H', facility: c.fac || (sh ? sh.facility : S.settings.curFac) || null, type: '', codes: clone(c.codes), notes: [], segs: [{ s: now, e: null }], status: 'run', photos: [], created: now, updated: now };
-    await saveEnc(e, 'create', 'Started from a code set (track again)'); if ($('#qName')) $('#qName').value = ''; if ($('#qMrn')) $('#qMrn').value = ''; tab = 'today'; showTab(); render(); toast(`Started · ${comboLbl(c)}`);
+    const cn = carryFac(e, today());   // v9o
+    await saveEnc(e, 'create', ['Started from a code set (track again)', cn].filter(Boolean).join('. ')); if ($('#qName')) $('#qName').value = ''; if ($('#qMrn')) $('#qMrn').value = ''; tab = 'today'; showTab(); render(); toast(`Started · ${comboLbl(c)}`);
   }
   async function toggleFav(c) {
     const k = comboKey(c), l = S.settings.favSets || [], i = l.findIndex(f => comboKey(f) === k), txt = c.codes.map(x => x.c + (x.dx ? ' (' + x.dx + ')' : '')).join(', ');
@@ -2709,16 +3206,18 @@
   // ---- time periods and holidays in Settings (per user; verify against the current SOMB)
   function renderPeriodSettings() {
     if (!S) return; const C = R.PERIOD_CFG, y = new Date().getFullYear(), td = today(), off = new Set(S.settings.holOff || []);
-    const tr = (lbl, ps) => `<tr><th colspan="3">${lbl}</th></tr>` + ps.map(p => `<tr><td>${esc(p.name)}</td><td>${R.pHours(p)}</td><td>${p.regular ? 'no premium units' : p.units + ' units'}</td></tr>`).join('');
+    const PC = { wd_night: 'TNTA', wd_eve: 'TEV', wd_late: 'TNTP', we_night: 'TNTA', we_day: 'TWK / TST / TDES', we_late: 'TNTP' };
+    const tr = (lbl, ps) => `<tr><th colspan="3">${lbl}</th></tr>` + ps.map(p => `<tr><td>${esc(p.name)}</td><td>${R.pHours(p)}</td><td>${p.regular ? 'no premium units' : `${PC[p.id]} · ${p.units} units`}</td></tr>`).join('');
     $('#perTable').innerHTML = `<table>${tr('Weekdays (Mon–Fri)', C.weekday)}${tr('Weekends and statutory holidays', C.weekend)}</table><p class="small muted">${esc(C.note)} Units = 15-minute blocks in each period. Encounters crossing a boundary are split by period. No fee codes are attached to periods.</p>`;
     const builtin = R.holidaysOf(y).find(h => h.date === td);
     $('#holToday').checked = (S.settings.holExtra || []).includes(td);
     $('#holTodayL').textContent = `Today (${R.fmtDay(td)}) is a statutory holiday (bill like a weekend)`;
     $('#holInfo').textContent = (builtin ? (off.has(builtin.id) ? `Today is ${builtin.name}, but you switched it off below. ` : `Today is ${builtin.name} (built in), already billed like a weekend. `) : '') + ((S.settings.holExtra || []).length ? `Days you marked: ${S.settings.holExtra.slice(-6).join(', ')}.` : '');
-    $('#holYear').textContent = y;
-    $('#holList').innerHTML = R.holidaysOf(y).map(h => `<label class="chk small"><input type="checkbox" data-hol="${h.id}"${off.has(h.id) ? '' : ' checked'}> <b>${esc(h.name)}</b> · ${esc(R.fmtDay(h.date))} <span class="muted">(${esc(h.rule)})</span></label>`).join('');
+    $('#holYear').textContent = `${y}–${y + 1}`;
+    const hl = R.holidaysOf(y).concat(R.holidaysOf(y + 1));
+    $('#holList').innerHTML = hl.map(h => `<label class="chk small${h.des ? ' des' : ''}"><input type="checkbox" data-hol="${h.id}"${off.has(h.id) ? '' : ' checked'}> <b>${esc(h.name)}</b> · ${esc(R.fmtDay(h.date))} <span class="muted">(${esc(h.rule)}${h.des ? (h.seen ? '; listed in a published table' : '; expected, confirm with Alberta Health') : ''})</span></label>`).join('');
     $$('#holList [data-hol]').forEach(i => i.onchange = async () => {
-      const s2 = new Set(S.settings.holOff || []), h = R.holidaysOf(y).find(x => x.id === i.dataset.hol); i.checked ? s2.delete(h.id) : s2.add(h.id); S.settings.holOff = [...s2];
+      const s2 = new Set(S.settings.holOff || []), h = hl.find(x => x.id === i.dataset.hol); i.checked ? s2.delete(h.id) : s2.add(h.id); S.settings.holOff = [...s2];
       await holChanged(`${h.name} ${i.checked ? 'switched on' : 'switched off'} (billed ${i.checked ? 'like a weekend' : 'as a regular day'})`);
     });
   }

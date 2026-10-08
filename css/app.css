@@ -733,3 +733,101 @@ td.pickfill{animation:pickfill 2.4s ease-out}
 /* v9l: the multi-code confirmation may need two or three lines (never cut off) */
 .snack.wrap{width:max-content;max-width:min(560px,calc(100vw - 20px));align-items:center}
 .snack.wrap span{white-space:normal;overflow:visible;line-height:1.35;padding:4px 0}
+
+/* ---- v9o: Facility # and Functional centre (before Fee code(s)). Widths come from fitCols (explicit px; the number / code
+   always shows, the name where there is room, scaling with Settings → Display); these are first-paint values. */
+table.grid col.c-fno{width:max(84px,calc(var(--g-fs) * 7.5))}
+table.grid col.c-fcen{width:max(76px,calc(var(--g-fs) * 6.5))}
+table.grid thead th.h-fno,table.grid thead th.h-fcen{text-align:left;padding-left:8px}
+table.grid .gc.fpv{line-height:calc(var(--g-h) - 1px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;-webkit-user-select:none;user-select:none}
+table.grid .gc.fpv b{font-weight:600}
+table.grid .gc.fpv .fpn{font-family:var(--app-font,inherit);color:#5f6368;font-size:max(10px,calc(var(--g-fs) - 1.5px))}
+table.grid td.c-fno:hover .gc.fpv,table.grid td.c-fcen:hover .gc.fpv{background:#f8fafd}
+table.grid td.c-fno .gc.fpv.fpe::after,table.grid td.c-fcen .gc.fpv.fpe::after{content:'▾';color:#b0b6bd;float:right;font-size:.8em}
+.fprow{margin:6px 0 2px}
+.fpbtn{display:block;width:100%;min-height:40px;text-align:left;font:inherit;font-size:max(15px,calc(var(--g-fs) + 1px));padding:7px 10px;border:1px solid #a9b1bb;border-radius:8px;background:#fff;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.fpbtn small{font-size:.8em}
+/* the picker: a bottom sheet on phones (like the notes editor), a popover beside the cell on a computer */
+dialog.fpk{padding:0;border:1px solid #a9b1bb;box-shadow:0 8px 28px rgba(15,23,42,.28);overflow:hidden;font-family:var(--app-font,inherit);color:var(--ink)}
+dialog.fpk[open]{display:flex;flex-direction:column}
+dialog.fpk::backdrop{background:rgba(32,33,36,.34)}
+dialog.fpk.pop{position:fixed;margin:0;inset:auto;width:min(460px,calc(100vw - 16px));border-radius:8px}
+dialog.fpk.pop::backdrop{background:rgba(32,33,36,.08)}
+dialog.fpk.sheet{position:fixed;margin:0;inset:auto 0 0 0;width:100%;max-width:none;border-radius:14px 14px 0 0;max-height:80vh}
+.fpkbox{display:flex;flex-direction:column;gap:6px;padding:10px 12px;min-height:0;flex:1 1 auto;font-size:max(15px,calc(var(--g-fs) + 2px))}
+dialog.fpk.sheet .fpkbox{padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+.fpkhead{display:flex;gap:8px;align-items:center;min-width:0}
+.fpkhead b{font-size:.95em;white-space:nowrap}
+.fpksub{color:var(--muted);font-size:.8em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+.fpkx{flex:0 0 auto;border:0;background:transparent;font-size:1.05em;width:36px;height:36px;border-radius:8px;color:#5f6368;cursor:pointer}
+#fpkQ{display:block;width:100%;font:inherit;font-size:max(16px,1em);padding:8px 10px;border:1px solid #a9b1bb;border-radius:6px;background:#fff;color:var(--ink)}
+.fpklist{overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;flex:1 1 auto;border:1px solid var(--line);border-radius:6px;background:#fff}
+.fpo{display:flex;align-items:stretch;border-bottom:1px solid #eef0f2}
+.fpo:last-child{border-bottom:0}
+.fpo .pk{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:10px;text-align:left;font:inherit;color:inherit;background:transparent;border:0;padding:9px 10px;min-height:44px;cursor:pointer}
+.fpo.hi{background:#e8f0fe}.fpo.cur .fpc{color:var(--teal-d)}
+.fpo.meta .pk{color:#3c4043;font-style:normal}.fpo.meta.on{background:#eef7f6}.fpo.meta.on .pk{font-weight:600}
+.fpc{flex:0 0 auto;min-width:3.6em;font-family:var(--g-mono);font-weight:700;font-variant-numeric:tabular-nums}
+.fpd{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.fpnm{overflow-wrap:anywhere}
+.fpd small{color:var(--muted);font-size:.78em}
+.fpw{color:var(--warn);font-size:.78em;margin-left:4px}
+.fpck{flex:0 0 auto;color:var(--teal-d);font-weight:700}
+.fpo .star{flex:0 0 auto;width:46px;border:0;border-left:1px solid #eef0f2;background:transparent;font-size:1.25em;color:#9aa0a6;cursor:pointer}
+.fpo .star.on{color:#e3a008}
+.fpo.mine .fpc::after{content:'*';color:var(--warn);font-weight:400}
+.fpsec{position:sticky;top:0;z-index:1;background:#f1f3f4;color:#3c4043;font-size:.75em;font-weight:600;padding:4px 10px;border-bottom:1px solid #e3e6ea}
+.fpnote{margin:0;padding:10px;color:var(--muted);font-size:.85em}
+.fpkman{border:1px solid var(--line);border-radius:6px;padding:8px;background:#fafbfc}
+.fpkman p{margin:0 0 4px}.fpkman input{font-size:max(16px,1em)}
+.fpksrc{margin:0;color:var(--muted);font-size:.72em;line-height:1.3}
+.fpkfoot{display:flex;align-items:center;gap:8px}
+.fpkfoot .nedsp{flex:1 1 auto}
+body.fpkopen #gNav{display:none}
+#fpCard .fphead{margin:10px 0 4px;font-size:.85rem}
+.fpslist .fpsrow{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line);font-size:.85rem}
+.fpslist .fpsrow span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.fpchips{display:flex;flex-wrap:wrap;gap:6px}
+.chipbtn{font:inherit;font-size:.8rem;padding:6px 10px;border:1px solid var(--line);border-radius:16px;background:#fff;color:var(--ink);cursor:pointer;min-height:34px}
+.chipbtn.on{border-color:#e3a008;background:#fff8e1}
+@media print{dialog.fpk{display:none}}
+/* v9o: after-hours time premium (03.01AA) strip, pop-up and Settings table */
+.premstrip { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow-x: auto; width: 100%; margin: 2px 0 6px; padding: 4px 8px; border: 1px solid var(--line, #d5dbe1); border-radius: 8px; background: var(--card, #fff); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; color: inherit; min-height: 30px; }
+.premstrip[hidden] { display: none; }
+.premstrip .pl { color: var(--muted, #5b6672); white-space: nowrap; font-weight: 600; }
+.premstrip .pi { white-space: nowrap; padding: 1px 7px; border-radius: 999px; background: #eef2f5; font-variant-numeric: tabular-nums; }
+.premstrip .pi b { font-weight: 700; }
+.premstrip .pi.some { background: #e3f0ea; }
+.premstrip .pi.near { background: #fff1d6; color: #7a4b00; }
+.premstrip .pi.full { background: #ffe0cc; color: #8a3300; font-weight: 600; }
+.premstrip .pi.over { background: #b42318; color: #fff; font-weight: 700; }
+.pbar.pfull .pbu { color: #8a3300; font-weight: 700; }
+.pbar.pover .pbu { color: #b42318; font-weight: 700; }
+dialog.premdlg { max-width: min(460px, 94vw); border: 0; border-radius: 14px; padding: 18px 18px 14px; box-shadow: 0 14px 40px rgba(0,0,0,.28); }
+dialog.premdlg h3 { margin: 0 0 8px; }
+.premlist { margin: 0 0 8px; padding-left: 18px; }
+.premlist li { margin: 4px 0; }
+.premlist li.full { color: #8a3300; font-weight: 600; }
+.premlist li.over { color: #b42318; font-weight: 700; }
+.premtab input { width: 5.2em; }
+.premtab .mine { display: block; color: #8a3300; font-weight: 600; }
+.hollist .des { padding-left: 10px; border-left: 3px solid #d9c27a; }
+@media print { .premstrip { display: none; } }
+/* v9o: units chip beside a time-unit modifier, edit-form unit lists */
+.mucw { gap: 3px; }
+.mucw > .gc { flex: 1 1 auto; min-width: 0; }
+.cbtn.mub { margin: 0 2px 0 0; padding: 0 4px; color: #0b57d0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cbtn.mub.set { background: #e8f0fe; border-color: #8ab4f8; }
+.cbtn.mub.need { color: #8a3300; border-color: #f0b27a; background: #fff4e5; }
+.cbtn.mub.hiu { border-color: #b42318; box-shadow: inset 0 0 0 1px #b42318; }
+.emodu { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 4px 0 6px; }
+.emodu[hidden] { display: none; }
+.emodu .fld.mu { min-width: 9.5em; }
+.emodu .mun { flex-basis: 100%; margin: 0; }
+dialog.fpk[data-kind="mu"] .fpc { min-width: 2.2em; }
+/* v9o: footer inside the Today grid's scroll area (after the last row); the grid reaches the bottom of the screen */
+body.footin{padding-bottom:0}
+.gwrap.main > .gfoot{position:sticky;left:0;box-sizing:border-box;padding:12px 8px calc(14px + env(safe-area-inset-bottom));background:var(--bg);border-top:1px solid var(--g-head-b)}
+.gwrap.main > .gfoot .foot{margin:0 auto;padding:0 4px}
+@media print{.gwrap.main > .gfoot{display:none}}
+html.native body.footin{padding-bottom:0}   /* beats native.css "html.native body" padding in the iOS / Android app */

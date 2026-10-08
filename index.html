@@ -113,6 +113,7 @@
         </span>
       </div>
     </div>
+    <button type="button" class="premstrip" id="premStrip" hidden></button>
     <div id="todayList" class="gridbox"></div>
   </section>
 
@@ -157,6 +158,17 @@
           <select id="defProv"></select></label>
       </div>
     </div>
+    <div class="card" id="fpCard">
+      <h3>Facility # and Functional centre</h3>
+      <label class="chk small"><input type="checkbox" id="fcCarry" checked> New rows start with the Facility # and Functional centre picked last that day</label>
+      <div class="fphead"><b>Favourite facilities</b> <span class="small muted">(shown first in the Facility # list)</span> <button type="button" class="linkbtn sm" id="fnoFavAdd">Add…</button></div>
+      <div id="fnoFavList" class="fpslist"></div>
+      <div class="fphead"><b>Recent facilities</b> <button type="button" class="linkbtn sm" id="fnoRecClear">Clear</button></div>
+      <div id="fnoRecList" class="fpslist"></div>
+      <div class="fphead"><b>Favourite functional centres</b> <span class="small muted">(Select Favourite… in the list)</span></div>
+      <div id="fcenFavList" class="fpchips"></div>
+      <p class="small muted credit" id="fpSrc"></p>
+    </div>
     <div class="card">
       <h3>Timers</h3>
       <div class="two">
@@ -173,6 +185,13 @@
       <label class="chk small"><input type="checkbox" id="holToday"> <span id="holTodayL">Today is a statutory holiday (bill like a weekend)</span></label>
       <p class="small muted" id="holInfo"></p>
       <details class="holdet"><summary class="small">Alberta general holidays, calculated each year (<span id="holYear"></span>)</summary><div id="holList" class="hollist"></div></details>
+    </div>
+    <div class="card" id="premCard">
+      <h3>After-hours time premium limits <span class="draft">HSC 03.01AA</span></h3>
+      <p class="small">Units are counted from your In / Out times (15-minute blocks, each in the period holding most of it) for each day. The strip above the Today spreadsheet shows the running count, e.g. <b>TEV 6/20</b>, and a pop-up appears when a day reaches or passes a limit. Entry is never blocked.</p>
+      <label class="chk small"><input type="checkbox" id="premWarn" checked> Show a pop-up when a limit is reached or exceeded</label>
+      <div class="pertable"><table class="premtab"><thead><tr><th>Modifier</th><th>When</th><th>Official max / day</th><th>Your limit</th></tr></thead><tbody id="premRows"></tbody></table></div>
+      <p class="small muted" id="premSrcS"></p>
     </div>
     <div class="card">
       <h3>Lock</h3>
@@ -333,6 +352,10 @@
     </div>
     <label class="fld shiftset">Setting<select id="eSetting2"><option value="H">Hospital</option><option value="C">Clinic</option></select></label>
     <datalist id="typeList"><option value="Consult"><option value="Visit"><option value="Procedure"><option value="Counselling"><option value="Call"><option value="Assist"><option value="Delivery"></datalist>
+    <div class="two fprow notshift">
+      <div class="fld"><span class="fldl" id="eFnoL">Facility #</span><button type="button" class="fpbtn" id="eFno" aria-labelledby="eFnoL eFno" aria-haspopup="dialog"><span class="muted">Choose…</span></button></div>
+      <div class="fld"><span class="fldl" id="eFcenL">Functional centre</span><button type="button" class="fpbtn" id="eFcen" aria-labelledby="eFcenL eFcen" aria-haspopup="dialog"><span class="muted">Choose…</span></button></div>
+    </div>
     <div class="codebox notshift">
       <div class="codehead"><span class="fldl">Fee codes and diagnostic codes (optional)</span><select id="eProv" aria-label="Fee schedule"></select></div>
       <div id="eCodes" class="chips"></div>
@@ -346,6 +369,7 @@
         <label class="fld">Modifier code(s) 1<input id="eMod1" maxlength="80" placeholder="e.g. CMGP, BMI" autocomplete="off" autocorrect="off" spellcheck="false" autocapitalize="characters"></label>
         <label class="fld">Modifier code(s) 2<input id="eMod2" maxlength="80" placeholder="Separate with commas" autocomplete="off" autocorrect="off" spellcheck="false" autocapitalize="characters"></label>
       </div>
+      <div id="eModU" class="emodu" hidden></div>
       <p class="small muted fdhelp">For help with medical billing codes and diagnostic codes (ICD-9 / ICD-10), use <a href="https://tp8p7c4vwr-del.github.io/delara-medbilling/" target="_blank" rel="noopener noreferrer external" referrerpolicy="no-referrer">MedBilling Fee Desk</a></p>
       <p class="small muted credit" id="eCredit"></p>
     </div>
@@ -535,7 +559,7 @@
 <dialog id="manDlg" class="mandlg" aria-labelledby="manTitle">
   <div class="manhead"><h2 id="manTitle">MedBilling Logs · User manual</h2><button type="button" class="lockbtn" id="manClose">Close</button></div>
   <div class="man" id="manBody">
-    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9n (October 2026).</p>
+    <p class="manlead">A private time and billing log for physicians. Everything stays on this device, encrypted with your passcode or passphrase. This manual works offline. Version 9o (October 2026).</p>
     <nav class="mantoc" aria-label="Contents">
       <a href="#m-start" data-go="m-start">1. Getting started, passcode and easy unlock</a>
       <a href="#m-per" data-go="m-per">2. The time-period bar</a>
@@ -611,8 +635,10 @@
       <tr><th colspan="3">Weekends (Sat–Sun) and statutory holidays</th></tr><tr><td>Weekend/holiday daytime</td><td>07:00–21:59</td><td>60 units</td></tr><tr><td>Weekend/holiday late evening</td><td>22:00–23:59</td><td>8 units</td></tr><tr><td>Weekend/holiday overnight</td><td>00:00–06:59</td><td>28 units</td></tr></table>
       <ul>
         <li><b>Every encounter is tagged</b> with its period(s). If it crosses a boundary (for example 21:50–22:20), its minutes and 15-minute units are split between the periods. You'll see the split in the entry, under the start time in lists, in the daily totals, and in CSV, PDF and Word reports.</li>
-        <li><b>Statutory holidays bill like weekends.</b> Alberta's general holidays are worked out automatically each year: New Year's Day, Alberta Family Day, Good Friday, Victoria Day, Canada Day, Heritage Day (optional in Alberta), Labour Day, National Day for Truth and Reconciliation, Thanksgiving, Remembrance Day and Christmas. Switch any of them off under <b>Settings → Time periods and holidays</b>.</li>
-        <li>For any other holiday, or an observed day (for example when a holiday falls on a weekend), tick <b>Today is a statutory holiday</b> in Settings on that day.</li>
+        <li><b>Statutory holidays bill like weekends (v9o: the official AHCIP list).</b> The holidays are the ones in the SOMB Governing Rules (GR 1.2), worked out automatically every year, including the moving ones: New Year's Day, Family Day (3rd Monday of February), Good Friday, Victoria Day (Monday before May 25), Canada Day, Alberta Heritage Day (1st Monday of August), Labour Day, Thanksgiving Day (2nd Monday of October; Monday 12 October 2026), Remembrance Day, Christmas Day and Boxing Day. National Day for Truth and Reconciliation and Easter Monday are <i>not</i> AHCIP holidays, so they are not on the list. Switch any of them off under <b>Settings → Time periods and holidays</b>, which shows this year's and next year's dates.</li>
+        <li><b>Designated days (GR 1.3).</b> When a holiday falls on a Saturday or Sunday, the Minister designates another day. The app marks the expected weekday (for example Monday 28 December 2026 for Boxing Day 2026, as published in the AMA's 2026 after-hours table; 27 and 28 December 2027 are computed, so confirm them with Alberta Health when they are announced). The weekend holiday itself bills with <b>TST</b>, the designated day with <b>TDES</b>.</li>
+        <li>For any other day you need treated as a holiday, tick <b>Today is a statutory holiday</b> in Settings on that day (marked "set by you").</li>
+        <li>The bar also shows the after-hours premium for the period (e.g. <b>TEV 6/20 u · logged 5 u</b>): units you entered against the official daily maximum, then the units your logged times would give. See <a href="#m-prem" data-go="m-prem">After-hours premium units</a> in section 4.</li>
       </ul>
     </section>
 
@@ -636,7 +662,7 @@
 
     <section id="m-enc">
       <h3>4. Encounters: the spreadsheet</h3>
-      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, light zebra striping, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Fee code(s)</b> · <b>Modifier code 1</b> · <b>Modifier code 2</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
+      <p>Today is a spreadsheet, like Excel or Google Sheets: gridlines, a grey header row and row numbers, light zebra striping, a sticky header, and a totals row (encounters, minutes, units) pinned at the bottom. Columns: <b>#</b> · <b>Patient name</b> · <b>MRN / PHN</b> · <b>H/C</b> (Hospital or Clinic) · <b>In</b> · <b>Out</b> · <b>Min</b> · <b>Units</b> · <b>Facility #</b> · <b>Functional centre</b> · <b>Fee code(s)</b> · <b>Modifier code 1</b> · <b>Modifier code 2</b> · <b>Dx (ICD-9)</b> · <b>Billing notes</b> · <b>⋯</b>. There are always at least 15 blank rows below your entries, and the grid never runs out (see <i>Rows never run out</i> below). Every change saves encrypted straight away; there are no pop-up forms for normal work.</p>
       <ol>
         <li><b>New patient:</b> type a name or MRN/PHN in the first blank row. That creates the encounter (not started yet).</li>
         <li><b>Start the clock:</b> type the time in <b>In</b> (24-hour: <i>0930</i>, <i>9:30</i>, <i>21h05</i>; type <i>n</i> for now), or tap <b>▶</b> in the In cell. The row's Min cell then counts up live.</li>
@@ -653,8 +679,33 @@
         <li>Modifiers are encrypted with the entry and appear in <b>History</b>, the entry details (a <b>Modifiers</b> line) and the edit form (<b>Modifier code(s) 1 / 2</b>), every report (PDF, Word, Excel, CSV columns <i>modifier_1</i> and <i>modifier_2</i>), encrypted backups and the audit log. Entries made before version 9k simply have empty Modifier cells, and totals are not affected.</li>
         <li>Type modifiers, or bring them back from Fee Desk with fee and ICD-9 codes in one go (see <a href="#m-multi">Several codes at once</a>, v9l / v9m): Modifier code 1 gets the modifiers for the row's first fee code, Modifier code 2 those for its second or later fee code. Always confirm modifiers and their rules in the current Alberta Schedule of Medical Benefits.</li>
       </ul>
+      <h4 id="m-fac">Facility # and Functional centre (v9o)</h4>
+      <p>Two columns sit just before <b>Fee code(s)</b>: <b>Facility #</b> (the Alberta Health facility number for the claim) and <b>Functional centre</b>.</p>
+      <ul>
+        <li><b>Facility #:</b> tap the cell (or press Space / F4) for a searchable list of the official Alberta Health facility listing (411 facilities, "Facility and Functional Centre Definitions and Facility Listing", effective 1 July 2026). Type a number, a name or a town. ★ marks a favourite; favourites and your recent picks are listed first. A number not in the list can still be typed (marked "entered by you"). The source and date are shown at the bottom of the list.</li>
+        <li><b>Functional centre:</b> the same kind of list as in Med Access: <i>Type something to search…</i>, <i>Select Favourite…</i>, <i>Edit/Search…</i>, then <b>CLNC</b> (clinic), <b>D</b> (day), <b>N</b> (night), <b>EMRG</b> (emergency), <b>MED</b> (medicine), <b>SURG</b> (surgery).</li>
+        <li><b>H/C follows the facility:</b> on a new row whose H/C you haven't touched, picking a hospital sets H and a clinic or community facility sets C (a short note says so). On an existing row you're offered <b>Set H/C</b> instead; nothing changes unless you tap it.</li>
+        <li><b>Carry-down:</b> a new row starts with the Facility # and Functional centre you used last that day (Settings → Facility & functional centre; on by default). You can always change them.</li>
+        <li>On a phone both lists open as a sheet from the bottom that follows the text-size setting. Both fields are encrypted with the entry and appear in History, every report (CSV / Excel columns <i>facility_number</i>, <i>facility_name</i>, <i>functional_centre</i>), encrypted backups and the audit log. Entries made before v9o simply show them empty.</li>
+      </ul>
+      <h4 id="m-prem">After-hours premium units (v9o)</h4>
+      <p>The after-hours time premium (Alberta Price List, HSC <b>03.01AA</b>, "SURT" modifiers) is paid in 15-minute units with a daily maximum per code. The official codes and maximums (Price List and Fee Modifier Definitions, as of 1 April 2026; holidays per Governing Rules 1.2 and 1.3):</p>
+      <table class="mantable"><tr><th>Code</th><th>When</th><th>Max per day</th></tr>
+      <tr><td><b>TEV</b> (with surcharge EV)</td><td>Mon–Fri 17:00–21:59</td><td>20 units</td></tr>
+      <tr><td><b>TNTP</b> (NTPM)</td><td>every day 22:00–23:59</td><td>8 units</td></tr>
+      <tr><td><b>TNTA</b> (NTAM)</td><td>every day 00:00–06:59</td><td>28 units</td></tr>
+      <tr><td><b>TWK</b> (WK)</td><td>Sat–Sun 07:00–21:59</td><td>60 units</td></tr>
+      <tr><td><b>TST</b></td><td>statutory holidays 07:00–21:59</td><td>60 units</td></tr>
+      <tr><td><b>TDES</b></td><td>designated holidays 07:00–21:59</td><td>60 units</td></tr></table>
+      <ul>
+        <li><b>Units on the modifier (01–20):</b> type a time modifier (TEV, TNTP, TNTA, TWK, TST, TDES, or the surcharges EV, NTPM, NTAM, WK) in Modifier code 1 or 2, then tap the small <b>u?</b> / <b>×04</b> button beside it (or press F4 or Alt+↓) and pick the number of units: <b>01 · 15 min</b>, <b>02 · 30 min</b> … <b>20 · 300 min</b>. One unit = 15 minutes. You can also type it: <i>TEV04</i>, <i>TEV:4</i> or <i>TEV ×04</i>. The list starts with a suggestion from the row's In/Out times (a suggestion only; nothing is filled in for you). The units are encrypted with the entry and appear in reports as <i>TEV ×04</i> (CSV / Excel columns <i>modifier_1_units</i>, <i>modifier_2_units</i>).</li>
+        <li><b>Rounding (as before):</b> logged minutes become units as full 15-minute blocks plus one more if the remainder is 8 minutes or more (e.g. 38 min = 3 units), so 02 units is claimable from 23 minutes with the patient. The Governing Rules (GR 2.3.2, 2.3.5) govern what you may claim; confirm in the current SOMB.</li>
+        <li><b>Running counts:</b> a strip above the grid shows today's totals per code, e.g. <b>03.01AA TNTA 0/28 · TEV 6/20 · TNTP 0/8</b> (on holidays it says which one). The period bar shows the current period's count. These add up the units you <b>entered</b>; a surcharge (EV, NTPM, NTAM, WK) entered with units counts toward its time-premium code for that day.</li>
+        <li><b>Pop-up at the limit:</b> when a code reaches its daily maximum, a pop-up says so (and again, with a warning, the first time it goes over). It never stops you entering anything. Turn it off, or set your own lower limit, in <b>Settings → After-hours premium limits</b> (your own values are marked "set by you").</li>
+        <li>Not tracked: the 4-units-per-hour rule (GR 15.13.10) and call-back maximums (GR 15.11). Always check the current SOMB before you bill.</li>
+      </ul>
       <h4>Rows never run out</h4>
-      <p>The grid is endless. Whenever the cell you are in is within 5 rows of the last row, 10 more blank rows are added below; it doesn't matter how you got there (Tab, Enter, ↓, the <b>Next</b> bar, or a tap), and you don't have to type anything. Scrolling to within 5 rows of the bottom adds 10 more as well. Row numbers simply continue (… 40, 41, 42 …), and your cursor, the text you're typing and the order of rows stay exactly where they were.</p>
+      <p>The grid is endless. Whenever the cell you are in is within 5 rows of the last row, 10 more blank rows are added below; it doesn't matter how you got there (Tab, Enter, ↓, the <b>Next</b> bar, or a tap), and you don't have to type anything. Scrolling down adds up to 30 more by itself; then the footer (units rule, disclaimers, Fee Desk link and this manual) shows after the last row, and scrolling on past it adds 10 more rows each time (v9o). Row numbers simply continue (… 40, 41, 42 …), and your cursor, the text you're typing and the order of rows stay exactly where they were.</p>
       <ul>
         <li>Blank rows are only empty lines on the screen: they are never saved, never counted in the totals row and never appear in reports or exports. A row becomes an encounter only when you type in it (or pick a code into it).</li>
         <li>Rows far below your entries look plain (no buttons) until you reach them; they become ordinary rows as soon as you move into, tap or hover over them.</li>
@@ -662,7 +713,7 @@
       </ul>
       <h4>Columns fit what you type</h4>
       <p>Each column widens to fit its longest entry (and narrows again when you shorten it). Past a sensible maximum, <b>Patient name</b>, <b>Fee code(s)</b>, the two <b>Modifier code</b> columns, <b>Dx</b> and <b>Billing notes</b> wrap onto more lines and the row grows taller, so nothing is cut off. Every column also has a minimum width wide enough for its usual content (about 10 digits for MRN/PHN, about 15 characters (several codes) for Fee code(s), each Modifier column and Dx, 5 for times, 4 for minutes and units); these widths grow and shrink with the text size (see <i>Settings → Display</i> below).</p>
-      <p><b>Nothing is pinned on the left.</b> When the grid is wider than the screen, it scrolls sideways as a whole: the row number and Patient name scroll away with the other columns, so the codes and times get the full width. Only the header row (top) and the totals row (bottom) stay in place. The active cell has a blue outline and its whole row is tinted, so you can always see where you are.</p>
+      <p><b>Nothing is pinned on the left.</b> When the grid is wider than the screen, it scrolls sideways as a whole: the row number and Patient name scroll away with the other columns, so the codes and times get the full width. Only the header row (top) and the totals row (bottom) stay in place. On Today the grid fills the screen down to the bottom edge and is the only part that scrolls up and down, so the header row is always visible and rows 1–5 are always one swipe away (v9o). The active cell has a blue outline and its whole row is tinted, so you can always see where you are.</p>
       <h4>Moving between cells: only when you say so</h4>
       <p>The cursor never jumps to the next cell on its own, not after a full PHN, a 4-digit time or a fee code, and not when a save finishes. Rows also stay where they are while you work; they are put back in time order when you leave the grid. You move to another cell only with:</p>
       <ul>
@@ -983,7 +1034,12 @@
         <dt>I opened Fee Desk and the app locked. Did I lose my entry?</dt><dd>No. An open entry is saved as an encrypted draft and reopens after you unlock. A code you picked in Fee Desk waits and is added right after you unlock.</dd>
         <dt>I tapped a code in Fee Desk but nothing came back.</dt><dd>Open Fee Desk with <b>↗</b> in the Fee code(s) or Dx cell (the slim yellow "Picking … for MedBilling Logs" bar must show). Plain Fee Desk links only look codes up. Picks expire after 30 minutes.</dd>
         <dt>Can I bring back several codes at once, with modifiers?</dt><dd>Yes (Alberta, v9l; up to 10 of each from v9m with Fee Desk v37). In Fee Desk's pick mode tap <b>＋</b> beside up to 10 fee codes, 10 ICD-9 codes and 10 modifiers (or tap a favourite with linked codes), check the tray and tap <b>Send to MedBilling Logs</b>. They are added to the row without overwriting anything: fee codes after the existing ones, Dx beside their fee codes and any extra Dx after them (none dropped), modifiers in Modifier code 1 (first fee code) or Modifier code 2 (second or later). See <a href="#m-multi">Several codes at once</a>.</dd>
-        <dt>The rows used to stop at 40. Is there a limit?</dt><dd>No. Keep pressing Tab, Enter or Next (or scroll down): when you're within 5 rows of the end, 10 more rows appear. Empty rows aren't saved or counted, so they never change your totals or reports.</dd>
+        <dt>I couldn't scroll back up to my first rows on iPhone.</dt><dd>Fixed in v9o. In v9n the whole page could slide up (for example while the keyboard was open), hiding the header row and the first rows under the bar at the top, and a swipe inside the grid couldn't bring them back. Now the grid is the only thing that scrolls on Today; the page snaps back as soon as the keyboard closes.</dd>
+        <dt>Where did the footer (disclaimers, Fee Desk link, manual) go?</dt><dd>On Today it's after the last row: scroll down past your rows to see it. On the other tabs it's at the bottom of the page as before.</dd>
+        <dt>How do I enter units for TEV, TNTP, TNTA, TWK, TST or TDES?</dt><dd>Type the code in a Modifier cell, then tap the <b>u?</b> button beside it and pick 01–20 (each unit is 15 minutes: 02 · 30 min). See <a href="#m-prem" data-go="m-prem">After-hours premium units</a>.</dd>
+        <dt>Is National Day for Truth and Reconciliation a holiday in the app?</dt><dd>No. It isn't on the AHCIP list (GR 1.2). If you need a day treated as a holiday anyway, tick <b>Today is a statutory holiday</b> in Settings that day.</dd>
+        <dt>Which facility list is used?</dt><dd>Alberta Health's "Facility and Functional Centre Definitions and Facility Listing" effective 1 July 2026 (411 facilities), built into the app; it works offline. Type any other number by hand.</dd>
+        <dt>The rows used to stop at 40. Is there a limit?</dt><dd>No. Keep pressing Tab, Enter or Next: when you're within 5 rows of the end, 10 more rows appear. Scrolling adds up to 30 by itself; after the footer shows, scrolling on adds 10 more each time. Empty rows aren't saved or counted, so they never change your totals or reports.</dd>
         <dt>My entries are missing.</dt><dd>Check you opened the same app you used before (on iPhone, the Home Screen app and Safari keep separate data), and that you're on the same device. If website data was cleared or the app was removed, restore from a backup.</dd>
         <dt>How do I move to a new phone?</dt><dd>On the old phone, Export a backup. On the new phone, install the app, create a passcode, then Import the backup with the passcode it was made with.</dd>
         <dt>Why does an entry say "Entered later"?</dt><dd>It was back-dated, time was added, or its times were edited. See section 7.</dd>
@@ -1025,6 +1081,23 @@
 <script src="js/report.js"></script>
 <div class="ned" id="noteEd" hidden><div class="nedbg" id="nedBg"></div><div class="nedbox" id="nedBox" role="dialog" aria-modal="true" aria-labelledby="nedT"><div class="nedhead"><b id="nedT">Billing notes</b><span class="nedsub" id="nedSub"></span></div><textarea id="nedTa" maxlength="500" rows="3" autocomplete="off" autocapitalize="sentences" spellcheck="true" enterkeyhint="enter" aria-labelledby="nedT"></textarea><div class="nedfoot"><span class="nedcnt" id="nedCnt" aria-live="off"></span><span class="nedsp"></span><button type="button" class="ghost" id="nedCancel">Cancel</button><button type="button" class="primary" id="nedDone">Done</button></div></div></div>
 <div class="ntip" id="nTip" hidden aria-hidden="true"></div>
+<dialog id="premDlg" class="premdlg" aria-labelledby="premT">
+  <h3 id="premT">Time-premium limit reached</h3>
+  <ul id="premList" class="premlist"></ul>
+  <p class="small" id="premWhy"></p>
+  <p class="small muted" id="premSrc"></p>
+  <div class="rowbtns"><button type="button" class="primary" id="premOk">OK</button><button type="button" class="ghost" id="premSet">Limits in Settings</button></div>
+</dialog>
+<dialog id="fpk" class="fpk" aria-labelledby="fpkT"><div class="fpkbox">
+  <div class="fpkhead"><b id="fpkT">Functional centre</b><span class="fpksub" id="fpkSub"></span><button type="button" class="fpkx" id="fpkClose" aria-label="Close">✕</button></div>
+  <input id="fpkQ" type="search" placeholder="Type something to search..." aria-label="Search" aria-controls="fpkList" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" enterkeyhint="done">
+  <div id="fpkList" class="fpklist" role="listbox" aria-labelledby="fpkT"></div>
+  <div id="fpkMan" class="fpkman" hidden><p class="small">A facility number that is not in the Alberta Health listing. It is saved as typed and marked as yours.</p>
+    <div class="two"><label class="fld">Facility number<input id="fpkManNo" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="digits"></label><label class="fld">Name (optional)<input id="fpkManNm" maxlength="80" autocomplete="off" placeholder="e.g. Downtown Clinic"></label></div>
+    <button type="button" class="primary" id="fpkManUse">Use this number</button></div>
+  <p class="fpksrc" id="fpkSrc"></p>
+  <div class="fpkfoot"><button type="button" class="ghost" id="fpkClear">Clear</button><span class="nedsp"></span><button type="button" class="ghost" id="fpkCancel">Cancel</button></div>
+</div></dialog>
 <div class="gnav" id="gNav" hidden role="group" aria-label="Move between cells"><button type="button" id="gPrevF" aria-label="Previous cell">←</button><button type="button" id="gNextF" aria-label="Next cell">Next →</button></div>
 <script src="js/app.js"></script>
 </body>
