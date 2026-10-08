@@ -128,7 +128,10 @@ async function run(p, label, touch) {
   ok(hs[0] === N_PAST_DAYS + 1 && hs[1] === 0 && hs[2] === N_PAST_DAYS * PER_DAY + N_TODAY, `${label}: History draws older days as you scroll (${lazy0} waiting at first → ${hs[0]} day grids, ${hs[2]} rows; scroll frame p95 ${pct(hj, 0.95).toFixed(1)} ms)`);
   await p.click('#tabs [data-tab="today"]'); await p.waitForTimeout(300);
   // 6. v9h endless rows: grow the grid to 150 entries + 300 empty rows by scrolling, then type and save again
-  for (let i = 0; i < 60 && (await p.evaluate(() => document.querySelectorAll('#todayList tbody tr').length)) < N_TODAY + 300; i++) { await p.evaluate(() => { const w = document.querySelector('#todayList .gwrap'); w.scrollTop = w.scrollHeight; }); await p.waitForTimeout(40); }
+  // v9o: scrolling adds up to 30 empty rows by itself; past that the footer shows after the last row, and scrolling on past it
+  // (wheel / drag) adds 10 rows each time
+  { const b = await p.locator('#todayList .gwrap').boundingBox(); await p.mouse.move(b.x + b.width / 2, b.y + b.height / 2); }
+  for (let i = 0; i < 80 && (await p.evaluate(() => document.querySelectorAll('#todayList tbody tr[data-blank]').length)) < 300; i++) { await p.evaluate(() => { const w = document.querySelector('#todayList .gwrap'); w.scrollTop = w.scrollHeight; }); await p.waitForTimeout(400); await p.mouse.wheel(0, 200); await p.waitForTimeout(60); }
   const big = await p.evaluate(() => [document.querySelectorAll('#todayList tbody tr').length, document.querySelectorAll('#todayList tbody tr[data-blank]').length]);
   ok(big[1] >= 300, `${label}: endless rows: grid grown to ${big[0]} rows (${big[1]} empty) by scrolling`);
   const gaps2 = await scrollJank(p, '#todayList .gwrap', -300 * 32, 90);

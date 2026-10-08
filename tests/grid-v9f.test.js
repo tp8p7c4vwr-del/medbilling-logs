@@ -87,7 +87,7 @@ const settle = p => p.waitForTimeout(1300);
   // ===================================================================== phone 390, touch
   const m = await open(browser, { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1' });
   await m.screenshot({ path: path.join(OUT, 'narrow-content-390.png') });
-  const attrs = await m.evaluate(() => [...document.querySelectorAll('#todayList tbody tr:nth-child(1) .gc')].filter(e => e.tagName !== 'BUTTON').map(e => [e.dataset.c, e.getAttribute('enterkeyhint'), parseFloat(getComputedStyle(e).fontSize)]));
+  const attrs = await m.evaluate(() => [...document.querySelectorAll('#todayList tbody tr:nth-child(1) .gc')].filter(e => e.tagName !== 'BUTTON' && !e.classList.contains('fpv')).map(e => [e.dataset.c, e.getAttribute('enterkeyhint'), parseFloat(getComputedStyle(e).fontSize)]));
   ok(attrs.filter(a => a[0] !== 'note').every(a => a[1] === 'next'), 'every editor has enterkeyhint="next": ' + attrs.map(a => a[0]).join(','));
   // v9i: grid text follows Settings → Display (13 px default); iPhone focus zoom is off via the viewport instead (16 px+ in the notes editor)
   ok(attrs.every(a => a[2] >= 12.5 && a[2] <= 13), 'phone grid text follows the 13 px default: ' + attrs.map(a => a[0] + ' ' + a[2]).join(', '));
@@ -96,8 +96,8 @@ const settle = p => p.waitForTimeout(1300);
   await m.locator(cell(1, 'name')).tap(); ok(await where(m) === 'name@1', 'tap → that cell');
   ok(await m.isVisible('#gNav'), 'floating ← Next → bar shows while a cell is active');
   for (const ch of LONG.name) { await m.keyboard.type(ch); } await settle(m); ok(await where(m) === 'name@1', 'typing a long name on the phone never moves focus');
-  const order = ['mrn', 'hc', 'tin', 'tout', 'fee', 'mod1', 'mod2', 'dx', 'note'];   // v9k: Modifier code 1 / 2 after Fee code(s)
-  for (const k of order) { await m.keyboard.press('Enter'); ok(await where(m) === `${k}@1`, `phone return key → ${k}`); if (k !== 'hc' && k !== 'tin' && k !== 'tout' && k !== 'note') { await m.keyboard.type(LONG[k]); await m.waitForTimeout(500); ok(await where(m) === `${k}@1`, `typing in ${k} keeps focus`); } }
+  const order = ['mrn', 'hc', 'tin', 'tout', 'fno', 'fcen', 'fee', 'mod1', 'mod2', 'dx', 'note'];   // v9k: Modifier code 1 / 2 after Fee code(s); v9o: Facility # / Functional centre before Fee code(s)
+  for (const k of order) { await m.keyboard.press('Enter'); ok(await where(m) === `${k}@1`, `phone return key → ${k}`); if (k !== 'hc' && k !== 'tin' && k !== 'tout' && k !== 'note' && k !== 'fno' && k !== 'fcen') { await m.keyboard.type(LONG[k]); await m.waitForTimeout(500); ok(await where(m) === `${k}@1`, `typing in ${k} keeps focus`); } }
   await m.locator(cell(1, 'note')).tap(); await m.waitForSelector('#noteEd.sheet:not([hidden])'); await m.keyboard.type(LONG.note); await m.locator('#nedDone').tap(); await m.waitForTimeout(300);
   ok(await where(m) === 'note@1' && (await m.getAttribute(cell(1, 'note'), 'data-v')) === LONG.note, 'phone: tap Billing notes → bottom sheet; Done saves and returns to the cell');
   await m.keyboard.press('Enter'); ok(await where(m) === 'name@2', 'phone return key on Billing notes → next row');

@@ -14,7 +14,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 const errors = [];
 const G = '#todayList table.grid';
 const cell = (r, c) => `${G} tbody tr:nth-child(${r}) .gc[data-c="${c}"]`;
-const ORDER = ['rn', 'name', 'mrn', 'hc', 'tin', 'tout', 'min', 'u', 'fee', 'mod1', 'mod2', 'dx', 'note', 'act'];
+const ORDER = ['rn', 'name', 'mrn', 'hc', 'tin', 'tout', 'min', 'u', 'fno', 'fcen', 'fee', 'mod1', 'mod2', 'dx', 'note', 'act'];   // v9o: + Facility # / Functional centre
 const FEE = '03.03A, 13.99BA, 03.05JR, 03.08A, 03.04A, 03.07B';
 const M1 = 'CMGP, BMI, TELES, SURC, LOCI, AGE, 2ANU', M2 = 'ANE, 2ANU, TEV';
 const DX = '650, 644.21, V22.2, 626.2, 789.0, V27.0';
@@ -79,7 +79,7 @@ async function desktop(browser) {
   const h = await heads(p);
   ok(JSON.stringify(h.map(x => x[0])) === JSON.stringify(ORDER), `${L}: column order ${h.map(x => x[0]).join(' · ')}`);
   ok(h.find(x => x[0] === 'mod1')[1] === 'Modifier code 1' && h.find(x => x[0] === 'mod2')[1] === 'Modifier code 2', `${L}: headers "Modifier code 1" / "Modifier code 2"`);
-  ok(await p.evaluate(() => document.querySelectorAll('#todayList table.grid tfoot td.tdet[colspan="5"]').length === 1 && [...document.querySelector('#todayList table.grid tfoot tr').cells].reduce((a, c) => a + (+c.colSpan || 1), 0) === document.querySelectorAll('#todayList table.grid colgroup col').length), `${L}: totals row spans every column (details over Fee … Billing notes)`);
+  ok(await p.evaluate(() => document.querySelectorAll('#todayList table.grid tfoot td.tdet[colspan="7"]').length === 1 && [...document.querySelector('#todayList table.grid tfoot tr').cells].reduce((a, c) => a + (+c.colSpan || 1), 0) === document.querySelectorAll('#todayList table.grid colgroup col').length), `${L}: totals row spans every column (details over Fee … Billing notes)`);
   // ---- old entries (no modifier fields) load fine
   const old = await p.evaluate(() => [...document.querySelectorAll('#todayList tbody tr[data-id]')].map(tr => [tr.querySelector('.gc[data-c="mod1"]').value, tr.querySelector('.gc[data-c="mod2"]').value, tr.querySelector('.gc[data-c="fee"]').value, tr.querySelector('.gc[data-c="dx"]').value]));
   ok(old.length === 4 && old.every(r => r[0] === '' && r[1] === '' && r[2] === '03.03A' && r[3] === '650'), `${L}: 4 older entries without modifier fields load, codes intact, Modifier cells empty`);
@@ -147,7 +147,7 @@ async function desktop(browser) {
   const helpers = await p.evaluate(() => { const B = window.BLR; return [B.normMods(' cmgp,,bmi  cmgp ;tev'), B.diff({ mod1: 'CMGP' }, { mod1: 'CMGP, BMI' }).join('|'), B.table([{ id: 'x', kind: 'enc', name: 'Old', codes: [], segs: [{ s: Date.now() - 3600000, e: Date.now() - 1800000 }], status: 'done' }], '2000-01-01', '2100-01-01', Date.now()).rows[0].length, B.table([], '2000-01-01', '2100-01-01', Date.now()).head.join(',')]; });
   ok(helpers[0] === 'CMGP, BMI, TEV', `normMods: "${helpers[0]}"`);
   ok(/modifier 1: CMGP -> CMGP, BMI/.test(helpers[1]), `audit diff records modifier changes ("${helpers[1]}")`);
-  ok(/codes,modifier_1,modifier_2,diagnostic_code/.test(helpers[3]) && helpers[2] === helpers[3].split(',').length, `CSV/Excel columns: …codes, modifier_1, modifier_2, diagnostic_code… (old entry row has ${helpers[2]} cells)`);
+  ok(/codes,modifier_1,modifier_1_units,modifier_2,modifier_2_units,diagnostic_code/.test(helpers[3]) && helpers[2] === helpers[3].split(',').length, `CSV/Excel columns: …codes, modifier_1, modifier_1_units, modifier_2, modifier_2_units, diagnostic_code… (v9o units; old entry row has ${helpers[2]} cells)`);
   // ---- every encrypted export carries the modifier columns
   for (const fmt of ['csv', 'xlsx', 'pdf', 'docx']) {
     const z = await exportFmt(p, fmt), j = JSON.parse(execFileSync('python3', [path.join(__dirname, 'inspect_zip.py'), z, EXP_PASS, ['CMGP', 'TELES', '2ANU', 'TEV', fmt === 'csv' || fmt === 'xlsx' ? 'modifier_1' : 'Mod', NAMES[0]].join('|')]).toString());
@@ -155,7 +155,7 @@ async function desktop(browser) {
     if (fmt === 'csv') {
       const txt = fs.readFileSync(inner(z, 'csv'), 'utf8').replace(/^\ufeff/, ''), lines = txt.trim().split(/\r?\n/), head = lines[0].split(',');
       const i1 = head.indexOf('modifier_1'), i2 = head.indexOf('modifier_2'), ic = head.indexOf('codes');
-      ok(i1 === ic + 1 && i2 === ic + 2 && head.indexOf('diagnostic_code') === ic + 3, `csv: modifier_1 / modifier_2 right after codes (columns ${ic + 1}–${ic + 3})`);
+      ok(i1 === ic + 1 && head.indexOf('modifier_1_units') === ic + 2 && i2 === ic + 3 && head.indexOf('modifier_2_units') === ic + 4 && head.indexOf('diagnostic_code') === ic + 5, `csv: modifier_1 (+units) / modifier_2 (+units) right after codes (columns ${ic + 1}–${ic + 5})`);
       ok(txt.includes(`"${M1}"`) && txt.includes(`"${M2}"`) && lines.length === 5, `csv: values quoted intact ("${M1}", "${M2}"), ${lines.length - 1} rows`);
     }
   }
