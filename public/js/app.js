@@ -1432,7 +1432,7 @@
   }
   window.addEventListener('resize', () => { sizeGrid(); placeFoot(); if (S && tab === 'today' && fillRows() !== fillRows.last) render(true); else if (S) fitAll(); });
   function fillRows() {
-    const w = $('#todayList .gwrap'), r = w && w.querySelector('tbody tr'), rh = (r && r.offsetHeight) || 30;
+    const w = $('#todayList .gwrap'), r = w && (w.querySelector('tbody tr[data-blank]') || w.querySelector('tbody tr')), rh = (r && r.offsetHeight) || 30;   // v9q: an empty row's height (a first row with a wrapped name is taller and left the grid short)
     const h = w ? (parseFloat(w.style.height) || w.clientHeight) : window.innerHeight - 200;
     return Math.max(0, Math.floor((h - 2 * rh - 4) / rh));
   }
@@ -1476,6 +1476,12 @@
   // edited is at least two lines tall (CSS) and every code cell wraps and grows the row instead of clipping.
   const CODEC = { fee: 1, mod1: 1, mod2: 1, dx: 1 };
   const FIT = { name: [22, 13, 34], mrn: [12.5, 12.5, 26], fno: [10, 10, 30], fcen: [8.5, 8.5, 22], fee: [24.5, 25.5, 46], mod1: [23.5, 24.5, 42], mod2: [23.5, 24.5, 42], dx: [24.5, 25.5, 46], note: [30, 28, 44] };
+  // v9q wide screens (mouse, grid ≥ 900 px): every column on screen. Extra width goes to the text-heavy columns in these
+  // proportions (MRN and the time / number columns stay compact); when the window is too narrow for the fitted widths, the
+  // text columns give back width down to these minimums (ch) and their text wraps instead (no sideways scrolling at 1280+).
+  const GROW = { name: 1.2, mrn: 0, fno: 0.8, fcen: 0.5, fee: 1, mod1: 0.7, mod2: 0.7, dx: 1, note: 1.5 };
+  const CMIN = { name: 11, mrn: 11, fno: 7, fcen: 6.5, fee: 11, mod1: 9, mod2: 9, dx: 10, note: 9 };
+  const WIDEFIT = (ww, touch) => !touch && ww >= 900;
   function fitPx(key, need, ch, ww, touch) {
     const cfg = FIT[key], mn = cfg[touch ? 1 : 0] * ch; let max = cfg[2] * ch;
     if (key === 'name' && ww < 700) max = Math.min(max, Math.max(mn, ww * 0.30));
@@ -1503,7 +1509,8 @@
     if (!rec || rec.k !== ck) {
       const line = txt.split('\n').reduce((m, x) => x.length > m.length ? x : m, '');
       const extra = cw ? cw.querySelectorAll('.cbtn, .tag').length * fitBtn : 0;
-      rec = { k: ck, tw: fitMw(line, f) + 18 + extra, multi: line !== txt }; fitEC.set(el, rec);
+      const tok = (el.classList.contains('fpv') ? (el.dataset.v || '') : txt).split(el.dataset.c === 'name' ? /[\s-]+/ : /\s+/).reduce((m, x) => x.length > m.length ? x : m, '');   // v9q: the longest word / code never breaks (names may break after a hyphen; picker cells: the code)
+      rec = { k: ck, tw: fitMw(line, f) + 18 + extra, wmin: fitMw(tok, f) + 18 + extra, multi: line !== txt }; fitEC.set(el, rec);
     }
     return rec;
   }
@@ -1521,43 +1528,73 @@
     const w = t.closest('.gwrap'), ww = (w && w.clientWidth) || innerWidth, touch = matchMedia('(max-width:767px),(pointer:coarse)').matches;
     // fast path while typing: re-measure only the edited column; if its width stays the same, nothing else can change
     const st = t._fit, okey = only && only.dataset && only.dataset.c;
-    if (only && st && st.ww === ww && st.touch === touch && FIT[okey] && st.px[okey] != null) {
+    if (only && st && st.ww === ww && st.touch === touch && FIT[okey] && st.px[okey] != null && (!st.np || st.np[okey] != null)) {
       const f = okey !== 'name' && okey !== 'note' ? st.fM : st.fS;
       let need = st.head[okey] || 0;
       for (const el of t.querySelectorAll(`tbody .gc[data-c="${okey}"]`)) { const txt = txtOf(el); if (txt) need = Math.max(need, fitRec(el, f, txt).tw); }
-      const px = fitPx(okey, need, st.ch[okey], ww, touch);
-      if (px === st.px[okey]) {
+      const px = fitPx(okey, need, st.ch[okey], ww, touch), fin = st.px[okey];   // v9q: wide screens compare the fitted width before sharing out
+      if (px === (st.np ? st.np[okey] : fin)) {
         if (only.tagName === 'TEXTAREA') { const txt = only.value; const r = txt ? fitRec(only, f, txt) : null;
-          if (r && (r.multi || r.tw > px + 1)) autoHType(only); else if (only.style.height) only.style.height = ''; }
+          if (r && (r.multi || r.tw > fin + 1)) autoHType(only); else if (only.style.height) only.style.height = ''; }
         return;
       }
     }
     const sans = t.querySelector('tbody .gc[data-c="name"]'), mono = t.querySelector('tbody .gc.mono'), th = t.querySelector('thead th.h-name');
     const fS = sans ? fontOf(sans) : '13px sans-serif', fM = mono ? fontOf(mono) : fS, fH = th ? fontOf(th) : fS;
-    const memo = { ww, touch, fS, fM, px: {}, head: {}, ch: {} };
+    const memo = { ww, touch, wide: WIDEFIT(ww, touch), fS, fM, px: {}, head: {}, ch: {} };
     { const fsx = parseFloat(getComputedStyle(t).fontSize) || 13; fitBtn = Math.round(touch ? Math.max(30, fsx * 1.9 + 4) : Math.max(25, fsx * 1.55 + 6)); }   // ↗ / ▶ / tags
     const cols = [...t.querySelectorAll('colgroup col')], keys = cols.map(c => c.className.replace(/^c-/, ''));
     const fixed = cols.map((c, i) => FIT[keys[i]] ? 0 : (parseFloat(getComputedStyle(c).width) || 0));   // reads first
-    let sum = 0, noteW = 0, noteCol = null, changed = false, onlyRec = null; const longs = [], widths = {};
+    let sum = 0, noteW = 0, noteCol = null, changed = false, onlyRec = null; const longs = [], widths = {}, fcols = {}, cmin = {}, tmins = {}, wide = WIDEFIT(ww, touch);
     cols.forEach((col, i) => {
       const key = keys[i], cfg = FIT[key];
       if (!cfg) { sum += fixed[i]; return; }
       const h = t.querySelector(`thead [data-h="${key}"]`), isM = key !== 'name' && key !== 'note', f = isM ? fM : fS, ch = fitMw('0', f);
-      let need = h ? fitMw(h.textContent, fH) + 18 : 0; memo.head[key] = need; memo.ch[key] = ch;
+      let need = h ? fitMw(h.textContent, fH) + 18 : 0, tmin = 0; memo.head[key] = need; memo.ch[key] = ch;
       for (const el of t.querySelectorAll(`tbody .gc[data-c="${key}"]`)) {
         const txt = txtOf(el); if (!txt) continue;
         const rec = fitRec(el, f, txt);
-        need = Math.max(need, rec.tw);
+        need = Math.max(need, rec.tw); if (key !== 'note') tmin = Math.max(tmin, rec.wmin);
         if (el.tagName === 'TEXTAREA' && el.value) longs.push([el, key, rec.tw, rec.multi]);
         if (el === only) onlyRec = [el, key, rec.tw, rec.multi];
       }
       const px = fitPx(key, need, ch, ww, touch);
-      widths[key] = px; memo.px[key] = px;
-      if (key === 'note') { noteW = px; noteCol = col; return; }
+      widths[key] = px; memo.px[key] = px; fcols[key] = col;
+      if (wide) { const hw = h ? Math.max(0, ...h.textContent.split(/\s+/).map(x => fitMw(x, fH))) + 18 : 0; cmin[key] = Math.min(px, Math.ceil(Math.max(CMIN[key] * ch, hw, tmin))); tmins[key] = tmin; memo.ch[key] = ch; }
+    });
+    // v9q: share the window out (wide screens) — grow the text columns into spare width, or shrink them (wrapping) to fit
+    let fitw = false;
+    if (wide) {
+      const ks = Object.keys(widths); memo.np = Object.assign({}, widths);
+      const avail = Math.floor(ww - sum), tot = ks.reduce((a, k) => a + widths[k], 0);
+      if (tot <= avail) {
+        const wt = ks.reduce((a, k) => a + (GROW[k] || 0), 0), extra = avail - tot;
+        if (wt > 0) ks.forEach(k => { widths[k] += Math.floor(extra * (GROW[k] || 0) / wt); });
+      } else {
+        // name, MRN, facility, functional centre and notes give way first; the code columns (fee, modifiers, Dx) last
+        let over = tot - avail;
+        for (const grp of [ks.filter(k => !CODEC[k]), ks.filter(k => CODEC[k])]) {
+          if (over <= 0) break;
+          const room = grp.reduce((a, k) => a + widths[k] - cmin[k], 0), cut = Math.min(room, over), r = room ? cut / room : 0;
+          grp.forEach(k => { const w0 = widths[k], w = Math.max(cmin[k], Math.floor(w0 - (w0 - cmin[k]) * r)); if (w < w0) { fitw = true; over -= w0 - w; } widths[k] = w; });
+        }
+      }
+      const left = avail - ks.reduce((a, k) => a + widths[k], 0);
+      if (left > 0 && left < 64) { const k = widths.note != null ? 'note' : ks[ks.length - 1]; widths[k] += left; }   // rounding crumbs
+    }
+    if (t.classList.contains('fitw') !== fitw) { t.classList.toggle('fitw', fitw); changed = true; }
+    // v9q: a squeezed Facility # / Functional centre column shows just the code (the name is in the tooltip / list) so the
+    // ellipsis never eats the code's last digit ("8800…")
+    for (const k of ['fno', 'fcen']) { const nar = !!(wide && widths[k] != null && tmins[k] && widths[k] < tmins[k] + 6 * (memo.ch[k] || 8));
+      if (t.classList.contains('nar-' + k) !== nar) { t.classList.toggle('nar-' + k, nar); changed = true; } }
+    memo.fitw = fitw;
+    for (const key of Object.keys(widths)) {
+      const px = widths[key], col = fcols[key]; memo.px[key] = px;
+      if (key === 'note') { noteW = px; noteCol = col; continue; }
       if (col.style.width !== px + 'px') { col.style.width = px + 'px'; changed = true; }
       if (key === 'name') { const v = px + 'px'; if (t.style.getPropertyValue('--g-name-w') !== v) t.style.setProperty('--g-name-w', v); }
       sum += px;
-    });
+    }
     // Billing notes takes the rest of the screen (at least its own fitted width); the table never truncates a column.
     // v9j: explicit pixel widths for the notes column AND the table. iOS WebKit ignores min-width on a table-layout:fixed
     // table, so with only min-width the table stayed 100 % of the phone and the auto-width Billing notes column got 0 px
@@ -1582,7 +1619,11 @@
     for (const ta of tall) ta.style.height = '';                                       // writes
     const hs = tall.map(ta => [ta.scrollHeight, ta.clientHeight]);                     // one layout
     tall.forEach((ta, i) => { if (hs[i][0] > hs[i][1] + 1) ta.style.height = hs[i][0] + 'px'; });   // writes
+    if (w && fitRO && !fitROs.has(w)) { fitROs.add(w); fitRO.observe(w); }
   }
+  // v9q: the grid's own width can change without a window resize (a classic 17 px Windows scrollbar appearing / going) → refit
+  // when it differs from the last fit (observer, so no forced layout while typing)
+  const fitROs = new WeakSet(), fitRO = typeof ResizeObserver === 'function' ? new ResizeObserver(es => { for (const en of es) { const t = en.target.querySelector && en.target.querySelector(':scope > table.grid'); if (t && t._fit && t._fit.wide && t._fit.ww !== en.target.clientWidth) fitSoon(t); } }) : null;
   function autoH(ta) { ta.style.height = ''; const h = ta.scrollHeight; if (h > ta.clientHeight + 1) ta.style.height = h + 'px'; }
   // one refit per frame per table; `only` = the cell being typed in (a full refit wins if one was asked for)
   function fitSoon(t, only) {
