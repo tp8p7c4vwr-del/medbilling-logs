@@ -1,3 +1,16 @@
+# MedBilling Logs v9q — full-width on computers (2026-10-08)
+
+## What changed (Logs v9q)
+- **Uses the whole window on a computer** (Jose, 10:54 PM, hospital office PC: Windows 11 / Edge, 1920 × 1080). With a mouse and a window of 1024 px or more, the app bar, time strip, tabs, Today toolbar and spreadsheet span the window with 14 px sides (was a centred column of 1100 / 1360 px). iPhone and iPad layouts are unchanged (same measurements as v9p at 402 × 874, 375 × 667, 820 × 1180).
+- **Every column on screen.** On wide screens the spreadsheet shares out the window: In / Out / Min / Units / H/C and MRN keep their compact widths; Patient name, Facility #, Functional centre, Fee code(s), Modifier code 1 / 2, Dx and Billing notes get the spare width in proportion (name 1.2, notes 1.5, fee / Dx 1, Facility # 0.8, modifiers 0.7, Functional centre 0.5) instead of all of it going to Billing notes. When the window is narrower than the one-line widths, those columns give width back down to a floor (the longest code / word in the column, the header's longest word, a few characters) and wrap onto more lines; headers may take two lines. Result: from 1280 px up (tested 1280 × 800, 1366 × 768, 1440 × 900, 1920 × 969, 1920 × 1080, 2560 × 1440, with 17 px Windows-style scrollbars) all 16 columns through Billing notes and ⋯ are visible with no sideways scrolling; codes and names never break mid-code (names may break after a hyphen). A grid that gains or loses a scrollbar refits itself (ResizeObserver; wide screens only).
+- When the Facility # / Functional centre columns are squeezed (e.g. 1280 / 1366 px), they show just the code (88001, OBST); the full name stays in the tooltip and the list, so the ellipsis never cuts a digit off the code.
+- Grid still fills to the bottom of the window (fix: the number of empty rows needed is now worked out from an empty row's height, so a tall first row with a wrapped name no longer leaves the grid short with the footer showing); the page footer still only appears after the last row; sticky header and column alignment unchanged.
+- While the columns are squeezed, Patient name / MRN / Facility # / Functional centre / Billing notes give width back first and the code columns (fee, modifiers, Dx) last, so at 1920 × 1080 the codes keep the v9k one-line width (15+ characters).
+- Settings: 4 columns of cards at ≥ 1700 px; Resources: a card grid that uses the width; long paragraphs capped at 900 px; the user manual keeps its 820 px reading column.
+- Manual note (Today → wide screens), version 9q; PDF regenerated. Service-worker cache `bl-v9q-2026-10-08`.
+- Tests updated for the new desktop rule: `grid-v9f` (1280: wide content fits, no sideways scroll), `facility-v9o` (bigger text keeps codes readable), `modifiers-v9k` / `display-notes-v9i` desktop checks at 1920 × 1080, `endless-v9h` walks to row 32 (two-line headers at 1280).
+- Tests: new `wide-v9q` (all sizes above, empty and filled day, sticky header, alignment, compact numeric columns, growth of text columns, prose width, iPhone / iPad identical to v9p).
+
 # MedBilling Logs v9p — Face ID unlock by default; Undo / Redo on the day sheet; Same patient rows; plain-words totals; modifier cells link to Fee Desk (2026-10-07)
 
 ## Why
