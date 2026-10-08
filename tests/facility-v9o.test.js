@@ -170,7 +170,10 @@ async function desktop(browser) {
   await showCols(p); await p.waitForTimeout(150); await shot(p, 'facility-grid-1280.png');
   // ---- larger text: the columns grow
   await setSize(p, 6); const gL = await geo(p);
-  ok(gL.w.fno > g.w.fno && gL.w.fcen > g.w.fcen, `${L}: columns grow with the text size (${g.fs} → ${gL.fs}: Facility # ${g.w.fno} → ${gL.w.fno}px, Functional centre ${g.w.fcen} → ${gL.w.fcen}px)`);
+  // v9q: on a computer the columns share the window (all on screen from 1280 px), so at a bigger text size a column may get a
+  // little less of the spare width; what matters is that the number / code stays fully readable at the bigger size
+  const wv1 = await codeVis(p, 1, 'fno'), wv2 = await codeVis(p, 1, 'fcen');
+  ok(wv1 && wv1.full && wv2 && wv2.full && gL.w.fno >= g.w.fno * 0.9 && gL.w.fcen > g.w.fcen, `${L}: bigger text keeps the number / code readable (${g.fs} → ${gL.fs}: Facility # ${g.w.fno} → ${gL.w.fno}px, Functional centre ${g.w.fcen} → ${gL.w.fcen}px)`);
   await p.click(cell(2, 'fno')); await fpkOpen(p); const pf = await p.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#fpkList .pk')).fontSize)); await p.keyboard.press('Escape'); await fpkShut(p);
   ok(pf >= 21, `${L}: the list text follows the text size (${pf}px at ${gL.fs})`);
   await setSize(p, 2);

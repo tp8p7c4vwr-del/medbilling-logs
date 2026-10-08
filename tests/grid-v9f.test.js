@@ -49,7 +49,7 @@ const settle = p => p.waitForTimeout(1300);
   await p.keyboard.press('Tab'); await settle(p);
   ok((await aligned(p)).length === 0, '1280: header, body and totals still aligned with wide content ' + JSON.stringify(await aligned(p)));
   const scrollW = await p.evaluate(() => { const w = document.querySelector('#todayList .gwrap'); return [w.scrollWidth, w.clientWidth]; });
-  ok(scrollW[0] > scrollW[1], `1280: wide content scrolls sideways (${scrollW[0]} > ${scrollW[1]})`);
+  ok(scrollW[0] <= scrollW[1] + 1, `1280: v9q: wide content still fits the window, no sideways scrolling (${scrollW[0]} ≤ ${scrollW[1]})`);
   await p.locator(`${G} tbody tr:nth-child(1) .gc[data-c="note"]`).scrollIntoViewIfNeeded();
   await p.evaluate(() => { document.querySelector('#todayList .gwrap').scrollLeft = 0; });
   await p.screenshot({ path: path.join(OUT, 'wide-content-1280.png') });

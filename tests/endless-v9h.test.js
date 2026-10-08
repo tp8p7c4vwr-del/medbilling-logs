@@ -42,7 +42,9 @@ async function run(browser, o, label, touch) {
   const name1 = `${G} tbody tr:nth-child(1) .gc[data-c="name"]`;
   if (touch) await p.locator(name1).tap(); else await p.click(name1);
   // Tab / Enter (phone return key) cell by cell through filled rows and on into empty rows, typing nothing
-  let info = await walkTo(p, 33, 'mix', touch);
+  // v9q: at 1280 the squeezed headers take two lines (14 px taller), so row 33 sits within the scroll-near-the-end zone; row 32
+  // is still more than 5 rows from the end and outside it
+  let info = await walkTo(p, 32, 'mix', touch);
   ok(await rows(p) === 40, `${label}: at row ${info[0]} (more than 5 from the end) still 40 rows`);
   info = await walkTo(p, 36, 'mix', touch);
   const r36 = await rows(p);

@@ -160,8 +160,9 @@ async function phone(browser) {
 }
 
 async function desktop(browser) {
-  const L = '1280';
-  const p = await setup(browser, { viewport: { width: 1280, height: 800 } }, L);
+  // v9q: desktop checks at 1920 × 1080 (Jose's office monitor); narrower computer windows are covered by wide-v9q
+  const L = '1920';
+  const p = await setup(browser, { viewport: { width: 1920, height: 1080 } }, L);
   const g = await geo(p);
   ok(g.fs === '13px' && g.pos[0] === 'static' && g.pos[1] === 'static', `${L}: 13 px default, nothing pinned (${g.pos.join(', ')})`);
   ok(g.rowH >= 28 && g.rowH <= 32, `${L}: rows stay compact on a computer (${g.rowH}px)`);
@@ -190,7 +191,9 @@ async function desktop(browser) {
   await settings(p); await setSize(p, 6); await shot(p, 'textsize-large-settings-1280.png'); await today(p); await shot(p, 'textsize-large-1280.png'); const gL = await geo(p);
   // at the largest text the grid is wider than 1280 → it scrolls sideways as a whole, nothing pinned
   const sc2 = await p.evaluate(() => { const w = document.querySelector('#todayList .gwrap'); const over = w.scrollWidth - w.clientWidth; w.scrollLeft = over; const wl = w.getBoundingClientRect().left, nr = document.querySelector('#todayList tbody tr:nth-child(1) td.c-name').getBoundingClientRect(); return [over, w.scrollLeft, Math.round(nr.right - wl)]; });
-  ok(sc2[0] > 0 && sc2[1] > 0 && sc2[2] < 0, `${L}: at 20 px the grid scrolls sideways (${sc2[0]}px wider than the window); the Patient name scrolls away too (right edge ${sc2[2]}px)`);
+  // v9q: on a computer the columns are shared out to fit the window, so at 1920 even 20 px text usually fits; if it doesn't,
+  // the grid scrolls sideways as a whole with nothing pinned (v9i rule)
+  ok(sc2[0] <= 1 || (sc2[1] > 0 && sc2[2] < 0), `${L}: at 20 px the grid fits the window (${sc2[0]}px wider) or scrolls sideways as a whole (name right edge ${sc2[2]}px)`);
   await p.waitForTimeout(150); await shot(p, 'unpinned-hscroll-1280.png');
   await p.evaluate(() => { document.querySelector('#todayList .gwrap').scrollLeft = 0; });
   ok(gS.fs === '11px' && gL.fs === '20px' && gL.rowH > gS.rowH && gL.w.mrn > gS.w.mrn, `${L}: slider 11 → 20 px: rows ${gS.rowH} → ${gL.rowH}px, MRN ${Math.round(gS.w.mrn)} → ${Math.round(gL.w.mrn)}px`);
