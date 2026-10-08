@@ -73,8 +73,10 @@ async function exportFmt(p, fmt) {
 const inner = (zip, ext) => { const d = fs.mkdtempSync('/tmp/mbl9k-'); execFileSync('7z', ['x', '-y', '-p' + EXP_PASS, '-o' + d, zip]); const f = fs.readdirSync(d).find(x => x.endsWith('.' + ext)); return path.join(d, f); };
 
 async function desktop(browser) {
-  const L = '1280';
-  const p = await setup(browser, { viewport: { width: 1280, height: 860 } }, L, false);
+  // v9q: a computer window shares its width out so every column shows; the v9k "codes fit 15+ characters" layout is checked
+  // where the window has room for it (1920 × 1080, Jose's office monitor). 1280-1440 px: all columns visible, codes wrap (wide-v9q).
+  const L = '1920';
+  const p = await setup(browser, { viewport: { width: 1920, height: 1080 } }, L, false);
   // ---- column order and headers
   const h = await heads(p);
   ok(JSON.stringify(h.map(x => x[0])) === JSON.stringify(ORDER), `${L}: column order ${h.map(x => x[0]).join(' · ')}`);
@@ -125,8 +127,10 @@ async function desktop(browser) {
   ok(await p.inputValue(cell(1, 'mod1')) === M1 && await p.inputValue(cell(1, 'mod2')) === M2 && await p.inputValue(cell(2, 'mod1')) === 'CMGP' && await p.inputValue(cell(2, 'mod2')) === 'BMI, TELES', `${L}: modifiers still there after lock / unlock`);
   // ---- larger text: widths scale
   await settings(p); await setSize(p, 6); await today(p); const gL = await geo(p, 3);
-  ok(gL.w.mod1 > g.w.mod1 * 1.2 || gL.w.mod2 > 136 * 1.3, `${L}: Modifier columns grow with the text size (${g.fs} → ${gL.fs}: mod2 ${gL.w.mod2}px, room ${gL.room.mod2} ch)`);
-  ok(gL.room.mod2 >= 15 && gL.room.fee >= 15, `${L}: still 15+ characters at ${gL.fs} (fee ${gL.room.fee}, mod2 ${gL.room.mod2})`);
+  // v9q: the window is shared out so every column stays on screen; with 20 px text the code columns give width back and wrap,
+  // but a code is never split (room for the longest modifier, 7 characters with its comma)
+  ok(gL.room.mod2 >= 7.5 && gL.room.mod1 >= 7.5, `${L}: Modifier columns at 20 px still hold a whole code per line (${g.fs} → ${gL.fs}: mod2 ${gL.w.mod2}px, room ${gL.room.mod2} ch)`);
+  ok(gL.room.fee >= 8.5 && gL.room.mod2 >= 7.5 && !(await p.evaluate(() => [...document.querySelectorAll('#todayList tbody textarea.gc')].some(a => a.value && a.scrollWidth > a.clientWidth + 1))), `${L}: at ${gL.fs} codes wrap whole, none split (fee ${gL.room.fee}, mod2 ${gL.room.mod2} ch per line)`);
   await showCodes(p, 'fee'); await shot(p, 'modifiers-large-text-1280.png');
   await settings(p); await setSize(p, 2); await today(p);
   // ---- History shows the same columns
