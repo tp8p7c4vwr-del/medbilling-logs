@@ -20,6 +20,11 @@
   const CBT = { return: 'Return to hospital', phone: 'Phone call-back' };
   const facTxt = e => e.facility ? e.facility.n : '';
   const hmin = m => `${Math.floor(m / 60)} h ${R2(m % 60)} min`; function R2(n) { return String(n).padStart(2, '0'); }
+  // v9p: time totals in plain words: "17 min", "1 h", "8 h 52 min"; the Min column total "8 h 52"; CSV "8:52"; "1 unit" / "36 units"
+  const hmTxt = m => { m = Math.max(0, Math.round(m || 0)); if (m < 60) return `${m} min`; const h = Math.floor(m / 60), r = m % 60; return r ? `${h} h ${r} min` : `${h} h`; };
+  const hmCol = m => { m = Math.max(0, Math.round(m || 0)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${R2(m % 60)}`; };
+  const hmm = m => { m = Math.max(0, Math.round(m || 0)); return `${Math.floor(m / 60)}:${R2(m % 60)}`; };
+  const uTxt = u => `${u} unit${u === 1 ? '' : 's'}`;
   const lateMark = e => e.late ? '*' : '';
   const UNITS_NOTE = 'Units = full 15-minute blocks plus 1 if the remainder is 8 minutes or more (e.g. 38 min = 3 units). Confirm time-based billing rules in your own schedule (e.g. Alberta SOMB) before submitting claims.';
   const codesTxt = e => (e.codes || []).map(c => c.c).join('; ');
@@ -220,7 +225,13 @@
     if (ck) { if (splitCache.size > 4000) splitCache.clear(); splitCache.set(ck, out); }
     return out;
   }
-  const perTxt = (parts, short) => parts.map(p => `${short ? PBY[p.id].short : PBY[p.id].name} ${p.m} min/${p.u} u`).join('; ');
+  const PLAIN = { wd_night: 'Night', wd_day: 'Day', wd_eve: 'Evening', wd_late: 'Late evening', we_night: 'Weekend/holiday night', we_day: 'Weekend/holiday day', we_late: 'Weekend/holiday late evening' };
+  // plain period name; on a known single day, "Weekend …" or "Holiday …" instead of "Weekend/holiday …"
+  const perName = (id, day) => { const n = PLAIN[id] || (PBY[id] && PBY[id].name) || id; if (!day || !/^we_/.test(id)) return n; return n.replace('Weekend/holiday', holidayName(day) ? 'Holiday' : 'Weekend'); };
+  const perTxt = (parts, short, day) => parts.map(p => `${perName(p.id, day)} ${hmTxt(p.m)} · ${uTxt(p.u)}`).join('; ');
+  // the day / week totals as separate plain lines: setting totals, call-backs, on site, then each time period
+  const totLines = (t, day) => [t.H.n && `Hospital ${hmTxt(t.H.m)} · ${uTxt(t.H.u)}`, t.C.n && `Clinic ${hmTxt(t.C.m)} · ${uTxt(t.C.u)}`, t.cb.n && `Call-backs (${t.cb.n}) ${hmTxt(t.cb.m)} · ${uTxt(t.cb.u)}`, t.site && t.site.n && `On site ${hmTxt(t.site.m)}`]
+    .filter(Boolean).concat((t.perList || []).map(p => `${perName(p.id, day)} ${hmTxt(p.m)} · ${uTxt(p.u)}`));
   const perLegend = () => 'Time periods (per user; verify against the current SOMB; America/Edmonton time): ' + PERIODS.map(p => `${p.short} = ${p.name} ${pHours(p)}${p.regular ? ' (no premium units)' : ` (${p.units} units)`}`).join('; ') + '. Statutory holidays count as weekends.';
   function select(encs, from, to, kind) {
     return encs.filter(e => { const k = encDay(e); return k >= from && k <= to && (!kind || kindOf(e) === kind); }).sort((a, b) => startOf(a) - startOf(b));
@@ -236,7 +247,7 @@
     t.perList = PERIODS.map(p => t.per[p.id]).filter(Boolean);
     return t;
   }
-  const totTxt = t => `Hospital ${t.H.n} enc, ${t.H.m} min, ${t.H.u} units · Clinic ${t.C.n} enc, ${t.C.m} min, ${t.C.u} units` + (t.cb.n ? ` · Call-backs ${t.cb.n}, ${t.cb.m} min` : '') + (t.site.n ? ` · On site ${hmin(t.site.m)}` : '') + (t.perList && t.perList.length ? ` · Time periods: ${perTxt(t.perList)}` : '');
+  const totTxt = t => `Hospital ${t.H.n} encounter${t.H.n === 1 ? '' : 's'}, ${hmTxt(t.H.m)}, ${uTxt(t.H.u)} · Clinic ${t.C.n} encounter${t.C.n === 1 ? '' : 's'}, ${hmTxt(t.C.m)}, ${uTxt(t.C.u)}` + (t.cb.n ? ` · Call-backs ${t.cb.n}, ${hmTxt(t.cb.m)}, ${uTxt(t.cb.u)}` : '') + (t.site.n ? ` · On site ${hmin(t.site.m)}` : '') + (t.perList && t.perList.length ? ` · Time periods: ${perTxt(t.perList)}` : '');
   const byDay = list => { const m = new Map(); for (const e of list) { const k = encDay(e); if (!m.has(k)) m.set(k, []); m.get(k).push(e); } return m; };
   const title = (from, to) => from === to ? `Billing log ${from}` : `Billing log ${from} to ${to}`;
   const fname = (from, to, ext) => (from === to ? `billing-log-${from}` : `billing-log-${from}_to_${to}`) + '.' + ext;
@@ -261,14 +272,14 @@
   // one row per entry (CSV and the Excel "Entries" sheet share it)
   function table(encs, from, to, now, all, o) {
     o = o || {};
-    const head = ['date', 'kind', 'facility', 'zone', 'patient_name', 'mrn_phn', 'label', 'initials', 'chart', 'setting', 'type', 'callback_type', 'called', 'facility_number', 'facility_name', 'functional_centre', 'codes', 'modifier_1', 'modifier_1_units', 'modifier_2', 'modifier_2_units', 'diagnostic_code', 'billing_note', 'start', 'end', 'minutes', 'units', 'time_periods'].concat(PERIODS.flatMap(p => [p.id + '_min', p.id + '_units']), ['linked', 'same_patient', 'entered_later', 'last_edited']).concat(o.notes ? ['notes'] : []);
+    const head = ['date', 'kind', 'facility', 'zone', 'patient_name', 'mrn_phn', 'label', 'initials', 'chart', 'setting', 'type', 'callback_type', 'called', 'facility_number', 'facility_name', 'functional_centre', 'codes', 'modifier_1', 'modifier_1_units', 'modifier_2', 'modifier_2_units', 'diagnostic_code', 'billing_note', 'start', 'end', 'minutes', 'hours_minutes', 'units', 'time_periods'].concat(PERIODS.flatMap(p => [p.id + '_min', p.id + '_units']), ['linked', 'same_patient', 'entered_later', 'last_edited']).concat(o.notes ? ['notes'] : []);
     const rows = [], iso = ts => { if (ts == null) return ''; const d = new Date(ts); return `${dayKey(ts)} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
     const byId = new Map((all || encs).map(e => [e.id, e]));
     for (const e of select(encs, from, to)) {
       const m = minsOf(e, now), en = endOf(e), k = kindOf(e);
       const linked = (e.links || []).map(id => byId.get(id)).filter(Boolean).map(x => `${x.label} ${hm(startOf(x))}`).join('; ');
       const ps = periodSplit(e, now).parts, pv = PERIODS.flatMap(p => { const q = ps.find(x => x.id === p.id); return k === 'shift' ? ['', ''] : [q ? q.m : 0, q ? q.u : 0]; });
-      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', ptName(e) || ptWho(e), ptMrn(e), e.label, e.initials, e.chart || e.mrn || '', SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), facNoTxt(e), facNmTxt(e), fcenTxt(e), codesTxt(e), modTxt(e, 1), modUTxt(e, 1), modTxt(e, 2), modUTxt(e, 2), dxTxt(e), billingNoteOf(e), started(e) ? iso(startOf(e)) : '', iso(en), m, k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
+      rows.push([encDay(e), KIND[k], facTxt(e), e.facility ? e.facility.z : '', ptName(e) || ptWho(e), ptMrn(e), e.label, e.initials, e.chart || e.mrn || '', SET[e.setting], e.type, CBT[e.cbType] || '', iso(e.called), facNoTxt(e), facNmTxt(e), fcenTxt(e), codesTxt(e), modTxt(e, 1), modUTxt(e, 1), modTxt(e, 2), modUTxt(e, 2), dxTxt(e), billingNoteOf(e), started(e) ? iso(startOf(e)) : '', iso(en), m, hmm(m), k === 'shift' ? '' : units(m), perTxt(ps)].concat(pv, [linked, samePtTxt(e, all || encs), e.late ? 'yes' : 'no', e.edits && e.edits.length ? iso(e.edits[e.edits.length - 1]) : '']).concat(o.notes ? [notesTxt(e)] : []));
     }
     return { head, rows };
   }
@@ -407,13 +418,13 @@
   function xlsx(encs, from, to, o) {
     o = o || {}; const list = select(encs, from, to), now = o.now || Date.now();
     const t = table(encs, from, to, now, encs, o), num = v => (typeof v === 'number' || (/^\d+$/.test(String(v)) && String(v).length < 10)) ? Number(v) : v;
-    const daily = [['date', 'hospital_encounters', 'hospital_min', 'hospital_units', 'clinic_encounters', 'clinic_min', 'clinic_units', 'callbacks', 'callback_min', 'callback_units', 'on_site_min', 'time_periods']];
-    for (const [k, l] of byDay(list)) { const x = totals(l, now); daily.push([k, x.H.n, x.H.m, x.H.u, x.C.n, x.C.m, x.C.u, x.cb.n, x.cb.m, x.cb.u, x.site.m, perTxt(x.perList || [])]); }
-    const tt = totals(list, now); daily.push(['TOTAL', tt.H.n, tt.H.m, tt.H.u, tt.C.n, tt.C.m, tt.C.u, tt.cb.n, tt.cb.m, tt.cb.u, tt.site.m, perTxt(tt.perList || [])]);
+    const daily = [['date', 'hospital_encounters', 'hospital_min', 'hospital_units', 'clinic_encounters', 'clinic_min', 'clinic_units', 'callbacks', 'callback_min', 'callback_units', 'on_site_min', 'time_periods', 'total_hours_minutes']];
+    for (const [k, l] of byDay(list)) { const x = totals(l, now); daily.push([k, x.H.n, x.H.m, x.H.u, x.C.n, x.C.m, x.C.u, x.cb.n, x.cb.m, x.cb.u, x.site.m, perTxt(x.perList || [], false, k), hmm(x.H.m + x.C.m + x.cb.m)]); }
+    const tt = totals(list, now); daily.push(['TOTAL', tt.H.n, tt.H.m, tt.H.u, tt.C.n, tt.C.m, tt.C.u, tt.cb.n, tt.cb.m, tt.cb.u, tt.site.m, perTxt(tt.perList || []), hmm(tt.H.m + tt.C.m + tt.cb.m)]);
     const about = [['MedBilling Logs'], [title(from, to)], [`Generated ${new Date(now).toLocaleString()}`], [CONF], [o.notes ? 'Notes are included (column "notes" on the Entries sheet).' : NOTES_OFF], [UNITS_NOTE], [perLegend()]].concat((o.credits || []).map(c => [c]));
     const bytes = global.XlsxLite.build({ title: title(from, to), sheets: [
       { name: 'Entries', rows: [t.head].concat(t.rows.map(r => r.map(num))), widths: t.head.map(h => h === 'notes' ? 60 : h === 'codes' || h === 'facility_name' || h === 'modifier_1' || h === 'modifier_2' || h === 'modifier_1_units' || h === 'modifier_2_units' || h === 'facility' || h === 'time_periods' || h === 'linked' || h === 'same_patient' ? 28 : 12) },
-      { name: 'Daily totals', rows: daily, widths: [12, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 40] },
+      { name: 'Daily totals', rows: daily, widths: [12, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 40, 12] },
       { name: 'About', rows: about, widths: [120], header: false, wrap: true }] });
     return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }
@@ -486,5 +497,5 @@
     return t;
   }
   const RET_RULE = 'Retention: 10 years from the last entry; minors: the longer of 10 years or 2 years after age 18 (CPSA); obstetric: 10 years after the infant reaches majority (CMPA). Nothing is removed without your confirmation.';
-  global.BLR = { md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, holidayKind, setHolidays, PREM, PREM_SRC, premCode, premDayCodes, premCounts, premUnits, premBucket, muSuggest, MU_CODES, isMu, muOf, muCodes, modUTxt, modFull, muMin, muFrom, p2, dxList, dxExtra, dxShort, dxTxt, codesTxt, normMods, modTxt, modsTxt, FCEN, FCEN_MORE, FCEN_ALL, fcenName, normFcen, facNoTxt, facNmTxt, facNoFull, fcenTxt, fcenFull, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, hmEdm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
+  global.BLR = { hmTxt, hmCol, hmm, uTxt, perName, totLines, md, xlsx, table, notesOf, noteStamp, notesTxt, ptName, ptMrn, billingNoteOf, ptWho, samePt, samePtTxt, PERIOD_CFG, PERIODS, PBY, pHours, edm, periodAt, periodSplit, perTxt, perLegend, holidaysOf, holidayName, holidayKind, setHolidays, PREM, PREM_SRC, premCode, premDayCodes, premCounts, premUnits, premBucket, muSuggest, MU_CODES, isMu, muOf, muCodes, modUTxt, modFull, muMin, muFrom, p2, dxList, dxExtra, dxShort, dxTxt, codesTxt, normMods, modTxt, modsTxt, FCEN, FCEN_MORE, FCEN_ALL, fcenName, normFcen, facNoTxt, facNmTxt, facNoFull, fcenTxt, fcenFull, retainUntil, RET_RULE, addY, kindOf, KIND, CBT, ACT, diff, summ, auditCsv, auditPdf, hmin, tsTxt, pad, dayKey, hm, hmEdm, msOf, minsOf, units, startOf, endOf, encDay, SET, UNITS_NOTE, fmtDay, select, totals, byDay, title, fname, csv, docx, pdf, csvCell };
 })(window);

@@ -1,4 +1,4 @@
-/* MedBilling Logs - easy unlock (v9e). Optional; the passcode/passphrase always works and stays the root secret.
+/* MedBilling Logs - easy unlock (v9e; default from v9p). The passcode/passphrase always works and stays the root secret.
    - Web / PWA: a passkey with the WebAuthn PRF extension (Safari 18+, Chrome/Edge 116+ with a PRF-capable authenticator).
      The PRF output -> HKDF-SHA-256 -> AES-GCM key that wraps the vault key. Hidden where PRF is unsupported.
    - iOS / Android app: Face ID / Touch ID / fingerprint via @capgo/capacitor-native-biometric: a random wrap key lives in
@@ -31,7 +31,7 @@
   let capCache = null;
   async function caps() {
     if (capCache) return capCache;
-    const out = { native: NATIVE, passkey: false, bio: false, bioName: '', pin: false };
+    const out = { native: NATIVE, passkey: false, platform: false, bio: false, bioName: '', pin: false };
     if (NATIVE) {
       const nb = NB();
       if (nb) {
@@ -46,6 +46,8 @@
         else if (c['extension:prf'] === false) out.passkey = false;
         else out.passkey = typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function' && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(() => false);
       } catch (e) { out.passkey = false; }
+      // v9p: a built-in authenticator (Touch ID / Face ID / Windows Hello) is what makes a passkey the default unlock on the web
+      try { out.platform = out.passkey && typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function' && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(() => false); } catch (e) { out.platform = false; }
     }
     return (capCache = out);
   }
