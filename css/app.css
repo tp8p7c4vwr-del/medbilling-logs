@@ -877,3 +877,22 @@ table.grid tfoot td[data-tm]{white-space:nowrap}
 @media (max-width:600px){.pbnx{display:none}}
 table.grid tfoot tr.gts>td{overflow:visible}
 @media (max-width:600px){table.grid tfoot .tsumi{flex-direction:column}}
+/* v9q: full-width on computers (mouse + window ≥ 1024 px): app bar, time strip, tabs, toolbar and the spreadsheet span the
+   window with 14 px side padding; prose (manual, notes, units note) keeps a readable line length. iPhone / iPad unchanged. */
+@media (min-width:1024px) and (hover:hover) and (pointer:fine){
+  main{max-width:none;padding:10px 14px 0}
+  .top,.pbar,.tabs{padding-left:14px;padding-right:14px}
+  .foot{max-width:none;padding-left:14px;padding-right:14px}
+  .foot>p,.foot .units-note{max-width:900px;margin-left:auto;margin-right:auto}
+  #tab-data>.card p,#tab-res>.card p,#tab-res>p,#tab-data>p,#tab-history>p{max-width:900px}
+  /* Resources: a few long cards → a grid uses the width (CSS columns left the right half empty) */
+  #tab-res{columns:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:0 14px;align-items:start}
+  #tab-res>p{grid-column:1/-1}
+}
+@media (min-width:1700px) and (hover:hover) and (pointer:fine){
+  #tab-data{columns:4}
+}
+/* v9q: when the columns are squeezed to fit the window, headers may take two lines ("Modifier / code 1") */
+table.grid.fitw thead th{white-space:normal;line-height:1.15;overflow-wrap:normal;word-break:normal;padding-top:2px;padding-bottom:2px}
+/* v9q: squeezed Facility # / Functional centre → code only (full name in the tooltip and the list) */
+table.grid.nar-fno td.c-fno .gc.fpv .fpn,table.grid.nar-fcen td.c-fcen .gc.fpv .fpn{display:none}
